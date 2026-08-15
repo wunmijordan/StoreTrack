@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% load core_extras %}
+{% block content %}
+<div class="flex flex-wrap items-end justify-between gap-3 mb-4">
+  <div>
+    <h2 class="text-xl font-semibold font-display text-[#1E4536]">Sales</h2>
+    <p class="text-sm text-stone-500 mt-0.5">All-time revenue: {{ total_revenue|default:0|money:biz.currency_symbol }}</p>
+  </div>
+  <div class="flex gap-2">
+    <a href="{% url 'export_sales_csv' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#1E4536] hover:bg-[#E7DFCC] border border-[#D9CFB4]">Export CSV</a>
+    <a href="{% url 'sale_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">+ New sale</a>
+  </div>
+</div>
+
+{% if not sales %}
+  <div class="text-center py-10 text-sm text-stone-400 italic">No sales recorded yet.</div>
+{% else %}
+<div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm overflow-x-auto">
+  <table class="w-full text-sm">
+    <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
+      <th class="text-left px-3 py-2">Date</th><th class="text-left px-3 py-2">Customer</th><th class="text-left px-3 py-2">Items</th><th class="text-right px-3 py-2">Total</th><th class="text-left px-3 py-2">Payment</th><th class="w-16"></th>
+    </tr></thead>
+    <tbody>
+      {% for s in sales %}
+      <tr class="border-t border-[#E7DFCC]">
+        <td class="px-3 py-2 font-mono text-xs">{{ s.date }}</td>
+        <td class="px-3 py-2">{{ s.customer|default:"Walk-in" }}</td>
+        <td class="px-3 py-2 text-xs text-stone-500">{% for i in s.items.all %}{{ i.finished_good.name }} x{{ i.qty|floatformat:0 }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
+        <td class="px-3 py-2 text-right font-mono">{{ s.total|money:biz.currency_symbol }}</td>
+        <td class="px-3 py-2 text-xs">{{ s.payment_method }}</td>
+        <td class="px-3 py-2 text-right">
+          <form action="{% url 'sale_delete' s.pk %}" method="post" class="inline" onsubmit="return confirm('Delete this sale?');">{% csrf_token %}<button class="text-stone-400 hover:text-rose-600">Delete</button></form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

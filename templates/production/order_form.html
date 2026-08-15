@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="text-xl font-semibold font-display text-[#1E4536] mb-4">{% if obj %}Edit production order{% else %}New production order{% endif %}</h2>
+<div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-5 max-w-lg">
+  <form method="post" id="order-form">
+    {% csrf_token %}
+    <div class="flex gap-2 mb-3">
+      <label class="flex-1">
+        <input type="radio" name="order_type" value="internal" class="hidden peer" {% if form.order_type.value == 'internal' or not form.order_type.value %}checked{% endif %} onchange="toggleOrderType()">
+        <span class="block text-center px-3 py-2 rounded-md text-sm border cursor-pointer peer-checked:bg-[#1E4536] peer-checked:text-white peer-checked:border-[#1E4536] bg-white border-[#D9CFB4] text-stone-600" id="internal-label">Internal (store request)</span>
+      </label>
+      <label class="flex-1">
+        <input type="radio" name="order_type" value="customer" class="hidden peer" {% if form.order_type.value == 'customer' %}checked{% endif %} onchange="toggleOrderType()">
+        <span class="block text-center px-3 py-2 rounded-md text-sm border cursor-pointer peer-checked:bg-[#1E4536] peer-checked:text-white peer-checked:border-[#1E4536] bg-white border-[#D9CFB4] text-stone-600" id="customer-label">Customer order</span>
+      </label>
+    </div>
+
+    {% include "_field.html" with field=form.date %}
+
+    <div id="internal-field">{% include "_field.html" with field=form.linked_request %}</div>
+    <div id="customer-field">{% include "_field.html" with field=form.customer_name %}</div>
+
+    {% include "_field.html" with field=form.finished_good %}
+    {% include "_field.html" with field=form.qty %}
+    {% include "_field.html" with field=form.notes %}
+
+    <div class="flex justify-end gap-2 mt-2">
+      <a href="{% url 'orders_list' %}" class="px-3.5 py-2 text-sm rounded-md text-stone-500 hover:bg-stone-100">Cancel</a>
+      <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">Save</button>
+    </div>
+  </form>
+</div>
+<script>
+  function toggleOrderType() {
+    const type = document.querySelector('input[name="order_type"]:checked').value;
+    document.getElementById('internal-field').style.display = type === 'internal' ? 'block' : 'none';
+    document.getElementById('customer-field').style.display = type === 'customer' ? 'block' : 'none';
+  }
+  toggleOrderType();
+</script>
+{% endblock %}

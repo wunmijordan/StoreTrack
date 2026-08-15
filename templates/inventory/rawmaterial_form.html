@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="text-xl font-semibold font-display text-[#1E4536] mb-4">{% if obj %}Edit raw material{% else %}Add raw material{% endif %}</h2>
+<div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-5 max-w-lg">
+  <form method="post">
+    {% csrf_token %}
+    {% include "_field.html" with field=form.name %}
+    <div class="grid grid-cols-2 gap-3">
+      {% include "_field.html" with field=form.unit %}
+      {% include "_field.html" with field=form.cost_per_unit %}
+      {% include "_field.html" with field=form.stock %}
+      {% include "_field.html" with field=form.reorder_level %}
+    </div>
+    <div class="flex justify-end gap-2 mt-2">
+      <a href="{% url 'inventory' %}" class="px-3.5 py-2 text-sm rounded-md text-stone-500 hover:bg-stone-100">Cancel</a>
+      <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">Save</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

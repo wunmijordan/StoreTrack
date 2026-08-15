@@ -1,0 +1,6 @@
+<label class="block mb-3">
+  <span class="block text-xs font-medium text-stone-600 mb-1">{{ field.label }}</span>
+  {{ field }}
+  {% if field.help_text %}<span class="block text-[11px] text-stone-400 mt-0.5">{{ field.help_text }}</span>{% endif %}
+  {% for error in field.errors %}<span class="block text-[11px] text-rose-600 mt-0.5">{{ error }}</span>{% endfor %}
+</label>

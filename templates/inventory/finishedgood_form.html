@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="text-xl font-semibold font-display text-[#1E4536] mb-4">{% if obj %}Edit product{% else %}Add product{% endif %}</h2>
+<div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-5 max-w-2xl">
+  <form method="post">
+    {% csrf_token %}
+    {% include "_field.html" with field=form.name %}
+    <div class="grid grid-cols-3 gap-3">
+      {% include "_field.html" with field=form.unit %}
+      {% include "_field.html" with field=form.selling_price %}
+      {% include "_field.html" with field=form.reorder_level %}
+    </div>
+    {% include "_field.html" with field=form.stock %}
+
+    <span class="block text-xs font-medium text-stone-600 mb-1 mt-2">Recipe (raw materials used per 1 unit)</span>
+    {{ formset.management_form }}
+    <div class="border border-[#E7DFCC] rounded-md overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
+          <th class="text-left px-2 py-1.5">Raw material</th><th class="text-right px-2 py-1.5 w-28">Qty / unit</th><th class="w-16"></th>
+        </tr></thead>
+        <tbody id="recipe-rows">
+          {% for f in formset %}
+          <tr {% if forloop.first %}data-formset-row{% endif %} class="border-t border-[#E7DFCC]">
+            <td class="px-2 py-1.5">{{ f.id }}{{ f.raw_material }}</td>
+            <td class="px-2 py-1.5">{{ f.qty_per_unit }}</td>
+            <td class="px-2 py-1.5 text-center text-xs text-rose-600">{% if f.instance.pk %}<label>{{ f.DELETE }} remove</label>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <button type="button" onclick="addFormsetRow('recipe_items','recipe-rows')" class="w-full text-xs text-[#1E4536] font-medium py-2 hover:bg-[#F0EAD9]">+ Add ingredient</button>
+    </div>
+
+    <div class="flex justify-end gap-2 mt-4">
+      <a href="{% url 'inventory' %}" class="px-3.5 py-2 text-sm rounded-md text-stone-500 hover:bg-stone-100">Cancel</a>
+      <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">Save</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

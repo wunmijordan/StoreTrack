@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% load core_extras %}
+{% block content %}
+
+<div class="flex flex-wrap items-end justify-between gap-3 mb-4">
+  <div>
+    <h2 class="text-xl font-semibold font-display text-[#1E4536]">Raw materials</h2>
+    <p class="text-sm text-stone-500 mt-0.5">Ingredients & supplies used in production</p>
+  </div>
+  <a href="{% url 'raw_material_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">+ Add material</a>
+</div>
+
+{% if not raw_materials %}
+  <div class="text-center py-10 text-sm text-stone-400 italic">No raw materials yet. Add flour, sugar, packaging — whatever you procure.</div>
+{% else %}
+<div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm overflow-x-auto mb-8">
+  <table class="w-full text-sm">
+    <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
+      <th class="text-left px-3 py-2">Name</th><th class="text-right px-3 py-2">Stock</th><th class="text-right px-3 py-2">Reorder at</th><th class="text-right px-3 py-2">Cost/unit</th><th class="w-24"></th>
+    </tr></thead>
+    <tbody>
+      {% for m in raw_materials %}
+      <tr class="border-t border-[#E7DFCC] {% if m.is_low %}bg-rose-50/40{% endif %}">
+        <td class="px-3 py-2 font-medium">{{ m.name }}</td>
+        <td class="px-3 py-2 text-right font-mono">{{ m.stock|num }} <span class="text-stone-400 text-xs">{{ m.unit }}</span></td>
+        <td class="px-3 py-2 text-right font-mono text-stone-500">{{ m.reorder_level|num }}</td>
+        <td class="px-3 py-2 text-right font-mono">{{ m.cost_per_unit|money:biz.currency_symbol }}</td>
+        <td class="px-3 py-2 text-right">
+          <a href="{% url 'raw_material_edit' m.pk %}" class="text-stone-400 hover:text-[#1E4536] mr-2">Edit</a>
+          <form action="{% url 'raw_material_delete' m.pk %}" method="post" class="inline" onsubmit="return confirm('Remove {{ m.name }}?');">{% csrf_token %}<button class="text-stone-400 hover:text-rose-600">Delete</button></form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="flex flex-wrap items-end justify-between gap-3 mb-4">
+  <div>
+    <h2 class="text-xl font-semibold font-display text-[#1E4536]">Products (finished goods)</h2>
+    <p class="text-sm text-stone-500 mt-0.5">Items you sell, with their recipe</p>
+  </div>
+  <a href="{% url 'finished_good_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">+ Add product</a>
+</div>
+
+{% if not finished_goods %}
+  <div class="text-center py-10 text-sm text-stone-400 italic">No products yet. Add what you bake or cook to sell.</div>
+{% else %}
+<div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm overflow-x-auto">
+  <table class="w-full text-sm">
+    <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
+      <th class="text-left px-3 py-2">Name</th><th class="text-right px-3 py-2">Stock</th><th class="text-right px-3 py-2">Reorder at</th><th class="text-right px-3 py-2">Price</th><th class="text-left px-3 py-2">Recipe</th><th class="w-24"></th>
+    </tr></thead>
+    <tbody>
+      {% for g in finished_goods %}
+      <tr class="border-t border-[#E7DFCC] {% if g.is_low %}bg-rose-50/40{% endif %}">
+        <td class="px-3 py-2 font-medium">{{ g.name }}</td>
+        <td class="px-3 py-2 text-right font-mono">{{ g.stock|num }} <span class="text-stone-400 text-xs">{{ g.unit }}</span></td>
+        <td class="px-3 py-2 text-right font-mono text-stone-500">{{ g.reorder_level|num }}</td>
+        <td class="px-3 py-2 text-right font-mono">{{ g.selling_price|money:biz.currency_symbol }}</td>
+        <td class="px-3 py-2 text-xs text-stone-500">{{ g.recipe_items.count }} ingredient{{ g.recipe_items.count|pluralize }}</td>
+        <td class="px-3 py-2 text-right">
+          <a href="{% url 'finished_good_edit' g.pk %}" class="text-stone-400 hover:text-[#1E4536] mr-2">Edit</a>
+          <form action="{% url 'finished_good_delete' g.pk %}" method="post" class="inline" onsubmit="return confirm('Remove {{ g.name }}?');">{% csrf_token %}<button class="text-stone-400 hover:text-rose-600">Delete</button></form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

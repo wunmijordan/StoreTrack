@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% load core_extras %}
+{% block content %}
+<h1 class="text-2xl font-semibold font-display text-[#1E4536]">{{ biz.name }}</h1>
+<p class="text-sm text-stone-500 mt-0.5 mb-6">{% now "l, j F Y" %}</p>
+
+<div class="flex flex-wrap gap-3 mb-6">
+  <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-4 flex-1 min-w-[140px]">
+    <div class="text-[11px] uppercase tracking-wider text-stone-500 font-medium">Raw materials</div>
+    <div class="text-2xl font-semibold mt-1 font-mono text-[#1E4536]">{{ raw_count }}</div>
+  </div>
+  <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-4 flex-1 min-w-[140px]">
+    <div class="text-[11px] uppercase tracking-wider text-stone-500 font-medium">Products</div>
+    <div class="text-2xl font-semibold mt-1 font-mono text-[#1E4536]">{{ goods_count }}</div>
+  </div>
+  <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-4 flex-1 min-w-[140px]">
+    <div class="text-[11px] uppercase tracking-wider text-stone-500 font-medium">Today's sales</div>
+    <div class="text-2xl font-semibold mt-1 font-mono text-emerald-700">{{ today_revenue|money:biz.currency_symbol }}</div>
+    <div class="text-xs text-stone-400 mt-0.5">{{ today_sales_count }} transaction{{ today_sales_count|pluralize }}</div>
+  </div>
+  <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-4 flex-1 min-w-[140px]">
+    <div class="text-[11px] uppercase tracking-wider text-stone-500 font-medium">Pending requests</div>
+    <div class="text-2xl font-semibold mt-1 font-mono {% if pending_requests|length %}text-rose-700{% else %}text-[#1E4536]{% endif %}">{{ pending_requests|length }}</div>
+  </div>
+  <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-4 flex-1 min-w-[140px]">
+    <div class="text-[11px] uppercase tracking-wider text-stone-500 font-medium">Planned production</div>
+    <div class="text-2xl font-semibold mt-1 font-mono text-[#1E4536]">{{ planned_orders|length }}</div>
+  </div>
+</div>
+
+<div class="mb-2 flex items-center gap-2">
+  <span class="text-[#B4472E]">⚠</span>
+  <h3 class="font-semibold text-sm">Low stock rail</h3>
+  <span class="text-xs text-stone-400">— at or below reorder level</span>
+</div>
+{% if not low_raw and not low_goods %}
+  <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg p-4 text-sm text-stone-400 italic mb-2">Nothing running low right now.</div>
+{% else %}
+  <div class="flex gap-3 overflow-x-auto pb-2">
+    {% for m in low_raw %}
+    <div class="shrink-0 w-44 bg-[#FFFDF8] border-l-4 border-dashed border-[#B4472E] border-t border-r border-b border-[#E7DFCC] rounded-md p-3 shadow-sm">
+      <div class="text-[10px] uppercase tracking-wide text-stone-400">Raw material</div>
+      <div class="font-medium text-sm truncate">{{ m.name }}</div>
+      <div class="font-mono text-lg text-[#B4472E] mt-1">{{ m.stock|num }} <span class="text-xs text-stone-400">{{ m.unit }}</span></div>
+      <div class="text-[11px] text-stone-400">reorder at {{ m.reorder_level|num }}</div>
+    </div>
+    {% endfor %}
+    {% for g in low_goods %}
+    <div class="shrink-0 w-44 bg-[#FFFDF8] border-l-4 border-dashed border-[#B4472E] border-t border-r border-b border-[#E7DFCC] rounded-md p-3 shadow-sm">
+      <div class="text-[10px] uppercase tracking-wide text-stone-400">Product</div>
+      <div class="font-medium text-sm truncate">{{ g.name }}</div>
+      <div class="font-mono text-lg text-[#B4472E] mt-1">{{ g.stock|num }} <span class="text-xs text-stone-400">{{ g.unit }}</span></div>
+      <div class="text-[11px] text-stone-400">reorder at {{ g.reorder_level|num }}</div>
+    </div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+<div class="grid sm:grid-cols-3 gap-3 mt-6">
+  <a href="{% url 'po_add' %}" class="p-4 rounded-lg bg-[#1E4536] text-white hover:bg-[#16332A]">
+    <div class="font-medium text-sm">Log a purchase</div><div class="text-xs text-[#D8E3DB]">Record incoming stock from a supplier</div>
+  </a>
+  <a href="{% url 'order_add' %}" class="p-4 rounded-lg bg-[#1E4536] text-white hover:bg-[#16332A]">
+    <div class="font-medium text-sm">Start production</div><div class="text-xs text-[#D8E3DB]">Fulfil a store request or a customer order</div>
+  </a>
+  <a href="{% url 'sale_add' %}" class="p-4 rounded-lg bg-[#1E4536] text-white hover:bg-[#16332A]">
+    <div class="font-medium text-sm">Record a sale</div><div class="text-xs text-[#D8E3DB]">Log a transaction and update stock</div>
+  </a>
+</div>
+{% endblock %}

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="text-xl font-semibold font-display text-[#1E4536] mb-4">Complete production order</h2>
+<div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-5 max-w-lg">
+  <p class="text-sm mb-3">Produce <strong>{{ order.qty }} x {{ order.finished_good.name }}</strong></p>
+  <div class="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-md p-3 mb-4 flex items-start gap-2">
+    <span>⚠</span>
+    <div>
+      <div class="font-medium mb-1">Not enough raw material in stock:</div>
+      <ul class="list-disc list-inside">
+        {% for s in shortages %}
+        <li>{{ s.name }} — short by {{ s.short }}</li>
+        {% endfor %}
+      </ul>
+      <p class="mt-2">Completing anyway will still deduct what's needed and may take stock negative.</p>
+    </div>
+  </div>
+  <form method="post" action="{% url 'order_complete' order.pk %}" class="flex gap-2">
+    {% csrf_token %}
+    <input type="hidden" name="force" value="1">
+    <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">Complete anyway</button>
+    <a href="{% url 'orders_list' %}" class="px-3.5 py-2 text-sm rounded-md text-stone-500 hover:bg-stone-100">Back</a>
+  </form>
+</div>
+{% endblock %}

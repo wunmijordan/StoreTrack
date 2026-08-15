@@ -1,0 +1,84 @@
+{% load core_extras %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ biz.name|default:"Kitchen Ledger" }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+    body { font-family: 'Inter', sans-serif; background:#FAF6EF; color:#211D1A; }
+    .font-display { font-family: 'Fraunces', serif; }
+    .font-mono { font-family: 'IBM Plex Mono', monospace; }
+    table { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body class="min-h-screen flex">
+
+  {% if user.is_authenticated %}
+  <aside class="hidden md:flex w-56 shrink-0 flex-col bg-[#1E4536] text-[#FAF6EF] min-h-screen">
+    <div class="px-5 py-5 border-b border-white/10">
+      <div class="text-[10px] tracking-[0.2em] uppercase text-[#C69A3E]">Kitchen Ledger</div>
+      <div class="font-semibold mt-1 font-display">{{ biz.name }}</div>
+    </div>
+    <nav class="flex-1 py-3 text-sm">
+      {% include "_nav_links.html" with row_class="block px-5 py-2.5" %}
+    </nav>
+    <form action="{% url 'logout' %}" method="post" class="px-5 py-3 border-t border-white/10">
+      {% csrf_token %}
+      <button class="text-[11px] text-[#9DB5A6] hover:text-white">Log out ({{ user.username }})</button>
+    </form>
+  </aside>
+
+  <div class="md:hidden fixed top-0 inset-x-0 z-40 bg-[#1E4536] text-[#FAF6EF]">
+    <div class="flex items-center justify-between px-4 py-3">
+      <div class="font-semibold font-display">{{ biz.name }}</div>
+      <label for="mobile-nav-toggle" class="cursor-pointer">☰</label>
+    </div>
+    <input type="checkbox" id="mobile-nav-toggle" class="hidden peer">
+    <nav class="hidden peer-checked:block bg-[#1E4536] text-sm">
+      {% include "_nav_links.html" with row_class="block px-5 py-3 border-t border-white/10" %}
+      <form action="{% url 'logout' %}" method="post" class="px-5 py-3 border-t border-white/10">
+        {% csrf_token %}
+        <button class="text-[11px] text-[#9DB5A6]">Log out ({{ user.username }})</button>
+      </form>
+    </nav>
+  </div>
+  {% endif %}
+
+  <main class="flex-1 min-w-0 p-4 md:p-8 {% if user.is_authenticated %}mt-14 md:mt-0{% endif %}">
+    {% if messages %}
+      <div class="mb-4 space-y-2">
+        {% for message in messages %}
+          <div class="text-sm px-3.5 py-2 rounded-md border {% if message.tags == 'error' %}bg-rose-50 text-rose-700 border-rose-200{% else %}bg-emerald-50 text-emerald-800 border-emerald-200{% endif %}">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+
+  <script>
+    // Generic "add another row" for Django inline formsets.
+    function addFormsetRow(prefix, containerId) {
+      const totalForms = document.getElementById(`id_${prefix}-TOTAL_FORMS`);
+      const formCount = parseInt(totalForms.value, 10);
+      const container = document.getElementById(containerId);
+      const template = container.querySelector('[data-formset-row]');
+      const newRow = template.cloneNode(true);
+      newRow.querySelectorAll('input, select').forEach((el) => {
+        ['name', 'id'].forEach((attr) => {
+          if (el.getAttribute(attr)) {
+            el.setAttribute(attr, el.getAttribute(attr).replace(/-\d+-/, `-${formCount}-`));
+          }
+        });
+        if (el.type === 'checkbox') { el.checked = false; }
+        else if (el.tagName !== 'SELECT') { el.value = ''; }
+        else { el.selectedIndex = 0; }
+      });
+      container.appendChild(newRow);
+      totalForms.value = formCount + 1;
+    }
+  </script>
+</body>
+</html>
