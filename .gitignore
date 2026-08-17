@@ -4,5 +4,6 @@ __pycache__/
 *.pyc
 db.sqlite3
 .env
+.env.prod
 staticfiles/
 .vscode/

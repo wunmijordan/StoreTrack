@@ -28,17 +28,18 @@ sys.path.insert(0, str(BASE_DIR / "apps"))
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-# Set the DJANGO_SECRET_KEY environment variable when you deploy this for real.
+# Environment variable loaded dynamically via WSGI or local .env setup
 SECRET_KEY = os.environ.get(
-    "DJANGO_SECRET_KEY",
+    "SECRET_KEY",
     "django-insecure-2em27qpg%ghma2nfqc3e59d*m@!@m76ef_ms7c(o3e1u0th14*",
 )
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get("DJANGO_DEBUG", "True") == "True"
+DEBUG = os.environ.get("DEBUG", "True") == "True"
 
-_hosts = os.environ.get("DJANGO_ALLOWED_HOSTS", "")
-ALLOWED_HOSTS = [h.strip() for h in _hosts.split(",") if h.strip()] or ["*"]
+# Configure allowed domains safely. Fallback to localhost if nothing is provided.
+_hosts = os.environ.get("ALLOWED_HOSTS", "")
+ALLOWED_HOSTS = [h.strip() for h in _hosts.split(",") if h.strip()] or ["127.0.0.1", "localhost", "*"]
 
 
 # Application definition
@@ -92,11 +93,26 @@ WSGI_APPLICATION = 'storetrack.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
+# Read the URL string from the environment variable (e.g. from your .env or .env.prod file)
+db_url = os.environ.get('DATABASE_URL', '')
+
+if db_url.startswith('sqlite:////'):
+    # Production absolute path parsing (Handles 4 slashes)
+    db_path = Path(db_url.replace('sqlite:////', '/'))
+elif db_url.startswith('sqlite:///'):
+    # Local relative path configuration (Handles 3 slashes)
+    db_path = BASE_DIR / db_url.replace('sqlite:///','')
+else:
+    # Standard fallback path if no environment variable is found
+    db_path = BASE_DIR / 'db.sqlite3'
 
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': db_path,
+        'OPTIONS': {
+            'timeout': 20,  # CRITICAL: Forces SQLite to wait up to 20s if files are locked by multiple staff members
+        }
     }
 }
 
@@ -136,6 +152,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'  # Required for running 'collectstatic' on PythonAnywhere
 
 # Auth
 LOGIN_URL = 'login'
