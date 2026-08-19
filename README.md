@@ -67,15 +67,15 @@ python manage.py createsuperuser
 python manage.py runserver
 ```
 
-Open http://127.0.0.1:8000 and log in.
+Open http://127.0.0.1:8001 and log in.
 
 ### WiFi-only access for staff, right now
 
 ```bash
-python manage.py runserver 0.0.0.0:8000
+python manage.py runserver 0.0.0.0:8001
 ```
 
-Then on their phone/tablet: `http://<your-computer's-local-IP>:8000`. Only
+Then on their phone/tablet: `http://<your-computer's-local-IP>:8001`. Only
 works while your machine is on and everyone's on the same network — see
 "Deploying" below for anywhere-access.
 
