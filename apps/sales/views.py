@@ -27,31 +27,40 @@ def sale_form(request):
         form = SaleForm(request.POST)
         formset = SaleItemFormSet(request.POST, instance=Sale())
         if form.is_valid() and formset.is_valid():
+            order_type = form.cleaned_data["order_type"]
             force = request.POST.get("force") == "1"
-            shortages = []
-            for f in formset.forms:
-                if not f.cleaned_data or f.cleaned_data.get("DELETE"):
-                    continue
-                good = f.cleaned_data["finished_good"]
-                qty = f.cleaned_data["qty"]
-                if qty > good.stock:
-                    shortages.append({"name": good.name, "needed": qty, "have": good.stock, "short": qty - good.stock})
-            if shortages and not force:
-                return render(request, "sales/sale_form.html", {"form": form, "formset": formset, "shortages": shortages})
+            if order_type == "walkin":
+                shortages = []
+                for f in formset.forms:
+                    if not f.cleaned_data or f.cleaned_data.get("DELETE"):
+                        continue
+                    good = f.cleaned_data["finished_good"]
+                    qty = f.cleaned_data["qty"]
+                    if qty > good.stock:
+                        shortages.append({"name": good.name, "needed": qty, "have": good.stock, "short": qty - good.stock})
+                if shortages and not force:
+                    return render(request, "sales/sale_form.html", {"form": form, "formset": formset, "shortages": shortages})
             with transaction.atomic():
                 sale = form.save(commit=False)
                 sale.business = request.business
+                sale.created_by = request.user
+                sale.status = "fulfilled" if order_type == "walkin" else "pending"
                 sale.save()
                 formset.instance = sale
                 formset.save()
-                for item in sale.items.select_related("finished_good"):
-                    good = item.finished_good
-                    good.stock = good.stock - item.qty
-                    good.save()
-            messages.success(request, "Sale recorded.")
+                if order_type == "walkin":
+                    for item in sale.items.select_related("finished_good"):
+                        good = item.finished_good
+                        good.stock = good.stock - item.qty
+                        good.save()
+            if order_type == "walkin":
+                messages.success(request, "Sale recorded.")
+            else:
+                messages.success(request, "Customer order recorded as pending — link each item from a "
+                                           "Production Request when you're ready to start making it.")
             return redirect("sales_list")
     else:
-        form = SaleForm(initial={"date": today(), "customer": "Walk-in"})
+        form = SaleForm(initial={"date": today(), "customer": "Walk-in", "order_type": "walkin"})
         formset = SaleItemFormSet(instance=Sale())
     return render(request, "sales/sale_form.html", {"form": form, "formset": formset})
 

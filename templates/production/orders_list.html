@@ -17,7 +17,7 @@
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm overflow-x-auto">
   <table class="w-full text-sm">
     <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
-      <th class="text-left px-3 py-2">Date</th><th class="text-left px-3 py-2">Type</th><th class="text-left px-3 py-2">Product</th><th class="text-right px-3 py-2">Qty</th><th class="text-left px-3 py-2">Status</th><th class="w-40"></th>
+      <th class="text-left px-3 py-2">Date</th><th class="text-left px-3 py-2">Type</th><th class="text-left px-3 py-2">Product</th><th class="text-right px-3 py-2">Qty</th><th class="text-left px-3 py-2">Status</th><th class="text-left px-3 py-2">Logged by</th><th class="w-40"></th>
     </tr></thead>
     <tbody>
       {% for o in orders %}
@@ -25,13 +25,19 @@
         <td class="px-3 py-2 font-mono text-xs">{{ o.date }}</td>
         <td class="px-3 py-2 text-xs">{% if o.order_type == 'customer' %}Customer: {{ o.customer_name|default:"—" }}{% else %}Internal{% endif %}</td>
         <td class="px-3 py-2">{{ o.finished_good.name }}</td>
-        <td class="px-3 py-2 text-right font-mono">{{ o.qty }}</td>
+        <td class="px-3 py-2 text-right font-mono">
+          {{ o.qty }}
+          {% if o.finished_good.units_per_batch != 1 %}
+            <div class="text-[10px] text-stone-400 font-sans">{{ o.batches_needed }} batch{{ o.batches_needed|pluralize }} = {{ o.units_to_produce }} units</div>
+          {% endif %}
+        </td>
         <td class="px-3 py-2"><span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium border capitalize
           {% if o.status == 'planned' %}bg-amber-50 text-amber-800 border-amber-300
           {% elif o.status == 'completed' %}bg-emerald-50 text-emerald-800 border-emerald-300
           {% else %}bg-stone-100 text-stone-500 border-stone-300{% endif %}">{{ o.get_status_display }}</span>
           {% if o.shortage_list %}<span class="ml-1 text-[10px] text-rose-600">⚠ short</span>{% endif %}
         </td>
+        <td class="px-3 py-2 text-xs text-stone-500">{{ o.created_by.username|default:"—" }}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap">
           {% if o.status == 'planned' %}
           <form action="{% url 'order_complete' o.pk %}" method="post" class="inline">{% csrf_token %}<button class="text-stone-400 hover:text-emerald-600 mr-2">Complete</button></form>

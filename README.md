@@ -8,19 +8,51 @@ what was borrowed and what was deliberately left out).
 
 ## What it does
 
-- **Inventory** — raw materials and finished goods, each product with a
-  recipe (bill of materials).
-- **Procurement** — purchase orders; receiving one adds stock and updates
-  cost per unit automatically.
+- **Inventory** — raw materials (with a real purchase→package→usage unit
+  chain: buy in bags, track in kg, dispense in grams/spoons/caps — see
+  "Units" below) and finished goods, each with a recipe (bill of materials)
+  and an optional batch size.
+- **Procurement** — purchase orders; receiving one converts through the
+  unit chain and updates stock + cost per unit automatically.
+- **Customer Orders & Sales** — one form, one model, split by type:
+  - **Walk-in** — immediate, deducts from existing shelf stock, exactly
+    like a normal point-of-sale transaction.
+  - **Customer order** — saved as *pending*, touches no stock yet. Link
+    each order line from a Production Request, then a Production Order;
+    completing that order automatically flips the sale to *fulfilled* and
+    hands the ordered quantity to the customer — any surplus from batch
+    rounding stays as shelf stock. A multi-item order only clears once
+    *every* line's production is done.
 - **Production requests** — the store asks production to make more of
-  something.
-- **Production orders** — internal or customer; completing one deducts raw
-  materials by recipe and adds finished stock inside a database
+  something, either as a general restock or linked to a specific pending
+  customer order line (which fills in the product and quantity for you).
+- **Production orders** — the approval step: completing one deducts raw
+  materials by recipe (per batch, rounded up to whole batches — you can't
+  make a fraction of a batch) and adds finished stock, inside a database
   transaction, with a shortage warning you can override.
-- **Sales** — deducts finished-goods stock on save, same shortage warning.
 - **Reports** — CSV export for stock, procurement, production, sales, plus
   a full JSON backup.
-- Login required on every page (Django's built-in auth).
+- Login required on every page (Django's built-in auth), with a
+  `created_by` trail on every record.
+
+### Units — the three-layer chain
+
+Raw materials separate **what you buy** (purchase unit — bag, carton),
+**what's in the pack** (package qty + unit — e.g. 50 kg), and **what a
+recipe actually consumes** (usage unit — kg, g, spoon, cap, with a
+conversion factor you set). Stock and cost are tracked internally in the
+fine usage unit; the Add/Edit form lets you enter both in the purchase
+unit instead (e.g. "3 bags", "₦9,000/bag") and does the conversion for you.
+
+### Batches
+
+A finished good can have a batch size (`units_per_batch`) — e.g. 41 loaves
+per batch of Family Loaf. Recipe quantities are **per batch**, not per
+unit; reorder level stays in individual units. A Production Order's
+quantity is still in units (inherited from wherever it came from), but
+production always rounds up to whole batches — order 50 loaves at a
+41-per-batch size, and 2 batches (82) get made, with the extra 32 landing
+as shelf stock.
 
 ## Quick start — run it today, locally
 

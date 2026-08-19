@@ -22,6 +22,8 @@ def raw_material_form(request, pk=None):
         if form.is_valid():
             m = form.save(commit=False)
             m.business = request.business
+            if obj is None:
+                m.created_by = request.user
             m.save()
             messages.success(request, "Raw material saved.")
             return redirect("inventory")
@@ -47,6 +49,8 @@ def finished_good_form(request, pk=None):
         if form.is_valid():
             good = form.save(commit=False)
             good.business = request.business
+            if obj is None:
+                good.created_by = request.user
             good.save()
             formset = RecipeItemFormSet(request.POST, instance=good)
             if formset.is_valid():

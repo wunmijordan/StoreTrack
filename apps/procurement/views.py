@@ -30,6 +30,8 @@ def po_form(request, pk=None):
         if form.is_valid():
             po = form.save(commit=False)
             po.business = request.business
+            if obj is None:
+                po.created_by = request.user
             po.save()
             formset = PurchaseOrderItemFormSet(request.POST, instance=po)
             if formset.is_valid():
@@ -51,8 +53,12 @@ def po_receive(request, pk):
         with transaction.atomic():
             for item in po.items.select_related("raw_material"):
                 mat = item.raw_material
-                mat.stock = mat.stock + item.qty
-                mat.cost_per_unit = item.unit_cost
+                factor = mat.total_conversion_factor or 1
+                # item.qty / item.unit_cost are in the material's purchase
+                # unit (e.g. bags); stock and cost_per_unit are always in
+                # its usage unit (e.g. kg) — convert on the way in.
+                mat.stock = mat.stock + (item.qty * factor)
+                mat.cost_per_unit = item.unit_cost / factor
                 mat.save()
             po.status = "received"
             po.received_date = today()

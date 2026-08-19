@@ -2,8 +2,20 @@
 {% block content %}
 <h2 class="text-xl font-semibold font-display text-[#1E4536] mb-4">New sale</h2>
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-5 max-w-2xl">
-  <form method="post">
+  <form method="post" id="sale-form">
     {% csrf_token %}
+    <div class="flex gap-2 mb-3">
+      <label class="flex-1">
+        <input type="radio" name="order_type" value="walkin" class="hidden peer" {% if form.order_type.value == 'walkin' or not form.order_type.value %}checked{% endif %} onchange="toggleSaleType()">
+        <span class="block text-center px-3 py-2 rounded-md text-sm border cursor-pointer peer-checked:bg-[#1E4536] peer-checked:text-white peer-checked:border-[#1E4536] bg-white border-[#D9CFB4] text-stone-600">Walk-in (from stock)</span>
+      </label>
+      <label class="flex-1">
+        <input type="radio" name="order_type" value="customer_order" class="hidden peer" {% if form.order_type.value == 'customer_order' %}checked{% endif %} onchange="toggleSaleType()">
+        <span class="block text-center px-3 py-2 rounded-md text-sm border cursor-pointer peer-checked:bg-[#1E4536] peer-checked:text-white peer-checked:border-[#1E4536] bg-white border-[#D9CFB4] text-stone-600">Customer order (needs production)</span>
+      </label>
+    </div>
+    <p id="order-type-hint" class="text-[11px] text-stone-400 mb-3"></p>
+
     <div class="grid grid-cols-3 gap-3">
       {% include "_field.html" with field=form.date %}
       {% include "_field.html" with field=form.customer %}
@@ -11,6 +23,7 @@
     </div>
 
     <span class="block text-xs font-medium text-stone-600 mb-1">Items</span>
+    <p class="text-[11px] text-stone-400 mb-1">Qty is in individual units — for a batch product, check its batch size on the Inventory page (e.g. 1 batch of Family Loaf = 41, so enter 41).</p>
     {{ formset.management_form }}
     <div class="border border-[#E7DFCC] rounded-md overflow-hidden">
       <table class="w-full text-sm">
@@ -37,15 +50,25 @@
       <ul class="list-disc list-inside">
         {% for s in shortages %}<li>{{ s.name }} — short by {{ s.short }}</li>{% endfor %}
       </ul>
-      <p class="mt-1">Saving anyway will take stock negative.</p>
+      <p class="mt-1">Saving anyway will take stock negative. If this should be a customer order instead (production makes it, rather than pulling from what's on the shelf), switch the toggle above instead of forcing this.</p>
     </div>
     <input type="hidden" name="force" value="1">
     {% endif %}
 
     <div class="flex justify-end gap-2 mt-4">
       <a href="{% url 'sales_list' %}" class="px-3.5 py-2 text-sm rounded-md text-stone-500 hover:bg-stone-100">Cancel</a>
-      <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">{% if shortages %}Save anyway{% else %}Save sale{% endif %}</button>
+      <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">{% if shortages %}Save anyway{% else %}Save{% endif %}</button>
     </div>
   </form>
 </div>
+<script>
+  function toggleSaleType() {
+    const type = document.querySelector('input[name="order_type"]:checked').value;
+    const hint = document.getElementById('order-type-hint');
+    hint.textContent = type === 'walkin'
+      ? 'Deducts from existing store stock immediately. Checked for shortages on save.'
+      : 'Saved as pending — no stock touched yet. Link each item from a Production Request to start making it; the sale flips to fulfilled automatically once production completes.';
+  }
+  toggleSaleType();
+</script>
 {% endblock %}

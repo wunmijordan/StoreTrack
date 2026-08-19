@@ -40,18 +40,28 @@ storetrack/
 ## Data flow
 
 ```
-PurchaseOrder --(receive)--> RawMaterial.stock += qty, cost_per_unit updated
-RawMaterial --(recipe)--> FinishedGood            (RecipeItem: qty per unit)
-ProductionRequest --(fulfilled by)--> ProductionOrder
-ProductionOrder --(complete)--> RawMaterial.stock -= recipe qty * order qty
-                                  FinishedGood.stock += order qty
-                                  linked ProductionRequest -> fulfilled
-Sale --(save)--> FinishedGood.stock -= qty
+PurchaseOrder --(receive)--> RawMaterial.stock += qty x total_conversion_factor
+                              RawMaterial.cost_per_unit updated
+RawMaterial --(recipe, per BATCH)--> FinishedGood     (RecipeItem: qty_per_batch)
+
+Walk-in Sale --(save)--> FinishedGood.stock -= qty                     [immediate]
+
+Customer Order --(save)--> Sale(status=pending), no stock touched
+  --(linked from)--> ProductionRequest(linked_sale_item)                [manual, per line item]
+  --(linked from)--> ProductionOrder(linked_request)                    [manual, approval step]
+  --(complete)--> batches = ceil(order.qty / units_per_batch)
+                  RawMaterial.stock -= recipe qty_per_batch x batches
+                  FinishedGood.stock += (batches x units_per_batch) - delivered_qty
+                  ProductionRequest -> fulfilled
+                  Sale -> fulfilled  (once EVERY line item's request is fulfilled)
 ```
 
 Every stock-mutating step above runs inside `transaction.atomic()` and
 checks for shortages first, with an explicit `force` override rather than a
-silent negative-stock write.
+silent negative-stock write. Quantity is entered once, at the Sale/Customer
+Order — Production Requests and Orders inherit it (enforced server-side in
+each form's `clean()`, not just hidden in the template) rather than asking
+again.
 
 ## The Business (tenant) pattern
 

@@ -15,7 +15,7 @@ class StyledModelForm(forms.ModelForm):
 class SaleForm(StyledModelForm):
     class Meta:
         model = Sale
-        fields = ["date", "customer", "payment_method"]
+        fields = ["date", "customer", "payment_method", "order_type"]
         widgets = {"date": forms.DateInput(attrs={"type": "date"})}
 
 

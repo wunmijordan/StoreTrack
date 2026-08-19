@@ -1,3 +1,5 @@
+from decimal import Decimal, InvalidOperation
+
 from django import forms
 from django.forms import inlineformset_factory
 from .models import RawMaterial, FinishedGood, RecipeItem
@@ -13,21 +15,92 @@ class StyledModelForm(forms.ModelForm):
 
 
 class RawMaterialForm(StyledModelForm):
+    """Stock and cost are entered here in the material's PURCHASE unit
+    (e.g. '3 bags', 'cost 9000/bag') — the more natural way to count what's
+    on hand and what it cost. Internally, RawMaterial.stock and
+    .cost_per_unit are always stored in the fine USAGE unit (e.g. grams,
+    spoons), because that's what recipes and every stock deduction are
+    computed against. This form converts between the two on load and on
+    save, via total_conversion_factor = package_qty x usage_conversion_factor."""
+
+    package_qty = forms.DecimalField(
+        max_digits=12, decimal_places=2, initial=1,
+        label="Package quantity",
+        help_text="How much is inside ONE purchase unit, e.g. 1 bag = 50 → 50.",
+    )
+    usage_conversion_factor = forms.DecimalField(
+        max_digits=12, decimal_places=2, initial=1,
+        label="Usage conversion",
+        help_text="How many usage units in ONE package unit. Standard: kg→g is 1000. "
+                   "Non-standard (spoon, cap…): count it yourself.",
+    )
+    reorder_level = forms.DecimalField(max_digits=12, decimal_places=2, initial=0)
+    stock_purchase_units = forms.DecimalField(
+        label="Stock (in purchase units)", max_digits=14, decimal_places=2,
+        required=False, initial=0,
+        help_text="How many purchase units you currently have, e.g. 3 (bags).",
+    )
+    cost_per_purchase_unit = forms.DecimalField(
+        label="Cost (per purchase unit)", max_digits=14, decimal_places=2,
+        required=False, initial=0,
+        help_text="What one purchase unit costs, e.g. price per bag.",
+    )
+
     class Meta:
         model = RawMaterial
-        fields = ["name", "unit", "stock", "reorder_level", "cost_per_unit"]
+        # stock & cost_per_unit deliberately excluded — captured above in
+        # purchase-unit terms and converted in save().
+        fields = ["name", "purchase_unit", "package_qty", "package_unit",
+                  "usage_unit", "usage_conversion_factor", "reorder_level"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            factor = self.instance.total_conversion_factor or Decimal("1")
+            # Quantize to exactly 2dp for display — plain division/multiplication
+            # can produce long, ugly decimal expansions that don't match what
+            # the 2dp fields will actually accept on resubmission. This does
+            # NOT round to a whole purchase unit — fractional amounts like
+            # 2.60 bags are shown and kept exactly, just cleaned to 2dp.
+            self.fields["stock_purchase_units"].initial = (self.instance.stock / factor).quantize(Decimal("0.01"))
+            self.fields["cost_per_purchase_unit"].initial = (self.instance.cost_per_unit * factor).quantize(Decimal("0.01"))
+
+    def clean_package_qty(self):
+        v = self.cleaned_data.get("package_qty")
+        if v is not None and v <= 0:
+            raise forms.ValidationError("Must be greater than zero.")
+        return v
+
+    def clean_usage_conversion_factor(self):
+        v = self.cleaned_data.get("usage_conversion_factor")
+        if v is not None and v <= 0:
+            raise forms.ValidationError("Must be greater than zero.")
+        return v
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        package_qty = self.cleaned_data.get("package_qty") or Decimal("1")
+        usage_conv = self.cleaned_data.get("usage_conversion_factor") or Decimal("1")
+        factor = package_qty * usage_conv
+        purchase_stock = self.cleaned_data.get("stock_purchase_units") or Decimal("0")
+        purchase_cost = self.cleaned_data.get("cost_per_purchase_unit") or Decimal("0")
+        instance.stock = (purchase_stock * factor).quantize(Decimal("0.01"))
+        instance.cost_per_unit = (purchase_cost / factor).quantize(Decimal("0.01"))
+        if commit:
+            instance.save()
+        return instance
 
 
 class FinishedGoodForm(StyledModelForm):
     class Meta:
         model = FinishedGood
-        fields = ["name", "unit", "stock", "reorder_level", "selling_price"]
+        fields = ["name", "unit", "units_per_batch", "stock", "reorder_level", "selling_price"]
 
 
 class RecipeItemForm(StyledModelForm):
     class Meta:
         model = RecipeItem
-        fields = ["raw_material", "qty_per_unit"]
+        fields = ["raw_material", "qty_per_batch"]
 
 
 RecipeItemFormSet = inlineformset_factory(FinishedGood, RecipeItem, form=RecipeItemForm, extra=2, can_delete=True)

@@ -41,7 +41,7 @@
     <div class="shrink-0 w-44 bg-[#FFFDF8] border-l-4 border-dashed border-[#B4472E] border-t border-r border-b border-[#E7DFCC] rounded-md p-3 shadow-sm">
       <div class="text-[10px] uppercase tracking-wide text-stone-400">Raw material</div>
       <div class="font-medium text-sm truncate">{{ m.name }}</div>
-      <div class="font-mono text-lg text-[#B4472E] mt-1">{{ m.stock|num }} <span class="text-xs text-stone-400">{{ m.unit }}</span></div>
+      <div class="font-mono text-lg text-[#B4472E] mt-1">{{ m.stock|num }} <span class="text-xs text-stone-400">{{ m.usage_unit }}</span></div>
       <div class="text-[11px] text-stone-400">reorder at {{ m.reorder_level|num }}</div>
     </div>
     {% endfor %}

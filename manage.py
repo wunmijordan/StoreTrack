@@ -2,10 +2,22 @@
 """Django's command-line utility for administrative tasks."""
 import os
 import sys
+from pathlib import Path
 
 
 def main():
     """Run administrative tasks."""
+    # Automatically locate and load the local .env file if it exists
+    BASE_DIR = Path(__file__).resolve().parent
+    env_path = BASE_DIR / '.env'
+    
+    if env_path.exists():
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(env_path)
+        except ImportError:
+            pass
+
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'storetrack.settings')
     try:
         from django.core.management import execute_from_command_line

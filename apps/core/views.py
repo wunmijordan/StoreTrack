@@ -69,10 +69,14 @@ def _csv_response(filename, header, rows):
 def export_stock_csv(request):
     rows = []
     for m in RawMaterial.objects.all():
-        rows.append(["Raw material", m.name, m.unit, m.stock, m.reorder_level, m.cost_per_unit])
+        rows.append(["Raw material", m.name, m.usage_unit, m.stock, m.reorder_level, m.cost_per_unit,
+                      m.purchase_unit, m.conversion_factor])
     for g in FinishedGood.objects.all():
-        rows.append(["Finished good", g.name, g.unit, g.stock, g.reorder_level, g.selling_price])
-    return _csv_response("stock-report.csv", ["Type", "Name", "Unit", "Stock", "Reorder level", "Cost/Price per unit"], rows)
+        rows.append(["Finished good", g.name, g.unit, g.stock, g.reorder_level, g.selling_price, "", ""])
+    return _csv_response("stock-report.csv",
+                          ["Type", "Name", "Stock Unit", "Stock", "Reorder level", "Cost/Price per unit",
+                           "Purchase Unit", "Usage Units per Purchase Unit"],
+                          rows)
 
 
 @login_required

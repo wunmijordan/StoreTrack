@@ -5,12 +5,33 @@
   <form method="post">
     {% csrf_token %}
     {% include "_field.html" with field=form.name %}
-    <div class="grid grid-cols-2 gap-3">
-      {% include "_field.html" with field=form.unit %}
-      {% include "_field.html" with field=form.cost_per_unit %}
-      {% include "_field.html" with field=form.stock %}
-      {% include "_field.html" with field=form.reorder_level %}
+
+    <div class="text-xs bg-[#F0EAD9] border border-[#D9CFB4] rounded-md p-3 mb-3 space-y-1.5">
+      <p><strong>Three layers, if you need them:</strong> what you buy → what's in the pack → what a recipe actually uses.</p>
+      <p><strong>Purchase unit</strong> — bag, carton, pack. <strong>Package qty/unit</strong> — what's printed on it, e.g. 1 bag = <code>50</code> <code>kg</code>.
+      <strong>Usage unit</strong> — the fine unit a recipe consumes: kg, g, spoon, cap.</p>
+      <p><strong>Usage conversion</strong> — how many usage units in ONE package unit. Standard conversions: kg→g and litre→ml are both <code>1000</code>.
+      Same unit both ways (e.g. flour bought and used in kg) → <code>1</code>. Non-standard units like spoon or cap aren't a fixed ratio —
+      count it yourself (e.g. "1kg of ack fills 200 spoons" → usage unit <code>spoon</code>, usage conversion <code>200</code>).</p>
+      <p>Stock and cost below are entered <strong>per purchase unit</strong> (e.g. "3" bags, "9000" per bag) — everything converts and
+      stores internally in the fine usage unit, since that's what recipes and production deductions run on.
+      Reorder level is in the usage unit too (e.g. alert at 500g).</p>
     </div>
+
+    <div class="grid grid-cols-2 gap-3">
+      {% include "_field.html" with field=form.purchase_unit %}
+      {% include "_field.html" with field=form.package_qty %}
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      {% include "_field.html" with field=form.package_unit %}
+      {% include "_field.html" with field=form.usage_unit %}
+    </div>
+    {% include "_field.html" with field=form.usage_conversion_factor %}
+    <div class="grid grid-cols-2 gap-3">
+      {% include "_field.html" with field=form.cost_per_purchase_unit %}
+      {% include "_field.html" with field=form.stock_purchase_units %}
+    </div>
+    {% include "_field.html" with field=form.reorder_level %}
     <div class="flex justify-end gap-2 mt-2">
       <a href="{% url 'inventory' %}" class="px-3.5 py-2 text-sm rounded-md text-stone-500 hover:bg-stone-100">Cancel</a>
       <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">Save</button>

@@ -11,19 +11,21 @@
       {% include "_field.html" with field=form.reorder_level %}
     </div>
     {% include "_field.html" with field=form.stock %}
+    {% include "_field.html" with field=form.units_per_batch %}
 
-    <span class="block text-xs font-medium text-stone-600 mb-1 mt-2">Recipe (raw materials used per 1 unit)</span>
+    <span class="block text-xs font-medium text-stone-600 mb-1 mt-2">Recipe (raw materials used per BATCH)</span>
+    <p class="text-[11px] text-stone-400 mb-1">Qty here is per batch (see "units per batch" above), in each material's <strong>usage unit</strong> (e.g. kg, sachet) — check the Inventory page if you're not sure.</p>
     {{ formset.management_form }}
     <div class="border border-[#E7DFCC] rounded-md overflow-hidden">
       <table class="w-full text-sm">
         <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
-          <th class="text-left px-2 py-1.5">Raw material</th><th class="text-right px-2 py-1.5 w-28">Qty / unit</th><th class="w-16"></th>
+          <th class="text-left px-2 py-1.5">Raw material</th><th class="text-right px-2 py-1.5 w-28">Qty / batch</th><th class="w-16"></th>
         </tr></thead>
         <tbody id="recipe-rows">
           {% for f in formset %}
           <tr {% if forloop.first %}data-formset-row{% endif %} class="border-t border-[#E7DFCC]">
             <td class="px-2 py-1.5">{{ f.id }}{{ f.raw_material }}</td>
-            <td class="px-2 py-1.5">{{ f.qty_per_unit }}</td>
+            <td class="px-2 py-1.5">{{ f.qty_per_batch }}</td>
             <td class="px-2 py-1.5 text-center text-xs text-rose-600">{% if f.instance.pk %}<label>{{ f.DELETE }} remove</label>{% endif %}</td>
           </tr>
           {% endfor %}

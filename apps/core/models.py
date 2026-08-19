@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 from .context import get_current_business_id
 
@@ -59,6 +60,11 @@ class BusinessOwnedModel(TimestampedModel):
     a scoped default manager plus an explicit unscoped manager for admin,
     management commands, and provisioning — see rule in CLAUDE.md."""
     business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="%(app_label)s_%(class)s_set")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="%(app_label)s_%(class)s_created",
+        help_text="Who made this entry. Null for records created before this field existed.",
+    )
 
     objects = BusinessManager()
     raw_objects = models.Manager()

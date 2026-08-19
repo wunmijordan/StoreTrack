@@ -14,13 +14,16 @@
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm overflow-x-auto">
   <table class="w-full text-sm">
     <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
-      <th class="text-left px-3 py-2">Date</th><th class="text-left px-3 py-2">Requested by</th><th class="text-left px-3 py-2">Product</th><th class="text-right px-3 py-2">Qty</th><th class="text-left px-3 py-2">Needed by</th><th class="text-left px-3 py-2">Status</th><th class="w-32"></th>
+      <th class="text-left px-3 py-2">Date</th><th class="text-left px-3 py-2">Requested by</th><th class="text-left px-3 py-2">Product</th><th class="text-right px-3 py-2">Qty</th><th class="text-left px-3 py-2">Needed by</th><th class="text-left px-3 py-2">Status</th><th class="text-left px-3 py-2">Logged by</th><th class="w-32"></th>
     </tr></thead>
     <tbody>
       {% for r in requests %}
       <tr class="border-t border-[#E7DFCC]">
         <td class="px-3 py-2 font-mono text-xs">{{ r.date }}</td>
-        <td class="px-3 py-2">{{ r.requested_by }}</td>
+        <td class="px-3 py-2">
+          {{ r.requested_by }}
+          {% if r.linked_sale_item %}<div class="text-[10px] text-[#1E4536]">Order: {{ r.linked_sale_item.sale.customer }}</div>{% endif %}
+        </td>
         <td class="px-3 py-2">{{ r.finished_good.name }}</td>
         <td class="px-3 py-2 text-right font-mono">{{ r.qty }}</td>
         <td class="px-3 py-2 font-mono text-xs">{{ r.needed_by|default:"—" }}</td>
@@ -29,6 +32,7 @@
           {% elif r.status == 'in_production' %}bg-sky-50 text-sky-800 border-sky-300
           {% elif r.status == 'fulfilled' %}bg-emerald-50 text-emerald-800 border-emerald-300
           {% else %}bg-stone-100 text-stone-500 border-stone-300{% endif %}">{{ r.get_status_display }}</span></td>
+        <td class="px-3 py-2 text-xs text-stone-500">{{ r.created_by.username|default:"—" }}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap">
           {% if r.status == 'pending' %}
           <a href="{% url 'request_edit' r.pk %}" class="text-stone-400 hover:text-[#1E4536] mr-2">Edit</a>

@@ -16,15 +16,39 @@
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm overflow-x-auto mb-8">
   <table class="w-full text-sm">
     <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
-      <th class="text-left px-3 py-2">Name</th><th class="text-right px-3 py-2">Stock</th><th class="text-right px-3 py-2">Reorder at</th><th class="text-right px-3 py-2">Cost/unit</th><th class="w-24"></th>
+      <th class="text-left px-3 py-2">Name</th><th class="text-right px-3 py-2">Stock</th><th class="text-right px-3 py-2">Reorder at</th><th class="text-left px-3 py-2">Procured as</th><th class="text-right px-3 py-2">Cost</th><th class="w-24"></th>
     </tr></thead>
     <tbody>
       {% for m in raw_materials %}
       <tr class="border-t border-[#E7DFCC] {% if m.is_low %}bg-rose-50/40{% endif %}">
         <td class="px-3 py-2 font-medium">{{ m.name }}</td>
-        <td class="px-3 py-2 text-right font-mono">{{ m.stock|num }} <span class="text-stone-400 text-xs">{{ m.unit }}</span></td>
+        <td class="px-3 py-2 text-right font-mono">
+          {% if m.has_unit_conversion %}
+            {{ m.stock_breakdown.0 }} {{ m.purchase_unit }}, {{ m.stock_breakdown.1|num }} {{ m.usage_unit }}
+            <div class="text-[11px] text-stone-400 font-sans">({{ m.stock|num }} {{ m.usage_unit }} total)</div>
+          {% else %}
+            {{ m.stock|num }} <span class="text-stone-400 text-xs">{{ m.usage_unit }}</span>
+          {% endif %}
+        </td>
         <td class="px-3 py-2 text-right font-mono text-stone-500">{{ m.reorder_level|num }}</td>
-        <td class="px-3 py-2 text-right font-mono">{{ m.cost_per_unit|money:biz.currency_symbol }}</td>
+        <td class="px-3 py-2 text-xs text-stone-500">
+          {% if m.has_unit_conversion %}
+            1 {{ m.purchase_unit }} = {{ m.package_qty|num }} {{ m.package_unit }}
+            {% if m.package_unit != m.usage_unit or m.usage_conversion_factor != 1 %}
+              = {{ m.total_conversion_factor|num }} {{ m.usage_unit }}
+            {% endif %}
+          {% else %}
+            {{ m.purchase_unit|default:m.usage_unit }} <span class="text-stone-300">(same as usage)</span>
+          {% endif %}
+        </td>
+        <td class="px-3 py-2 text-right font-mono">
+          {% if m.has_unit_conversion %}
+            {{ m.cost_per_purchase_unit|money:biz.currency_symbol }} <span class="text-stone-400 text-xs font-sans">/{{ m.purchase_unit }}</span>
+            <div class="text-[11px] text-stone-400 font-sans">({{ m.cost_per_unit|money:biz.currency_symbol }}/{{ m.usage_unit }})</div>
+          {% else %}
+            {{ m.cost_per_unit|money:biz.currency_symbol }}
+          {% endif %}
+        </td>
         <td class="px-3 py-2 text-right">
           <a href="{% url 'raw_material_edit' m.pk %}" class="text-stone-400 hover:text-[#1E4536] mr-2">Edit</a>
           <form action="{% url 'raw_material_delete' m.pk %}" method="post" class="inline" onsubmit="return confirm('Remove {{ m.name }}?');">{% csrf_token %}<button class="text-stone-400 hover:text-rose-600">Delete</button></form>
