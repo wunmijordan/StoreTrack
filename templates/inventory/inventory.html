@@ -2,6 +2,15 @@
 {% load core_extras %}
 {% block content %}
 
+<div class="flex gap-2 mb-4 border-b border-[#E7DFCC]">
+  <input type="radio" name="inv-tab" id="tab-raw" class="hidden peer/raw" checked>
+  <input type="radio" name="inv-tab" id="tab-finished" class="hidden peer/finished">
+  <label for="tab-raw" class="cursor-pointer px-4 py-2 text-sm font-medium text-stone-500 border-b-2 border-transparent [.peer\/raw:checked~&]:text-[#1E4536] [.peer\/raw:checked~&]:border-[#1E4536]" id="raw-tab-label">Raw materials</label>
+  <label for="tab-finished" class="cursor-pointer px-4 py-2 text-sm font-medium text-stone-500 border-b-2 border-transparent" id="finished-tab-label">Finished goods</label>
+</div>
+
+<div id="raw-panel">
+
 <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
   <div>
     <h2 class="text-xl font-semibold font-display text-[#1E4536]">Raw materials</h2>
@@ -15,36 +24,56 @@
 {% else %}
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm overflow-x-auto mb-8">
   <table class="w-full text-sm">
-    <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
-      <th class="text-left px-3 py-2">Name</th><th class="text-right px-3 py-2">Stock</th><th class="text-right px-3 py-2">Reorder at</th><th class="text-left px-3 py-2">Procured as</th><th class="text-right px-3 py-2">Cost</th><th class="w-24"></th>
+    <thead class="bg-[#F0EAD9] text-stone-600 text-md text-middle"><tr>
+      <th class="px-3 py-2">Item</th><th class="px-3 py-2">Stock</th><!--<th class="px-3 py-2">Reorder at</th>--><th class="px-3 py-2">Procured as</th><th class="px-3 py-2">Cost</th><th class="w-24"></th>
     </tr></thead>
     <tbody>
       {% for m in raw_materials %}
-      <tr class="border-t border-[#E7DFCC] {% if m.is_low %}bg-rose-50/40{% endif %}">
+      <tr class="border-t border-[#E7DFCC] {% if m.is_low %}bg-rose-40{% endif %}">
         <td class="px-3 py-2 font-medium">{{ m.name }}</td>
-        <td class="px-3 py-2 text-right font-mono">
+        <td class="px-3 py-2 text-middle">
           {% if m.has_unit_conversion %}
-            {{ m.stock_breakdown.0 }} {{ m.purchase_unit }}, {{ m.stock_breakdown.1|num }} {{ m.usage_unit }}
-            <div class="text-[11px] text-stone-400 font-sans">({{ m.stock|num }} {{ m.usage_unit }} total)</div>
+            <span class="font-mono">{{ m.stock_breakdown.0 }}</span> <span class="text-stone-400 italic text-xs">{{ m.purchase_unit }}</span>, <span class="font-mono">{{ m.stock_breakdown.1|num }}</span><span class="text-stone-400 italic text-xs">{{ m.usage_unit }}</span>
+            <div class="mt-0.5">
+              <span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-mono font-medium border 
+                {% if m.is_low %}
+                  bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/10
+                {% elif m.is_warning %}
+                  bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-600/20
+                {% else %}
+                  bg-green-50 text-green-700 ring-1 ring-inset ring-green-600/10
+                {% endif %}">
+                {{ m.stock|num }} {{ m.usage_unit }} total
+              </span>
+            </div>
           {% else %}
-            {{ m.stock|num }} <span class="text-stone-400 text-xs">{{ m.usage_unit }}</span>
+            <span class="inline-block px-2 py-0.5 rounded-full text-xs font-mono font-medium border 
+              {% if m.is_low %}
+                bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/10
+              {% elif m.is_warning %}
+                bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-600/20
+              {% else %}
+                bg-green-50 text-green-700 ring-1 ring-inset ring-green-600/10
+              {% endif %}">
+              {{ m.stock|num }} {{ m.usage_unit }}
+            </span>
           {% endif %}
         </td>
-        <td class="px-3 py-2 text-right font-mono text-stone-500">{{ m.reorder_level|num }}</td>
-        <td class="px-3 py-2 text-xs text-stone-500">
+        <!-- <td class="px-3 py-2 text-right font-mono text-stone-500">{{ m.reorder_level|num }}</td> -->
+        <td class="px-3 py-2">
           {% if m.has_unit_conversion %}
-            1 {{ m.purchase_unit }} = {{ m.package_qty|num }} {{ m.package_unit }}
+            <span class="font-mono">1</span> <span class="text-stone-400 italic text-xs">{{ m.purchase_unit }}</span> = <span class="font-mono">{{ m.package_qty|num }}</span><span class="text-stone-400 italic text-xs">{{ m.package_unit }}</span>
             {% if m.package_unit != m.usage_unit or m.usage_conversion_factor != 1 %}
-              = {{ m.total_conversion_factor|num }} {{ m.usage_unit }}
+              = <span class="font-mono">{{ m.total_conversion_factor|num }}</span><span class="text-stone-400 italic text-xs">{{ m.usage_unit }}</span>
             {% endif %}
           {% else %}
             {{ m.purchase_unit|default:m.usage_unit }} <span class="text-stone-300">(same as usage)</span>
           {% endif %}
         </td>
-        <td class="px-3 py-2 text-right font-mono">
+        <td class="px-3 py-2 text-right">
           {% if m.has_unit_conversion %}
-            {{ m.cost_per_purchase_unit|money:biz.currency_symbol }} <span class="text-stone-400 text-xs font-sans">/{{ m.purchase_unit }}</span>
-            <div class="text-[11px] text-stone-400 font-sans">({{ m.cost_per_unit|money:biz.currency_symbol }}/{{ m.usage_unit }})</div>
+            <span class="font-mono">{{ m.cost_per_purchase_unit|money:biz.currency_symbol }}</span><span class="text-stone-400 italic text-xs">/{{ m.purchase_unit }}</span>
+            <div class="text-[11px] text-stone-400 italic">{{ m.cost_per_unit|money:biz.currency_symbol }}/{{ m.usage_unit }}</div>
           {% else %}
             {{ m.cost_per_unit|money:biz.currency_symbol }}
           {% endif %}
@@ -59,11 +88,14 @@
   </table>
 </div>
 {% endif %}
+</div>
+
+<div id="finished-panel" class="hidden">
 
 <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
   <div>
     <h2 class="text-xl font-semibold font-display text-[#1E4536]">Products (finished goods)</h2>
-    <p class="text-sm text-stone-500 mt-0.5">Items you sell, with their recipe</p>
+    <p class="text-sm text-stone-500 mt-0.5">Items you sell, with their recipe and batch size</p>
   </div>
   <a href="{% url 'finished_good_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">+ Add product</a>
 </div>
@@ -73,15 +105,37 @@
 {% else %}
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm overflow-x-auto">
   <table class="w-full text-sm">
-    <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
-      <th class="text-left px-3 py-2">Name</th><th class="text-right px-3 py-2">Stock</th><th class="text-right px-3 py-2">Reorder at</th><th class="text-right px-3 py-2">Price</th><th class="text-left px-3 py-2">Recipe</th><th class="w-24"></th>
+    <thead class="bg-[#F0EAD9] text-stone-600 text-md text-middle"><tr>
+      <th class="px-3 py-2">Product</th>
+      <th class="px-3 py-2">Stock (physical store)</th>
+      <th class="px-3 py-2">Customer order</th>
+      <th class="px-3 py-2">Total made</th>
+      <!--<th class="px-3 py-2">Reorder at</th>-->
+      <th class="px-3 py-2">Price</th>
+      <th class="px-3 py-2">Recipe</th>
+      <th class="w-24"></th>
     </tr></thead>
     <tbody>
       {% for g in finished_goods %}
-      <tr class="border-t border-[#E7DFCC] {% if g.is_low %}bg-rose-50/40{% endif %}">
-        <td class="px-3 py-2 font-medium">{{ g.name }}</td>
-        <td class="px-3 py-2 text-right font-mono">{{ g.stock|num }} <span class="text-stone-400 text-xs">{{ g.unit }}</span></td>
-        <td class="px-3 py-2 text-right font-mono text-stone-500">{{ g.reorder_level|num }}</td>
+      <tr class="border-t border-[#E7DFCC] {% if g.is_low %}bg-rose-40{% endif %}">
+        <td class="px-3 py-2 font-medium">{{ g.name }}
+          {% if g.units_per_batch != 1 %}<div class="text-[10px] text-stone-400">{{ g.units_per_batch|num }} {{ g.unit }}/batch</div>{% endif %}
+        </td>
+        <td class="px-3 py-2 text-right">
+          <span class="inline-block px-2 py-0.5 rounded-full text-xs font-mono font-medium border
+            {% if g.is_low %}
+              bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/10
+            {% elif g.is_warning %}
+              bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-600/20
+            {% else %}
+              bg-green-50 text-green-700 ring-1 ring-inset ring-green-600/10
+            {% endif %}">
+            {{ g.stock|num }} {{ g.unit }}
+          </span>
+        </td>
+        <td class="px-3 py-2 text-right font-mono text-sky-700">{{ g.total_delivered_to_customers|num }}</td>
+        <td class="px-3 py-2 text-right font-mono text-stone-500">{{ g.total_produced|num }}</td>
+        <!--<td class="px-3 py-2 text-right font-mono text-stone-500">{{ g.reorder_level|num }}</td>-->
         <td class="px-3 py-2 text-right font-mono">{{ g.selling_price|money:biz.currency_symbol }}</td>
         <td class="px-3 py-2 text-xs text-stone-500">{{ g.recipe_items.count }} ingredient{{ g.recipe_items.count|pluralize }}</td>
         <td class="px-3 py-2 text-right">
@@ -94,4 +148,26 @@
   </table>
 </div>
 {% endif %}
+</div>
+
+<script>
+  const rawTab = document.getElementById('tab-raw');
+  const finishedTab = document.getElementById('tab-finished');
+  const rawPanel = document.getElementById('raw-panel');
+  const finishedPanel = document.getElementById('finished-panel');
+  const rawLabel = document.getElementById('raw-tab-label');
+  const finishedLabel = document.getElementById('finished-tab-label');
+  function updateTabs() {
+    const showRaw = rawTab.checked;
+    rawPanel.classList.toggle('hidden', !showRaw);
+    finishedPanel.classList.toggle('hidden', showRaw);
+    rawLabel.classList.toggle('text-[#1E4536]', showRaw);
+    rawLabel.classList.toggle('border-[#1E4536]', showRaw);
+    finishedLabel.classList.toggle('text-[#1E4536]', !showRaw);
+    finishedLabel.classList.toggle('border-[#1E4536]', !showRaw);
+  }
+  rawTab.addEventListener('change', updateTabs);
+  finishedTab.addEventListener('change', updateTabs);
+  updateTabs();
+</script>
 {% endblock %}

@@ -18,17 +18,19 @@
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm overflow-x-auto">
   <table class="w-full text-sm">
     <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
-      <th class="text-left px-3 py-2">Date</th><th class="text-left px-3 py-2">Customer</th><th class="text-left px-3 py-2">Items</th><th class="text-right px-3 py-2">Total</th><th class="text-left px-3 py-2">Type</th><th class="text-left px-3 py-2">Status</th><th class="text-left px-3 py-2">Payment</th><th class="text-left px-3 py-2">Logged by</th><th class="w-16"></th>
+      <th class="text-left px-3 py-2">Date</th><th class="text-left px-3 py-2">Customer</th><th class="text-left px-3 py-2">Items</th><th class="text-right px-3 py-2">Total</th><th class="text-left px-3 py-2">Source</th><th class="text-left px-3 py-2">Payment</th><th class="text-left px-3 py-2">Logged by</th><th class="w-16"></th>
     </tr></thead>
     <tbody>
       {% for s in sales %}
       <tr class="border-t border-[#E7DFCC]">
         <td class="px-3 py-2 font-mono text-xs">{{ s.date }}</td>
         <td class="px-3 py-2">{{ s.customer|default:"Walk-in" }}</td>
-        <td class="px-3 py-2 text-xs text-stone-500">{% for i in s.items.all %}{{ i.finished_good.name }} x{{ i.qty|floatformat:0 }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
+        <td class="px-3 py-2 text-xs text-stone-500">{% for i in s.items.all %}{{ i.finished_good.name }} x{{ i.total_units|num }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
         <td class="px-3 py-2 text-right font-mono">{{ s.total|money:biz.currency_symbol }}</td>
-        <td class="px-3 py-2 text-xs">{% if s.order_type == 'customer_order' %}Customer order{% else %}Walk-in{% endif %}</td>
-        <td class="px-3 py-2"><span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium border capitalize {% if s.status == 'fulfilled' %}bg-emerald-50 text-emerald-800 border-emerald-300{% else %}bg-amber-50 text-amber-800 border-amber-300{% endif %}">{{ s.get_status_display }}</span></td>
+        <td class="px-3 py-2">
+          <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium border {% if s.source == 'customer_order' %}bg-sky-50 text-sky-800 border-sky-300{% else %}bg-violet-50 text-violet-800 border-violet-300{% endif %}">{{ s.get_source_display }}</span>
+          {% if s.linked_order %}<a href="{% url 'order_detail' s.linked_order_id %}" class="block text-[10px] text-stone-400 hover:underline mt-0.5">Order #{{ s.linked_order_id }}</a>{% endif %}
+        </td>
         <td class="px-3 py-2 text-xs">{{ s.payment_method }}</td>
         <td class="px-3 py-2 text-xs text-stone-500">{{ s.created_by.username|default:"—" }}</td>
         <td class="px-3 py-2 text-right">

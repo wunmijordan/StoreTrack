@@ -15,14 +15,14 @@ class StyledModelForm(forms.ModelForm):
 class SaleForm(StyledModelForm):
     class Meta:
         model = Sale
-        fields = ["date", "customer", "payment_method", "order_type"]
+        fields = ["date", "customer", "payment_method"]
         widgets = {"date": forms.DateInput(attrs={"type": "date"})}
 
 
 class SaleItemForm(StyledModelForm):
     class Meta:
         model = SaleItem
-        fields = ["finished_good", "qty", "price"]
+        fields = ["finished_good", "batch_qty", "piece_qty", "discount"]
 
 
 SaleItemFormSet = inlineformset_factory(Sale, SaleItem, form=SaleItemForm, extra=2, can_delete=True)

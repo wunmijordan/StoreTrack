@@ -1,83 +1,91 @@
-from decimal import Decimal, ROUND_CEILING
+from decimal import Decimal
 from django.db import models
-from core.models import BusinessOwnedModel
+from core.models import BusinessOwnedModel, TimestampedModel
 
 
-class ProductionRequest(BusinessOwnedModel):
+class Order(BusinessOwnedModel):
+    """A production order — either for a specific customer (made to order,
+    delivered directly, never touches shelf stock) or a physical store
+    restock (adds to shelf stock on completion, not tied to any customer).
+    Approved and completed as a whole — all its line items together, not
+    item-by-item. See docs/ARCHITECTURE.md for the full flow."""
+
+    TYPE_CHOICES = [("customer", "Customer order"), ("physical_store", "Physical store order")]
     STATUS_CHOICES = [
-        ("pending", "Pending"), ("in_production", "In production"),
-        ("fulfilled", "Fulfilled"), ("cancelled", "Cancelled"),
+        ("pending", "Pending"), ("approved", "Approved"),
+        ("completed", "Completed"), ("rejected", "Rejected"),
     ]
+    PAYMENT_CHOICES = [("Cash", "Cash"), ("Card", "Card"), ("Transfer", "Transfer")]
 
     date = models.DateField()
-    requested_by = models.CharField(max_length=120, help_text="e.g. Main Store", blank=True)
-    linked_sale_item = models.ForeignKey(
-        "sales.SaleItem", null=True, blank=True, on_delete=models.SET_NULL,
-        related_name="production_requests",
-        help_text="If this request exists to fulfil a customer order, which order line it's for. "
-                   "Product and quantity are then taken from that order, not entered here.",
-    )
-    finished_good = models.ForeignKey("inventory.FinishedGood", on_delete=models.PROTECT)
-    qty = models.DecimalField(max_digits=12, decimal_places=2)
-    needed_by = models.DateField(null=True, blank=True)
+    order_type = models.CharField(max_length=15, choices=TYPE_CHOICES, default="physical_store")
+    customer_name = models.CharField(max_length=120, blank=True,
+        help_text="Required for a customer order; leave blank for a physical store restock.")
+    payment_method = models.CharField(max_length=10, choices=PAYMENT_CHOICES, default="Cash",
+        help_text="Only relevant for customer orders — recorded on the Sale created when this completes.")
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="pending")
     notes = models.TextField(blank=True)
-    status = models.CharField(max_length=15, choices=STATUS_CHOICES, default="pending")
-
-    class Meta:
-        ordering = ["-date", "-id"]
-
-    def __str__(self):
-        who = self.linked_sale_item.sale.customer if self.linked_sale_item else self.requested_by
-        return f"{who} wants {self.qty} x {self.finished_good}"
-
-
-class ProductionOrder(BusinessOwnedModel):
-    TYPE_CHOICES = [("internal", "Internal"), ("customer", "Customer")]
-    STATUS_CHOICES = [("planned", "Planned"), ("completed", "Completed"), ("cancelled", "Cancelled")]
-
-    date = models.DateField()
-    order_type = models.CharField(max_length=10, choices=TYPE_CHOICES, default="internal")
-    linked_request = models.ForeignKey(ProductionRequest, null=True, blank=True, on_delete=models.SET_NULL)
-    customer_name = models.CharField(max_length=120, blank=True)
-    finished_good = models.ForeignKey("inventory.FinishedGood", on_delete=models.PROTECT)
-    qty = models.DecimalField(max_digits=12, decimal_places=2,
-        help_text="In individual units — production is automatically rounded up to whole batches.")
-    notes = models.TextField(blank=True)
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="planned")
+    approved_date = models.DateField(null=True, blank=True)
     completed_date = models.DateField(null=True, blank=True)
 
     class Meta:
         ordering = ["-date", "-id"]
 
     def __str__(self):
-        who = self.customer_name if self.order_type == "customer" else "Internal"
-        return f"Produce {self.qty} x {self.finished_good} ({who})"
+        who = self.customer_name if self.order_type == "customer" else "Physical store"
+        return f"Order #{self.id} — {who}"
 
     @property
-    def batches_needed(self):
-        """Whole batches required to cover qty units, rounded UP — you
-        can't make a fractional batch, so any surplus beyond qty becomes
-        shelf stock."""
-        upb = self.finished_good.units_per_batch or Decimal("1")
-        if upb <= 0:
-            upb = Decimal("1")
-        return (self.qty / upb).to_integral_value(rounding=ROUND_CEILING)
+    def total(self):
+        return sum((i.line_total for i in self.items.all()), Decimal("0"))
 
     @property
-    def units_to_produce(self):
-        """Actual units added to stock on completion — batches_needed x
-        units_per_batch, which may exceed qty when it doesn't divide evenly."""
-        upb = self.finished_good.units_per_batch or Decimal("1")
-        return self.batches_needed * upb
+    def total_units(self):
+        return sum((i.total_units for i in self.items.all()), Decimal("0"))
+
+    def material_requirements(self):
+        """Raw material needed across every line item, using the exact
+        batch+piece formula — no batch rounding, so no surplus production.
+        Returns {raw_material: needed_qty}."""
+        needed = {}
+        for item in self.items.select_related("finished_good"):
+            upb = item.finished_good.units_per_batch or Decimal("1")
+            for ri in item.finished_good.recipe_items.select_related("raw_material"):
+                per_piece = ri.qty_per_batch / upb
+                qty = ri.qty_per_batch * item.batch_qty + per_piece * item.piece_qty
+                mat = ri.raw_material
+                needed[mat.id] = needed.get(mat.id, (mat, Decimal("0")))
+                needed[mat.id] = (mat, needed[mat.id][1] + qty)
+        return needed
 
     def shortages(self):
-        """Raw material shortfall to cover batches_needed — recipe
-        quantities are per batch, not per unit."""
-        batches = self.batches_needed
         result = []
-        for ri in self.finished_good.recipe_items.select_related("raw_material"):
-            needed = ri.qty_per_batch * batches
-            have = ri.raw_material.stock
-            if needed > have:
-                result.append({"name": ri.raw_material.name, "needed": needed, "have": have, "short": needed - have})
+        for mat, needed in self.material_requirements().values():
+            if needed > mat.stock:
+                result.append({"name": mat.name, "needed": needed, "have": mat.stock, "short": needed - mat.stock})
         return result
+
+
+class OrderItem(TimestampedModel):
+    order = models.ForeignKey(Order, related_name="items", on_delete=models.CASCADE)
+    finished_good = models.ForeignKey("inventory.FinishedGood", on_delete=models.PROTECT)
+    batch_qty = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    piece_qty = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    discount = models.DecimalField(max_digits=12, decimal_places=2, default=0, blank=True)
+    price = models.DecimalField(max_digits=12, decimal_places=2, default=0,
+        help_text="Snapshot of the product's selling price at order time — set automatically.")
+
+    def __str__(self):
+        return f"{self.finished_good.name} — {self.total_units} units"
+
+    @property
+    def total_units(self):
+        upb = self.finished_good.units_per_batch or Decimal("1")
+        return self.batch_qty * upb + self.piece_qty
+
+    @property
+    def line_total(self):
+        """Discount is applied PER UNIT, not once on the line total — e.g.
+        50 units at 1500 with a 200 discount is (1500-200)*50 = 65,000,
+        not 1500*50-200. Matches how a per-item price cut actually works."""
+        return self.total_units * ((self.price or Decimal("0")) - (self.discount or Decimal("0")))

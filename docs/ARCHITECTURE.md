@@ -29,7 +29,7 @@ storetrack/
                             middleware, dashboard, reports & backup
     inventory/              RawMaterial, FinishedGood, RecipeItem (bill of materials)
     procurement/            PurchaseOrder, PurchaseOrderItem
-    production/             ProductionRequest, ProductionOrder
+    production/             Order, OrderItem (customer orders & physical store restocks)
     sales/                  Sale, SaleItem
   templates/                one dir per app, mirroring the apps/ split
   docs/
@@ -44,24 +44,27 @@ PurchaseOrder --(receive)--> RawMaterial.stock += qty x total_conversion_factor
                               RawMaterial.cost_per_unit updated
 RawMaterial --(recipe, per BATCH)--> FinishedGood     (RecipeItem: qty_per_batch)
 
-Walk-in Sale --(save)--> FinishedGood.stock -= qty                     [immediate]
+Walk-in Sale --(save)--> FinishedGood.stock -= (batch_qty x units_per_batch + piece_qty)  [immediate]
+                          price auto-filled from FinishedGood.selling_price, not entered
 
-Customer Order --(save)--> Sale(status=pending), no stock touched
-  --(linked from)--> ProductionRequest(linked_sale_item)                [manual, per line item]
-  --(linked from)--> ProductionOrder(linked_request)                    [manual, approval step]
-  --(complete)--> batches = ceil(order.qty / units_per_batch)
-                  RawMaterial.stock -= recipe qty_per_batch x batches
-                  FinishedGood.stock += (batches x units_per_batch) - delivered_qty
-                  ProductionRequest -> fulfilled
-                  Sale -> fulfilled  (once EVERY line item's request is fulfilled)
+Order (customer or physical_store) --(created)--> status=pending, nothing touched yet
+  --(approve)--> RawMaterial.stock -= exact batch+piece requirement per line item
+                 (piece portion is proportional: qty_per_batch / units_per_batch x piece_qty —
+                  no rounding up to a whole batch, no surplus production)
+                 status=approved
+  --(complete)--> FinishedGood.total_produced += total_units, always
+                  IF order_type == physical_store: FinishedGood.stock += total_units
+                  IF order_type == customer: stock untouched (delivered directly, never
+                     shelved) — instead a Sale + SaleItem is created automatically
+                     (source=customer_order), appearing on the Sales list
+                  status=completed
+  --(reject)--> only from pending, before any deduction — status=rejected
 ```
 
-Every stock-mutating step above runs inside `transaction.atomic()` and
-checks for shortages first, with an explicit `force` override rather than a
-silent negative-stock write. Quantity is entered once, at the Sale/Customer
-Order — Production Requests and Orders inherit it (enforced server-side in
-each form's `clean()`, not just hidden in the template) rather than asking
-again.
+Every stock-mutating step above runs inside `transaction.atomic()`. Orders are
+approved/completed as a whole (all line items together), not item-by-item.
+Quantity is always entered as exact batches + pieces at order/sale time —
+nothing downstream re-asks for or rounds it.
 
 ## The Business (tenant) pattern
 
@@ -80,7 +83,7 @@ next step. The day there's a second `Business` row, the scoping is already
 correct — verified directly during development by creating a second
 business, confirming `objects.all()` only sees its own rows, and confirming
 `raw_objects.all()` sees both. What's still missing for real multi-location
-is *routing* (deciding which business a request belongs to from the URL or
+is _routing_ (deciding which business a request belongs to from the URL or
 session) — see `CLAUDE.md` §7.
 
 ## Update this file when

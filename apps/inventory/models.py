@@ -33,6 +33,16 @@ class RawMaterial(BusinessOwnedModel):
         return self.stock <= self.reorder_level
 
     @property
+    def is_warning(self):
+        """
+        Triggers amber warning state if stock is above the reorder level,
+        but less than or equal to 150% of the reorder level.
+        """
+        if self.is_low:
+            return False
+        return self.stock <= (self.reorder_level * Decimal("1.5"))
+
+    @property
     def total_conversion_factor(self):
         """Usage units in ONE purchase unit — the number that actually
         matters for receiving stock and costing: package_qty (how much is
@@ -72,7 +82,14 @@ class FinishedGood(BusinessOwnedModel):
     units_per_batch = models.DecimalField(max_digits=12, decimal_places=2, default=1,
         help_text="How many individual units one production batch makes, e.g. 41 loaves per batch. "
                    "Recipe quantities are per BATCH, not per unit. Leave at 1 if you don't produce in batches.")
-    stock = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    stock = models.DecimalField(max_digits=12, decimal_places=2, default=0,
+        help_text="Physical store (shelf) stock — available to sell right now.")
+    total_produced = models.DecimalField(max_digits=14, decimal_places=2, default=0,
+        help_text="Cumulative all-time production (customer orders + physical store restocks). "
+                   "Never decreases — a running total, not current stock.")
+    total_delivered_to_customers = models.DecimalField(max_digits=14, decimal_places=2, default=0,
+        help_text="Cumulative units delivered via completed customer orders. Only updates when an "
+                   "order is completed — same timing as physical store stock, not when merely ordered.")
     reorder_level = models.DecimalField(max_digits=12, decimal_places=2, default=0,
         help_text="In individual units, not batches.")
     selling_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
@@ -87,6 +104,16 @@ class FinishedGood(BusinessOwnedModel):
     @property
     def is_low(self):
         return self.stock <= self.reorder_level
+
+    @property
+    def is_warning(self):
+        """
+        Triggers amber warning state if stock is above the reorder level,
+        but less than or equal to 150% of the reorder level.
+        """
+        if self.is_low:
+            return False
+        return self.stock <= (self.reorder_level * Decimal("1.5"))
 
     @property
     def est_cost(self):
@@ -107,7 +134,7 @@ class RecipeItem(TimestampedModel):
     (a whole batch of dough at once), not how it's shelved/sold."""
     finished_good = models.ForeignKey(FinishedGood, related_name="recipe_items", on_delete=models.CASCADE)
     raw_material = models.ForeignKey(RawMaterial, on_delete=models.CASCADE)
-    qty_per_batch = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    qty_per_batch = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 
     class Meta:
         unique_together = ("finished_good", "raw_material")

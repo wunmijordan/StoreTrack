@@ -1,47 +1,55 @@
 {% extends "base.html" %}
 {% block content %}
-<h2 class="text-xl font-semibold font-display text-[#1E4536] mb-4">New sale</h2>
+<h2 class="text-xl font-semibold font-display text-[#1E4536] mb-1">New sale</h2>
+<p class="text-sm text-stone-500 mb-4">Physical store stock only — immediate, from what's already on the shelf. For a customer order or a restock, use <a href="{% url 'order_add' %}" class="text-[#1E4536] underline">New Order</a> instead.</p>
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-5 max-w-2xl">
   <form method="post" id="sale-form">
     {% csrf_token %}
-    <div class="flex gap-2 mb-3">
-      <label class="flex-1">
-        <input type="radio" name="order_type" value="walkin" class="hidden peer" {% if form.order_type.value == 'walkin' or not form.order_type.value %}checked{% endif %} onchange="toggleSaleType()">
-        <span class="block text-center px-3 py-2 rounded-md text-sm border cursor-pointer peer-checked:bg-[#1E4536] peer-checked:text-white peer-checked:border-[#1E4536] bg-white border-[#D9CFB4] text-stone-600">Walk-in (from stock)</span>
-      </label>
-      <label class="flex-1">
-        <input type="radio" name="order_type" value="customer_order" class="hidden peer" {% if form.order_type.value == 'customer_order' %}checked{% endif %} onchange="toggleSaleType()">
-        <span class="block text-center px-3 py-2 rounded-md text-sm border cursor-pointer peer-checked:bg-[#1E4536] peer-checked:text-white peer-checked:border-[#1E4536] bg-white border-[#D9CFB4] text-stone-600">Customer order (needs production)</span>
-      </label>
-    </div>
-    <p id="order-type-hint" class="text-[11px] text-stone-400 mb-3"></p>
-
-    <div class="grid grid-cols-3 gap-3">
+    <div class="grid grid-cols-2 gap-3">
       {% include "_field.html" with field=form.date %}
       {% include "_field.html" with field=form.customer %}
-      {% include "_field.html" with field=form.payment_method %}
     </div>
+    {% include "_field.html" with field=form.payment_method %}
 
-    <span class="block text-xs font-medium text-stone-600 mb-1">Items</span>
-    <p class="text-[11px] text-stone-400 mb-1">Qty is in individual units — for a batch product, check its batch size on the Inventory page (e.g. 1 batch of Family Loaf = 41, so enter 41).</p>
+    <span class="block text-xs font-medium text-stone-600 mb-1">Products</span>
+    <p class="text-[11px] text-stone-400 mb-1">Batches and/or loose pieces. Price fills in from the product's current selling price.</p>
     {{ formset.management_form }}
     <div class="border border-[#E7DFCC] rounded-md overflow-hidden">
       <table class="w-full text-sm">
         <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
-          <th class="text-left px-2 py-1.5">Product</th><th class="text-right px-2 py-1.5 w-24">Qty</th><th class="text-right px-2 py-1.5 w-28">Price</th><th class="w-16"></th>
+          <th class="text-left px-2 py-1.5">Product</th>
+          <th class="text-right px-2 py-1.5 w-20">Batches</th>
+          <th class="text-right px-2 py-1.5 w-20">Pieces</th>
+          <th class="text-right px-2 py-1.5 w-24">Discount</th>
+          <th class="text-right px-2 py-1.5 w-28">Price / unit</th>
+          <th class="w-10"></th>
         </tr></thead>
         <tbody id="sale-rows">
           {% for f in formset %}
-          <tr {% if forloop.first %}data-formset-row{% endif %} class="border-t border-[#E7DFCC]">
+          <tr {% if forloop.first %}data-formset-row{% endif %} class="border-t border-[#E7DFCC]" data-row>
             <td class="px-2 py-1.5">{{ f.id }}{{ f.finished_good }}</td>
-            <td class="px-2 py-1.5">{{ f.qty }}</td>
-            <td class="px-2 py-1.5">{{ f.price }}</td>
-            <td class="px-2 py-1.5 text-center text-xs text-rose-600">{% if f.instance.pk %}<label>{{ f.DELETE }} remove</label>{% endif %}</td>
+            <td class="px-2 py-1.5">{{ f.batch_qty }}</td>
+            <td class="px-2 py-1.5">{{ f.piece_qty }}</td>
+            <td class="px-2 py-1.5">{{ f.discount }}</td>
+            <td class="px-2 py-1.5 text-right text-xs text-stone-500 font-mono price-display">—</td>
+            <td class="px-2 py-1.5 text-center">
+              {% if f.instance.pk %}
+              <label class="cursor-pointer text-rose-500 hover:text-rose-700" title="Remove">{{ f.DELETE }}🗑</label>
+              {% else %}
+              <button type="button" onclick="removeRow(this)" class="text-rose-500 hover:text-rose-700" title="Remove">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-trash">
+                  <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+                  <path d="M4 7l16 0" /><path d="M10 11l0 6" /><path d="M14 11l0 6" />
+                  <path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" /><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" />
+                </svg>
+              </button>
+              {% endif %}
+            </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
-      <button type="button" onclick="addFormsetRow('items','sale-rows')" class="w-full text-xs text-[#1E4536] font-medium py-2 hover:bg-[#F0EAD9]">+ Add item</button>
+      <button type="button" onclick="addFormsetRow('items','sale-rows'); wireRows();" class="w-full text-xs text-[#1E4536] font-medium py-2 hover:bg-[#F0EAD9]">+ Add product</button>
     </div>
 
     {% if shortages %}
@@ -50,25 +58,34 @@
       <ul class="list-disc list-inside">
         {% for s in shortages %}<li>{{ s.name }} — short by {{ s.short }}</li>{% endfor %}
       </ul>
-      <p class="mt-1">Saving anyway will take stock negative. If this should be a customer order instead (production makes it, rather than pulling from what's on the shelf), switch the toggle above instead of forcing this.</p>
+      <p class="mt-1">Saving anyway will take stock negative.</p>
     </div>
     <input type="hidden" name="force" value="1">
     {% endif %}
 
     <div class="flex justify-end gap-2 mt-4">
       <a href="{% url 'sales_list' %}" class="px-3.5 py-2 text-sm rounded-md text-stone-500 hover:bg-stone-100">Cancel</a>
-      <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">{% if shortages %}Save anyway{% else %}Save{% endif %}</button>
+      <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">{% if shortages %}Save anyway{% else %}Save sale{% endif %}</button>
     </div>
   </form>
 </div>
+{{ prices|json_script:"fg-prices" }}
 <script>
-  function toggleSaleType() {
-    const type = document.querySelector('input[name="order_type"]:checked').value;
-    const hint = document.getElementById('order-type-hint');
-    hint.textContent = type === 'walkin'
-      ? 'Deducts from existing store stock immediately. Checked for shortages on save.'
-      : 'Saved as pending — no stock touched yet. Link each item from a Production Request to start making it; the sale flips to fulfilled automatically once production completes.';
+  const PRICES = JSON.parse(document.getElementById('fg-prices').textContent);
+  function removeRow(btn) { btn.closest('tr').remove(); }
+  function wireRows() {
+    document.querySelectorAll('#sale-rows tr[data-row]').forEach((row) => {
+      const select = row.querySelector('select');
+      const priceCell = row.querySelector('.price-display');
+      if (!select || select.dataset.wired) return;
+      select.dataset.wired = '1';
+      select.addEventListener('change', () => {
+        const price = PRICES[select.value];
+        priceCell.textContent = price ? '≈ ' + price : '—';
+      });
+      if (select.value && PRICES[select.value]) priceCell.textContent = '≈ ' + PRICES[select.value];
+    });
   }
-  toggleSaleType();
+  wireRows();
 </script>
 {% endblock %}

@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from .forms import SaleForm, SaleItemFormSet
 from .models import Sale
+from inventory.models import FinishedGood
 
 
 def today():
@@ -23,46 +24,50 @@ def sales_list(request):
 
 @login_required
 def sale_form(request):
+    """Physical store stock only — immediate, deducts from existing shelf
+    stock right away. For a customer order or a physical store restock
+    (production needed first), use the Orders page instead."""
     if request.method == "POST":
         form = SaleForm(request.POST)
         formset = SaleItemFormSet(request.POST, instance=Sale())
         if form.is_valid() and formset.is_valid():
-            order_type = form.cleaned_data["order_type"]
             force = request.POST.get("force") == "1"
-            if order_type == "walkin":
-                shortages = []
-                for f in formset.forms:
-                    if not f.cleaned_data or f.cleaned_data.get("DELETE"):
-                        continue
-                    good = f.cleaned_data["finished_good"]
-                    qty = f.cleaned_data["qty"]
-                    if qty > good.stock:
-                        shortages.append({"name": good.name, "needed": qty, "have": good.stock, "short": qty - good.stock})
-                if shortages and not force:
-                    return render(request, "sales/sale_form.html", {"form": form, "formset": formset, "shortages": shortages})
+            shortages = []
+            for f in formset.forms:
+                if not f.cleaned_data or f.cleaned_data.get("DELETE"):
+                    continue
+                good = f.cleaned_data["finished_good"]
+                upb = good.units_per_batch or Decimal("1")
+                total_units = (f.cleaned_data.get("batch_qty") or Decimal("0")) * upb + (f.cleaned_data.get("piece_qty") or Decimal("0"))
+                if total_units > good.stock:
+                    shortages.append({"name": good.name, "needed": total_units, "have": good.stock, "short": total_units - good.stock})
+            if shortages and not force:
+                prices = {str(g.pk): f"{g.selling_price}" for g in FinishedGood.objects.all()}
+                return render(request, "sales/sale_form.html", {"form": form, "formset": formset, "shortages": shortages, "prices": prices})
             with transaction.atomic():
                 sale = form.save(commit=False)
                 sale.business = request.business
                 sale.created_by = request.user
-                sale.status = "fulfilled" if order_type == "walkin" else "pending"
+                sale.source = "walkin"
                 sale.save()
                 formset.instance = sale
-                formset.save()
-                if order_type == "walkin":
-                    for item in sale.items.select_related("finished_good"):
-                        good = item.finished_good
-                        good.stock = good.stock - item.qty
-                        good.save()
-            if order_type == "walkin":
-                messages.success(request, "Sale recorded.")
-            else:
-                messages.success(request, "Customer order recorded as pending — link each item from a "
-                                           "Production Request when you're ready to start making it.")
+                items = formset.save(commit=False)
+                for item in items:
+                    item.price = item.finished_good.selling_price
+                    item.save()
+                for obj in formset.deleted_objects:
+                    obj.delete()
+                for item in sale.items.select_related("finished_good"):
+                    good = item.finished_good
+                    good.stock = good.stock - item.total_units
+                    good.save()
+            messages.success(request, "Sale recorded.")
             return redirect("sales_list")
     else:
-        form = SaleForm(initial={"date": today(), "customer": "Walk-in", "order_type": "walkin"})
+        form = SaleForm(initial={"date": today(), "customer": "Walk-in"})
         formset = SaleItemFormSet(instance=Sale())
-    return render(request, "sales/sale_form.html", {"form": form, "formset": formset})
+    prices = {str(g.pk): f"{g.selling_price}" for g in FinishedGood.objects.all()}
+    return render(request, "sales/sale_form.html", {"form": form, "formset": formset, "prices": prices})
 
 
 @login_required

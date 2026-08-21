@@ -6,6 +6,7 @@ from django.utils import timezone
 
 from .forms import PurchaseOrderForm, PurchaseOrderItemFormSet
 from .models import PurchaseOrder
+from inventory.models import RawMaterial
 
 
 def today():
@@ -43,7 +44,8 @@ def po_form(request, pk=None):
     else:
         form = PurchaseOrderForm(instance=obj, initial=None if obj else {"date": today()})
         formset = PurchaseOrderItemFormSet(instance=obj)
-    return render(request, "procurement/po_form.html", {"form": form, "formset": formset, "obj": obj})
+    current_costs = {str(m.pk): f"{m.cost_per_purchase_unit:.2f}" for m in RawMaterial.objects.all()}
+    return render(request, "procurement/po_form.html", {"form": form, "formset": formset, "obj": obj, "current_costs": current_costs})
 
 
 @login_required

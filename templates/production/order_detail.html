@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% load core_extras %}
+{% block content %}
+<div class="flex items-center gap-2 mb-1">
+  <h2 class="text-xl font-semibold font-display text-[#1E4536]">Order #{{ order.pk }}</h2>
+  <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium border {% if order.order_type == 'customer' %}bg-sky-50 text-sky-800 border-sky-300{% else %}bg-violet-50 text-violet-800 border-violet-300{% endif %}">{{ order.get_order_type_display }}</span>
+  <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium border capitalize
+    {% if order.status == 'pending' %}bg-amber-50 text-amber-800 border-amber-300
+    {% elif order.status == 'approved' %}bg-sky-50 text-sky-800 border-sky-300
+    {% elif order.status == 'completed' %}bg-emerald-50 text-emerald-800 border-emerald-300
+    {% else %}bg-stone-100 text-stone-500 border-stone-300{% endif %}">{{ order.get_status_display }}</span>
+</div>
+<p class="text-sm text-stone-500 mb-4">
+  {% if order.order_type == 'customer' %}For {{ order.customer_name }} — will appear on the Sales list once completed.
+  {% else %}Physical store restock — adds to shelf stock once completed, no sale involved.{% endif %}
+</p>
+
+<div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-5 max-w-2xl mb-4">
+  <table class="w-full text-sm mb-3">
+    <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
+      <th class="text-left px-2 py-1.5">Product</th><th class="text-right px-2 py-1.5">Batches</th><th class="text-right px-2 py-1.5">Pieces</th><th class="text-right px-2 py-1.5">Total units</th><th class="text-right px-2 py-1.5">Price</th><th class="text-right px-2 py-1.5">Discount</th><th class="text-right px-2 py-1.5">Line total</th>
+    </tr></thead>
+    <tbody>
+      {% for i in order.items.all %}
+      <tr class="border-t border-[#E7DFCC]">
+        <td class="px-2 py-1.5">{{ i.finished_good.name }}</td>
+        <td class="px-2 py-1.5 text-right font-mono">{{ i.batch_qty|num }}</td>
+        <td class="px-2 py-1.5 text-right font-mono">{{ i.piece_qty|num }}</td>
+        <td class="px-2 py-1.5 text-right font-mono font-medium">{{ i.total_units|num }}</td>
+        <td class="px-2 py-1.5 text-right font-mono">{{ i.price|money:biz.currency_symbol }}</td>
+        <td class="px-2 py-1.5 text-right font-mono">{{ i.discount|money:biz.currency_symbol }}</td>
+        <td class="px-2 py-1.5 text-right font-mono">{{ i.line_total|money:biz.currency_symbol }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if order.order_type == 'customer' %}
+  <div class="text-right text-sm font-semibold">Total: {{ order.total|money:biz.currency_symbol }}</div>
+  {% endif %}
+  {% if order.notes %}<p class="text-xs text-stone-500 mt-2">Notes: {{ order.notes }}</p>{% endif %}
+</div>
+
+{% if shortages %}
+<div class="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-md p-3 mb-4 max-w-2xl">
+  <div class="font-medium mb-1">⚠ Not enough raw material to approve:</div>
+  <ul class="list-disc list-inside">
+    {% for s in shortages %}<li>{{ s.name }} — need {{ s.needed|num }}, have {{ s.have|num }}, short by {{ s.short|num }}</li>{% endfor %}
+  </ul>
+  {% if confirm_approve %}
+  <form method="post" action="{% url 'order_approve' order.pk %}" class="mt-2">
+    {% csrf_token %}<input type="hidden" name="force" value="1">
+    <button type="submit" class="px-3 py-1.5 text-xs rounded-md font-medium bg-rose-600 text-white hover:bg-rose-700">Approve anyway (raw materials go negative)</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="flex gap-2">
+  {% if order.status == 'pending' %}
+  <a href="{% url 'order_edit' order.pk %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#1E4536] hover:bg-[#E7DFCC] border border-[#D9CFB4]">Edit</a>
+  <form method="post" action="{% url 'order_approve' order.pk %}">{% csrf_token %}
+    <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">Approve — release raw materials</button>
+  </form>
+  <form method="post" action="{% url 'order_reject' order.pk %}" onsubmit="return confirm('Reject this order?');">{% csrf_token %}
+    <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200">Reject</button>
+  </form>
+  {% endif %}
+  {% if order.status == 'approved' %}
+  <form method="post" action="{% url 'order_complete' order.pk %}">{% csrf_token %}
+    <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">Complete — add finished goods</button>
+  </form>
+  {% endif %}
+  {% if order.status == 'pending' or order.status == 'rejected' %}
+  <form method="post" action="{% url 'order_delete' order.pk %}" onsubmit="return confirm('Delete this order?');">{% csrf_token %}
+    <button type="submit" class="px-3.5 py-2 text-sm rounded-md text-stone-500 hover:bg-stone-100">Delete</button>
+  </form>
+  {% endif %}
+  <a href="{% url 'orders_list' %}" class="px-3.5 py-2 text-sm rounded-md text-stone-500 hover:bg-stone-100">Back to Orders</a>
+</div>
+{% endblock %}

@@ -57,13 +57,13 @@ to a business through `core.models.BusinessOwnedModel`, which mirrors
 
 ## 4. App boundaries
 
-| App | Owns |
-| --- | --- |
-| `core` | `Business`, base model classes, dashboard, reports/backup, business settings |
-| `inventory` | `RawMaterial`, `FinishedGood`, `RecipeItem` (bill of materials) |
-| `procurement` | `PurchaseOrder`, `PurchaseOrderItem` |
-| `production` | `ProductionRequest`, `ProductionOrder` |
-| `sales` | `Sale`, `SaleItem` |
+| App           | Owns                                                                                                                                                       |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `core`        | `Business`, base model classes, dashboard, reports/backup, business settings                                                                               |
+| `inventory`   | `RawMaterial`, `FinishedGood`, `RecipeItem` (bill of materials)                                                                                            |
+| `procurement` | `PurchaseOrder`, `PurchaseOrderItem`                                                                                                                       |
+| `production`  | `Order`, `OrderItem` — customer orders (made to order, delivered directly) and physical store restocks (add to shelf stock), approved/completed as a whole |
+| `sales`       | `Sale`, `SaleItem`                                                                                                                                         |
 
 Cross-app foreign keys use the string form (`"inventory.FinishedGood"`) to
 avoid import-order issues — keep doing this for any new cross-app FK.
@@ -71,12 +71,14 @@ avoid import-order issues — keep doing this for any new cross-app FK.
 ## 5. Editing checklist
 
 Before editing:
+
 - Identify which app(s) the change touches. Model changes usually mean a
   migration in that app only.
 - If the change adds a new top-level (non-line-item) model, inherit
   `BusinessOwnedModel` and set `business` in its create view.
 
 After editing:
+
 - `python manage.py check`
 - `python manage.py makemigrations` and review the diff before `migrate`
 - If you touched a stock-mutating view, re-run it through the actual
@@ -103,7 +105,7 @@ there's currently one business and no need for them. If/when they're
 needed, follow ChurchForce's pattern for the equivalent piece rather than
 inventing a new approach:
 
-- Real tenant *routing* (subdomain/path/custom-domain resolution) — today
+- Real tenant _routing_ (subdomain/path/custom-domain resolution) — today
   `Business.default()` just returns the one row. Multi-location would need
   a `TenantMiddleware`-style resolver here.
 - Role/permission tiers — today everyone who can log in can do everything.
