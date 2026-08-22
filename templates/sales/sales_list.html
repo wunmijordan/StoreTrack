@@ -15,10 +15,10 @@
 {% if not sales %}
   <div class="text-center py-10 text-sm text-stone-400 italic">No sales recorded yet.</div>
 {% else %}
-<div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm overflow-x-auto">
-  <table class="w-full text-sm">
-    <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
-      <th class="text-left px-3 py-2">Date</th><th class="text-left px-3 py-2">Customer</th><th class="text-left px-3 py-2">Items</th><th class="text-right px-3 py-2">Total</th><th class="text-left px-3 py-2">Source</th><th class="text-left px-3 py-2">Payment</th><th class="text-left px-3 py-2">Logged by</th><th class="w-16"></th>
+<div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] mb-8 overflow-x-auto overflow-y-auto max-h-[28rem]">
+  <table class="min-w-max w-full text-sm">
+    <thead class="bg-[#F0EAD9] text-stone-600 text-md text-middle"><tr>
+      <th class="px-3 py-2">Date</th><th class="px-3 py-2">Customer</th><th class="px-3 py-2">Items</th><th class="px-3 py-2">Total</th><th class="px-3 py-2">Source</th><th class="px-3 py-2">Payment</th><th class="px-3 py-2">Logged by</th><th class="w-24"></th>
     </tr></thead>
     <tbody>
       {% for s in sales %}

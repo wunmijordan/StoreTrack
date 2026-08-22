@@ -15,10 +15,10 @@
   {% else %}Physical store restock — adds to shelf stock once completed, no sale involved.{% endif %}
 </p>
 
-<div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-5 max-w-2xl mb-4">
-  <table class="w-full text-sm mb-3">
-    <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
-      <th class="text-left px-2 py-1.5">Product</th><th class="text-right px-2 py-1.5">Batches</th><th class="text-right px-2 py-1.5">Pieces</th><th class="text-right px-2 py-1.5">Total units</th><th class="text-right px-2 py-1.5">Price</th><th class="text-right px-2 py-1.5">Discount</th><th class="text-right px-2 py-1.5">Line total</th>
+<div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] mb-8 overflow-x-auto overflow-y-auto max-h-[28rem]">
+  <table class="min-w-max w-full text-sm">
+    <thead class="bg-[#F0EAD9] text-stone-600 text-md text-middle"><tr>
+      <th class="px-2 py-1.5">Product</th><th class="px-2 py-1.5">Batches</th><th class="px-2 py-1.5">Pieces</th><th class="px-2 py-1.5">Total units</th><th class="px-2 py-1.5">Price</th><th class="px-2 py-1.5">Discount</th><th class="px-2 py-1.5">Line total</th>
     </tr></thead>
     <tbody>
       {% for i in order.items.all %}

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h2 class="text-xl font-semibold font-display text-[#1E4536] mb-4">{% if obj %}Edit order{% else %}New order{% endif %}</h2>
-<div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-5 max-w-2xl">
+<div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] p-5 max-w-2xl">
   {% if formset.non_field_errors %}
     <div class="text-sm bg-rose-50 text-rose-700 border border-rose-200 rounded-md px-3 py-2 mb-3">{{ formset.non_field_errors }}</div>
   {% endif %}
@@ -48,9 +48,21 @@
             <td class="px-2 py-1.5 text-right text-xs text-stone-500 font-mono price-display">—</td>
             <td class="px-2 py-1.5 text-center">
               {% if f.instance.pk %}
-              <label class="cursor-pointer text-rose-500 hover:text-rose-700" title="Remove">{{ f.DELETE }}🗑</label>
+              <label class="cursor-pointer text-rose-500 hover:text-rose-700" title="Remove">{{ f.DELETE }}
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-trash">
+                  <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+                  <path d="M4 7l16 0" /><path d="M10 11l0 6" /><path d="M14 11l0 6" />
+                  <path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" /><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" />
+                </svg>
+              </label>
               {% else %}
-              <button type="button" onclick="removeRow(this)" class="text-rose-500 hover:text-rose-700" title="Remove">🗑</button>
+              <button type="button" onclick="removeRow(this)" class="text-rose-500 hover:text-rose-700" title="Remove">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-trash">
+                  <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+                  <path d="M4 7l16 0" /><path d="M10 11l0 6" /><path d="M14 11l0 6" />
+                  <path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" /><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" />
+                </svg>
+              </button>
               {% endif %}
             </td>
           </tr>

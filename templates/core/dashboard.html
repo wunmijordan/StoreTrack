@@ -5,40 +5,76 @@
 <p class="text-sm text-stone-500 mt-0.5 mb-6">{% now "l, j F Y" %}</p>
 
 <div class="flex flex-wrap gap-3 mb-4">
-  <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-4 flex-1 min-w-[140px]">
-    <div class="text-[11px] uppercase tracking-wider text-stone-500 font-medium">Raw materials</div>
+  <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[-2px_-2px_8px_#000000d2] p-4 flex-1 min-w-[140px]">
+    <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#1E4536] block mb-1 gap-2">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0897cf" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-grain">
+        <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M3.5 9.5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M8.5 4.5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
+        <path d="M8.5 14.5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M3.5 19.5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M13.5 9.5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
+        <path d="M18.5 4.5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M13.5 19.5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M18.5 14.5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
+      </svg>
+      Raw materials
+    </div>
     <div class="text-2xl font-semibold mt-1 font-mono text-[#1E4536]">{{ raw_count }}</div>
   </div>
-  <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-4 flex-1 min-w-[140px]">
-    <div class="text-[11px] uppercase tracking-wider text-stone-500 font-medium">Products</div>
+  <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[-2px_-2px_8px_#000000d2] p-4 flex-1 min-w-[140px]">
+    <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#1E4536] block mb-1 gap-2">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ceec25" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-burger">
+        <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M4 15h16a4 4 0 0 1 -4 4h-8a4 4 0 0 1 -4 -4" /><path d="M12 4c3.783 0 6.953 2.133 7.786 5h-15.572c.833 -2.867 4.003 -5 7.786 -5" /><path d="M5 12h14" />
+      </svg>
+      Products
+    </div>
     <div class="text-2xl font-semibold mt-1 font-mono text-[#1E4536]">{{ goods_count }}</div>
   </div>
-  <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-4 flex-1 min-w-[140px]">
-    <div class="text-[11px] uppercase tracking-wider text-stone-500 font-medium">Today's sales</div>
+  <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] p-4 flex-1 min-w-[140px]">
+    <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#1E4536] block mb-1 gap-2">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#25ECE6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-cash-register">
+        <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M21 15h-2.5c-.398 0 -.779 .158 -1.061 .439c-.281 .281 -.439 .663 -.439 1.061c0 .398 .158 .779 .439 1.061c.281 .281 .663 .439 1.061 .439h1c.398 0 .779 .158 1.061 .439c.281 .281 .439 .663 .439 1.061c0 .398 -.158 .779 -.439 1.061c-.281 .281 -.663 .439 -1.061 .439h-2.5" />
+        <path d="M19 21v1m0 -8v1" /><path d="M13 21h-7c-.53 0 -1.039 -.211 -1.414 -.586c-.375 -.375 -.586 -.884 -.586 -1.414v-10c0 -.53 .211 -1.039 .586 -1.414c.375 -.375 .884 -.586 1.414 -.586h2m12 3.12v-1.12c0 -.53 -.211 -1.039 -.586 -1.414c-.375 -.375 -.884 -.586 -1.414 -.586h-2" />
+        <path d="M16 10v-6c0 -.53 -.211 -1.039 -.586 -1.414c-.375 -.375 -.884 -.586 -1.414 -.586h-4c-.53 0 -1.039 .211 -1.414 .586c-.375 .375 -.586 .884 -.586 1.414v6m8 0h-8m8 0h1m-9 0h-1" /><path d="M8 14v.01" /><path d="M8 17v.01" /><path d="M12 13.99v.01" /><path d="M12 17v.01" />
+      </svg>
+      Today's sales
+    </div>
     <div class="text-2xl font-semibold mt-1 font-mono text-emerald-700">{{ today_revenue|money:biz.currency_symbol }}</div>
     <div class="text-xs text-stone-400 mt-0.5">{{ today_sales_count }} transaction{{ today_sales_count|pluralize }}</div>
   </div>
-  <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-4 flex-1 min-w-[140px]">
-    <div class="text-[11px] uppercase tracking-wider text-stone-500 font-medium">Pending orders</div>
+  <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[2px_-2px_8px_#000000d2] p-4 flex-1 min-w-[140px]">
+    <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#1E4536] block mb-1 gap-2">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#dd2f3e88" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-loader-4">
+        <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M12 21v-3m6.36 .36l-2.12 -2.12m4.76 -4.24h-3m.36 -6.36l-2.12 2.12m-4.24 -4.76v3m-6.36 -.36l2.12 2.12m-3.76 4.24h2m1 4.95l.71 -.71" />
+      </svg>
+      Pending orders
+    </div>
     <div class="text-2xl font-semibold mt-1 font-mono {% if pending_orders_count %}text-rose-700{% else %}text-[#1E4536]{% endif %}">{{ pending_orders_count }}</div>
   </div>
-  <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-4 flex-1 min-w-[140px]">
-    <div class="text-[11px] uppercase tracking-wider text-stone-500 font-medium">Made today</div>
+  <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[2px_-2px_8px_#000000d2] p-4 flex-1 min-w-[140px]">
+    <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#1E4536] block mb-1 gap-2">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2825ec" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-circle-dashed-check">
+        <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M8.56 3.69a9 9 0 0 0 -2.92 1.95" /><path d="M3.69 8.56a9 9 0 0 0 -.69 3.44" /><path d="M3.69 15.44a9 9 0 0 0 1.95 2.92" /><path d="M8.56 20.31a9 9 0 0 0 3.44 .69" />
+        <path d="M15.44 20.31a9 9 0 0 0 2.92 -1.95" /><path d="M20.31 15.44a9 9 0 0 0 .69 -3.44" /><path d="M20.31 8.56a9 9 0 0 0 -1.95 -2.92" /><path d="M15.44 3.69a9 9 0 0 0 -3.44 -.69" /><path d="M9 12l2 2l4 -4" />
+      </svg>
+      Made today
+    </div>
     <div class="text-2xl font-semibold mt-1 font-mono text-[#1E4536]">{{ daily_units_made|num }}</div>
-    <div class="text-xs text-stone-400 mt-0.5">finished goods units</div>
+    <div class="text-xs text-stone-400 mt-0.5">Finished Goods Units</div>
   </div>
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6 items-stretch">
   <!-- Interactive Alerts Status Card -->
-  <div x-data="{ openModal: null }" class="lg:col-span-1 border border-[#D9CFB4] bg-white rounded-xl p-5 shadow-sm flex flex-col justify-between h-full">
+  <div x-data="{ openModal: null }" class="lg:col-span-1 border-[2px] border-[#f59f00] bg-white rounded-xl p-5 shadow-[-2px_-2px_8px_#000000d2] flex flex-col justify-between h-full">
     <div>
-      <span class="text-xs uppercase tracking-wider font-bold text-stone-500 block mb-1">Stock Health Status</span>
+      <span class="text-xs flex items-center uppercase tracking-wider font-bold text-[#1E4536] block mb-1 gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-heart-rate-monitor">
+          <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1l0 -10" />
+          <path d="M7 20h10" /><path d="M9 16v4" /><path d="M15 16v4" /><path d="M7 10h2l2 3l2 -6l1 3h3" />
+        </svg>
+        Stock Health Status
+      </span>
       <div class="flex items-baseline gap-2">
         <span class="text-3xl font-black text-stone-800 tracking-tight">
           {{ total_low_count|add:total_warning_count }}
         </span>
-        <span class="text-xs text-stone-400 font-medium">items require attention</span>
+        <span class="text-md text-stone-400 font-medium">Items Require Attention</span>
       </div>
     </div>
     
@@ -162,56 +198,66 @@
     </div>
   </div>
 
-<div class="lg:col-span-2 bg-[#FFFDF8] border border-[#E7DFCC] rounded-xl shadow-sm p-5 h-full">
-  <!-- Card Header -->
-  <div class="flex items-center justify-between border-b border-[#E7DFCC]/60 pb-3 mb-4">
-    <h3 class="text-sm font-bold text-stone-800 tracking-tight flex items-center gap-1.5">
-      📊 Production & Revenue Analytics
-    </h3>
-    <span class="text-[11px] font-medium text-stone-400 bg-stone-100 rounded-full px-2 py-0.5">Live tracking</span>
-  </div>
-
-  <!-- Performance Comparison Grid -->
-  <div class="grid grid-cols-2 gap-x-6 divide-x divide-[#E7DFCC]/60">
-    <!-- Month Column -->
-    <div class="space-y-2.5">
-      <div class="text-[11px] uppercase tracking-wider text-stone-500 font-bold">This Month</div>
-      <div class="flex flex-col">
-        <span class="text-xs text-stone-400 font-medium">Sales Revenue</span>
-        <span class="text-xl font-mono font-bold text-emerald-700 tracking-tight">
-          {{ monthly_revenue|money:biz.currency_symbol }}
-        </span>
-      </div>
-      <div class="flex items-center justify-between text-xs pt-1 border-t border-dashed border-[#E7DFCC]/40">
-        <span class="text-stone-500">Goods Finished</span>
-        <span class="font-mono font-semibold text-stone-700 bg-stone-100/80 px-1.5 py-0.5 rounded">{{ monthly_units|num }}</span>
-      </div>
+  <div class="lg:col-span-2 bg-[#F5EFE0] border border-[#E7DFCC] rounded-xl shadow-[2px_-2px_8px_#000000d2] p-5 h-full">
+    <!-- Card Header -->
+    <div class="flex items-center justify-between border-b border-[#E7DFCC]/60 pb-3 mb-4">
+      <h3 class="text-xs flex items-center justify-between uppercase tracking-tight font-bold text-[#1E4536] mb-1 gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#de08f1ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-device-analytics">
+          <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+          <path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1l0 -10" /><path d="M7 20l10 0" />
+          <path d="M9 16l0 4" /><path d="M15 16l0 4" /><path d="M8 12l3 -3l2 2l3 -3" />
+        </svg> 
+        Production & Revenue Analytics
+      </h3>
+      <span class="text-[11px] font-medium text-stone-400 bg-stone-100 rounded-full px-2 py-0.5">Live Tracking</span>
     </div>
 
-    <!-- Year Column -->
-    <div class="space-y-2.5 pl-6">
-      <div class="text-[11px] uppercase tracking-wider text-stone-500 font-bold">This Year</div>
-      <div class="flex flex-col">
-        <span class="text-xs text-stone-400 font-medium">Sales Revenue</span>
-        <span class="text-xl font-mono font-bold text-emerald-800 tracking-tight">
-          {{ yearly_revenue|money:biz.currency_symbol }}
-        </span>
+    <!-- Performance Comparison Grid -->
+    <div class="grid grid-cols-2 gap-x-6 divide-x divide-[#E7DFCC]/60">
+      <!-- Month Column -->
+      <div class="space-y-2.5">
+        <div class="text-[11px] uppercase tracking-wider text-stone-500 font-bold">This Month</div>
+        <div class="flex flex-col">
+          <span class="text-xs text-stone-400 font-medium">Sales Revenue</span>
+          <span class="text-xl font-mono font-bold text-emerald-700 tracking-tight">
+            {{ monthly_revenue|money:biz.currency_symbol }}
+          </span>
+        </div>
+        <div class="flex items-center justify-between text-xs pt-1 border-t border-dashed border-[#E7DFCC]/40">
+          <span class="text-stone-500">Goods Finished</span>
+          <span class="font-mono font-semibold text-stone-700 bg-stone-100/80 px-1.5 py-0.5 rounded">{{ monthly_units|num }}</span>
+        </div>
       </div>
-      <div class="flex items-center justify-between text-xs pt-1 border-t border-dashed border-[#E7DFCC]/40">
-        <span class="text-stone-500">Goods Finished</span>
-        <span class="font-mono font-semibold text-stone-700 bg-stone-100/80 px-1.5 py-0.5 rounded">{{ yearly_units|num }}</span>
+
+      <!-- Year Column -->
+      <div class="space-y-2.5 pl-6">
+        <div class="text-[11px] uppercase tracking-wider text-stone-500 font-bold">This Year</div>
+        <div class="flex flex-col">
+          <span class="text-xs text-stone-400 font-medium">Sales Revenue</span>
+          <span class="text-xl font-mono font-bold text-emerald-800 tracking-tight">
+            {{ yearly_revenue|money:biz.currency_symbol }}
+          </span>
+        </div>
+        <div class="flex items-center justify-between text-xs pt-1 border-t border-dashed border-[#E7DFCC]/40">
+          <span class="text-stone-500">Goods Finished</span>
+          <span class="font-mono font-semibold text-stone-700 bg-stone-100/80 px-1.5 py-0.5 rounded">{{ yearly_units|num }}</span>
+        </div>
       </div>
     </div>
   </div>
 </div>
-</div>
 
-<div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-4 mb-6">
+<div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] p-4 mb-6">
   <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
-    <h3 class="font-semibold text-sm text-[#1E4536]">Stock movement</h3>
+    <h3 class="text-xs flex items-center justify-between uppercase tracking-tight font-bold text-[#1E4536] mb-1 gap-2">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ec2546" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-trending-up-3">
+        <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M18 5l3 3l-3 3" /><path d="M3 18h2.397a5 5 0 0 0 4.096 -2.133l4.014 -5.734a5 5 0 0 1 4.096 -2.133h3.397" />
+      </svg>
+      Stock movement
+    </h3>
     <form method="get" class="flex items-center gap-2">
-      <select name="stock_item" onchange="this.form.submit()" class="rounded-md border border-[#D9CFB4] bg-white px-2.5 py-1.5 text-sm min-w-[220px]">
-        <option value="">Select a raw material or product…</option>
+      <select name="stock_item" onchange="this.form.submit()" class="rounded-md border border-[#D9CFB4] shadow-[inset_0_2px_8px_#000000d2] bg-white px-2.5 py-1.5 text-sm min-w-[220px]">
+        <option value="">Select a Raw Material or Product…</option>
         <optgroup label="Raw materials">
           {% for m in all_raw_materials %}
           <option value="raw:{{ m.pk }}" {% if selected_kind == 'raw' and selected_pk == m.pk|stringformat:'s' %}selected{% endif %}>{{ m.name }}</option>
@@ -247,10 +293,15 @@
   {% endif %}
 </div>
 
-<div class="border border-[#D9CFB4] bg-white rounded-lg p-4 shadow-sm">
+<div class="border-[2px] border-[#f59f00] bg-white rounded-lg p-4 shadow-[0_2px_8px_#000000d2]">
   <div class="flex items-center gap-2 mb-4">
-    <span class="text-xl">⚠</span>
-    <h3 class="font-bold text-stone-800 text-lg">Stock alerts</h3>
+    <span class="text-xl text-[#f91616]">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-alert-triangle">
+        <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M12 9v4" />
+        <path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0" /><path d="M12 16h.01" />
+      </svg>
+    </span>
+    <h3 class="font-bold text-[#f59f00] uppercase text-lg animate-pulse">Stock alerts</h3>
   </div>
 
   {% if not low_raw and not low_goods and not warning_raw and not warning_goods %}
@@ -267,7 +318,7 @@
           </div>
           <div class="text-right">
             <span class="text-sm font-bold text-amber-800">{{ m.stock|num }} {{ m.usage_unit }}</span>
-            <div class="text-[11px] text-stone-500">reorder threshold: {{ m.reorder_level|num }}</div>
+            <div class="text-[11px] text-stone-500">Reorder threshold: {{ m.reorder_level|num }}</div>
           </div>
         </div>
       {% endfor %}
@@ -280,7 +331,7 @@
           </div>
           <div class="text-right">
             <span class="text-sm font-bold text-amber-800">{{ g.stock|num }} {{ g.unit }}</span>
-            <div class="text-[11px] text-stone-500">reorder threshold: {{ g.reorder_level|num }}</div>
+            <div class="text-[11px] text-stone-500">Reorder threshold: {{ g.reorder_level|num }}</div>
           </div>
         </div>
       {% endfor %}
@@ -294,7 +345,7 @@
           </div>
           <div class="text-right">
             <span class="text-sm font-bold text-red-700">{{ m.stock|num }} {{ m.usage_unit }}</span>
-            <div class="text-[11px] text-stone-500">reorder threshold: {{ m.reorder_level|num }}</div>
+            <div class="text-[11px] text-stone-500">Reorder threshold: {{ m.reorder_level|num }}</div>
           </div>
         </div>
       {% endfor %}
@@ -307,7 +358,7 @@
           </div>
           <div class="text-right">
             <span class="text-sm font-bold text-red-700">{{ g.stock|num }} {{ g.unit }}</span>
-            <div class="text-[11px] text-stone-500">reorder threshold: {{ g.reorder_level|num }}</div>
+            <div class="text-[11px] text-stone-500">Reorder threshold: {{ g.reorder_level|num }}</div>
           </div>
         </div>
       {% endfor %}
@@ -317,14 +368,14 @@
 </div>
 
 <div class="grid sm:grid-cols-3 gap-3 mt-6">
-  <a href="{% url 'po_add' %}" class="p-4 rounded-lg bg-[#1E4536] text-white hover:bg-[#16332A]">
-    <div class="font-medium text-sm">Log a purchase</div><div class="text-xs text-[#D8E3DB]">Record incoming stock from a supplier</div>
+  <a href="{% url 'po_add' %}" class="p-4 rounded-lg bg-[#1E4536] text-white text-center hover:bg-[#16332A] shadow-[0_2px_8px_#000000d2]">
+    <div class="font-medium text-sm">Log a Purchase</div><div class="text-xs text-[#D8E3DB]">Record incoming stock from a supplier</div>
   </a>
-  <a href="{% url 'order_add' %}" class="p-4 rounded-lg bg-[#1E4536] text-white hover:bg-[#16332A]">
-    <div class="font-medium text-sm">New order</div><div class="text-xs text-[#D8E3DB]">Customer order or physical store restock</div>
+  <a href="{% url 'order_add' %}" class="p-4 rounded-lg bg-[#1E4536] text-white text-center hover:bg-[#16332A] shadow-[0_2px_8px_#000000d2]">
+    <div class="font-medium text-sm">New Order</div><div class="text-xs text-[#D8E3DB]">Customer order or physical store restock</div>
   </a>
-  <a href="{% url 'sale_add' %}" class="p-4 rounded-lg bg-[#1E4536] text-white hover:bg-[#16332A]">
-    <div class="font-medium text-sm">Record a sale</div><div class="text-xs text-[#D8E3DB]">Physical store stock, immediate</div>
+  <a href="{% url 'sale_add' %}" class="p-4 rounded-lg bg-[#1E4536] text-white text-center hover:bg-[#16332A] shadow-[0_2px_8px_#000000d2]">
+    <div class="font-medium text-sm">Record a Sale</div><div class="text-xs text-[#D8E3DB]">Physical store stock, immediate</div>
   </a>
 </div>
 {% endblock %}
