@@ -43,13 +43,13 @@
           </button>
           <div class="mt-0.5">
             <span class="inline-block px-1.5 py-0.5 ring-1 ring-inset rounded-full text-[10px] font-medium border">
-            Reorder threshold: {{ m.reorder_level_purchase_units|num }} {{ m.purchase_unit }}
+            Reorder threshold: {{ m.reorder_level_purchase_units|num }} {{ m.purchase_unit }}{{ m.reorder_level_purchase_units|pluralize }}
             </span>
           </div>
         </td>
         <td class="px-3 py-2 text-middle">
           {% if m.has_unit_conversion %}
-            <span class="font-mono">{{ m.stock_breakdown.0 }}</span> <span class="text-stone-400 italic text-xs">{{ m.purchase_unit }}</span>, <span class="font-mono">{{ m.stock_breakdown.1|num }}</span><span class="text-stone-400 italic text-xs">{{ m.usage_unit }}</span>
+            <span class="font-mono">{{ m.stock_breakdown.0 }}</span> <span class="text-stone-400 italic text-xs">{{ m.purchase_unit }}{{ m.stock_breakdown.0|pluralize }}</span>, <span class="font-mono">{{ m.stock_breakdown.1|num }}</span> <span class="text-stone-400 italic text-xs">{{ m.usage_unit }}</span>
             <div class="mt-0.5">
               <span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-mono font-medium border 
                 {% if m.is_low %}
@@ -78,9 +78,9 @@
         <!-- <td class="px-3 py-2 text-right font-mono text-stone-500">{{ m.reorder_level|num }}</td> -->
         <td class="px-3 py-2">
           {% if m.has_unit_conversion %}
-            <span class="font-mono">1</span> <span class="text-stone-400 italic text-xs">{{ m.purchase_unit }}</span> = <span class="font-mono">{{ m.package_qty|num }}</span><span class="text-stone-400 italic text-xs">{{ m.package_unit }}</span>
+            <span class="font-mono">1</span> <span class="text-stone-400 italic text-xs">{{ m.purchase_unit }}</span> = <span class="font-mono">{{ m.package_qty|num }}</span> <span class="text-stone-400 italic text-xs">{{ m.package_unit }}</span>
             {% if m.package_unit != m.usage_unit or m.usage_conversion_factor != 1 %}
-              = <span class="font-mono">{{ m.total_conversion_factor|num }}</span><span class="text-stone-400 italic text-xs">{{ m.usage_unit }}</span>
+              = <span class="font-mono">{{ m.total_conversion_factor|num }}</span> <span class="text-stone-400 italic text-xs">{{ m.usage_unit }}</span>
             {% endif %}
           {% else %}
             {{ m.purchase_unit|default:m.usage_unit }} <span class="text-stone-300">(same as usage)</span>
@@ -163,7 +163,7 @@
         <td class="px-3 py-2 text-right font-mono text-stone-500">{{ g.total_produced|num }}</td>
         <!--<td class="px-3 py-2 text-right font-mono text-stone-500">{{ g.reorder_level|num }}</td>-->
         <td class="px-3 py-2 text-right font-mono">{{ g.selling_price|money:biz.currency_symbol }}</td>
-        <td class="px-3 py-2 text-xs text-stone-500">{{ g.recipe_items.count }} ingredient{{ g.recipe_items.count|pluralize }}</td>
+        <td class="px-3 py-2 text-xs text-stone-500">{{ g.recipe_items.count }} Ingredient{{ g.recipe_items.count|pluralize }}</td>
         <td class="px-3 py-2 text-right">
           <a href="{% url 'finished_good_edit' g.pk %}" class="text-stone-400 hover:text-[#1E4536] mr-2">Edit</a>
           <form action="{% url 'finished_good_delete' g.pk %}" method="post" class="inline" onsubmit="return confirm('Remove {{ g.name }}?');">{% csrf_token %}<button class="text-stone-400 hover:text-rose-600">Delete</button></form>
@@ -190,8 +190,8 @@
   >
     <div class="flex items-start justify-between gap-4 px-5 py-4 border-b border-[#E7DFCC] bg-[#FFFDF8]">
       <div>
-        <h3 id="stock-history-title" class="text-lg font-bold text-[#1E4536]">Stock history</h3>
-        <p id="stock-history-subtitle" class="text-xs text-stone-500 mt-0.5">Production and daily stock flow</p>
+        <h3 id="stock-history-title" class="text-lg font-bold text-[#1E4536]">Stock History</h3>
+        <p id="stock-history-subtitle" class="text-xs text-stone-500 mt-0.5">Production and Daily Stock Flow</p>
       </div>
       <button
         type="button"
@@ -206,30 +206,30 @@
         <span>Loading…</span>
       </div>
       <div class="flex items-center gap-1 rounded-lg bg-white border border-stone-200 p-1" role="group" aria-label="Chart period">
-        <button type="button" class="stock-period-btn px-2.5 py-1 text-xs rounded-md bg-[#1E4536] text-white" data-days="7">7 days</button>
-        <button type="button" class="stock-period-btn px-2.5 py-1 text-xs rounded-md text-stone-600 hover:bg-stone-100" data-days="30">30 days</button>
-        <button type="button" class="stock-period-btn px-2.5 py-1 text-xs rounded-md text-stone-600 hover:bg-stone-100" data-days="90">90 days</button>
+        <button type="button" class="stock-period-btn px-2.5 py-1 text-xs rounded-md bg-[#1E4536] text-white" data-days="7">7 Days</button>
+        <button type="button" class="stock-period-btn px-2.5 py-1 text-xs rounded-md text-stone-600 hover:bg-stone-100" data-days="30">30 Days</button>
+        <button type="button" class="stock-period-btn px-2.5 py-1 text-xs rounded-md text-stone-600 hover:bg-stone-100" data-days="90">90 Days</button>
       </div>
     </div>
 
     <div class="flex-1 min-h-0 overflow-y-auto">
-      <div id="stock-history-loading" class="px-5 py-12 text-center text-sm text-stone-400">Loading stock history…</div>
+      <div id="stock-history-loading" class="px-5 py-12 text-center text-sm text-stone-400">Loading Stock history…</div>
       <div id="stock-history-error" class="hidden px-5 py-12 text-center text-sm text-rose-600"></div>
-      <div id="stock-history-empty" class="hidden px-5 py-12 text-center text-sm text-stone-400">No stock movement history is available for this item yet.</div>
+      <div id="stock-history-empty" class="hidden px-5 py-12 text-center text-sm text-stone-400">No Stock movement history is available for this item yet.</div>
 
       <div id="stock-history-content" class="hidden p-5 space-y-5">
         <div class="rounded-lg border border-[#E7DFCC] bg-[#FFFDF8] p-3">
           <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
-            <div class="text-xs font-bold uppercase tracking-wider text-stone-500">Stock & production</div>
+            <div class="text-xs font-bold uppercase tracking-wider text-stone-500">Stock & Production</div>
             <div id="stock-history-unit-label" class="text-xs text-stone-400"></div>
           </div>
           <div class="overflow-x-auto">
             <svg id="stock-history-chart" viewBox="0 0 900 340" class="w-full min-w-[720px] h-[320px]" role="img" aria-label="Stock balance chart"></svg>
           </div>
           <div class="mt-2 flex flex-wrap gap-4 text-[11px] text-stone-500">
-            <span class="inline-flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm bg-[#1E4536]"></span>Closing stock</span>
-            <span class="inline-flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm bg-emerald-300"></span>Stock in</span>
-            <span class="inline-flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm bg-rose-300"></span>Stock out</span>
+            <span class="inline-flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm bg-[#1E4536]"></span>Closing Stock</span>
+            <span class="inline-flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm bg-emerald-300"></span>Stock In</span>
+            <span class="inline-flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm bg-rose-300"></span>Stock Out</span>
             <span data-production-legend class="inline-flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm bg-sky-300"></span>Production</span>
           </div>
         </div>
@@ -347,15 +347,19 @@
     const latest = rows[rows.length - 1];
     const factor = stockHistoryData.factor ? num(stockHistoryData.factor) : 1;
     const unit = stockHistoryData.purchase_unit || stockHistoryData.usage_unit || '';
+    const quantity = stockHistoryData.quantity || 0;
+
+    // Appends 's' if quantity is not 1 (handles 0, 2, 3, etc.)
+    const displayUnit = quantity === 1 ? unit : `${unit}s`; 
     const latestPurchase = latest && latest.closingPurchaseUnits != null
       ? latest.closingPurchaseUnits
       : latest ? latest.closing / factor : 0;
 
     historySummary.innerHTML = latest ? `
-      <span><strong class="text-stone-700">Latest stock:</strong> ${fmt(latest.closing)} ${stockHistoryData.usage_unit || ''}</span>
-      ${stockHistoryData.total_produced != null ? `<span><strong class="text-stone-700">Total made:</strong> ${fmt(stockHistoryData.total_produced)} ${stockHistoryData.usage_unit || ''}</span>` : ''}
-      ${stockHistoryData.total_delivered_to_customers != null ? `<span><strong class="text-stone-700">Customer orders:</strong> ${fmt(stockHistoryData.total_delivered_to_customers)} ${stockHistoryData.usage_unit || ''}</span>` : ''}
-      <span><strong class="text-stone-700">Purchase units:</strong> ${fmt(latestPurchase)} ${unit}</span>
+      <span><strong class="text-stone-700">Latest Stock:</strong> ${fmt(latest.closing)} ${stockHistoryData.usage_unit || ''}</span>
+      ${stockHistoryData.total_produced != null ? `<span><strong class="text-stone-700">Total Made:</strong> ${fmt(stockHistoryData.total_produced)} ${stockHistoryData.usage_unit || ''}</span>` : ''}
+      ${stockHistoryData.total_delivered_to_customers != null ? `<span><strong class="text-stone-700">Customer Orders:</strong> ${fmt(stockHistoryData.total_delivered_to_customers)} ${stockHistoryData.usage_unit || ''}</span>` : ''}
+      <span><strong class="text-stone-700">Purchase Units:</strong> ${fmt(latestPurchase)} ${stockHistoryData.kind === 'finished' ? unit : displayUnit}</span>
     ` : '<span>No data for this period.</span>';
 
     historyUnitLabel.textContent = `${stockHistoryData.usage_unit || ''}${unit && unit !== stockHistoryData.usage_unit ? ` · ${unit}` : ''}`;
@@ -380,18 +384,18 @@
       const productionCell = isFinishedGood
         ? `
           <td class="px-4 py-2.5 text-right font-mono text-sky-700">
-            +${fmt(row.production)}${stockHistoryData.usage_unit || ''}
+            +${fmt(row.production)} ${stockHistoryData.usage_unit || ''}
           </td>
         `
         : '';
       return `
         <tr class="border-t border-[#E7DFCC]">
           <td class="px-4 py-2.5">${new Date(`${row.date}T00:00:00`).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })}</td>
-          <td class="px-4 py-2.5 text-right font-mono">${fmt(opening)}${stockHistoryData.usage_unit || ''}</td>
+          <td class="px-4 py-2.5 text-right font-mono">${fmt(opening)} ${stockHistoryData.usage_unit || ''}</td>
           ${productionCell}
-          <td class="px-4 py-2.5 text-right font-mono text-emerald-700">+${fmt(row.inflow)}${stockHistoryData.usage_unit || ''}</td>
-          <td class="px-4 py-2.5 text-right font-mono text-rose-700">${fmt(row.outflow)}${stockHistoryData.usage_unit || ''}</td>
-          <td class="px-4 py-2.5 text-right font-mono font-semibold">${fmt(row.closing)}${stockHistoryData.usage_unit || ''}</td>
+          <td class="px-4 py-2.5 text-right font-mono text-emerald-700">+${fmt(row.inflow)} ${stockHistoryData.usage_unit || ''}</td>
+          <td class="px-4 py-2.5 text-right font-mono text-rose-700">${fmt(row.outflow)} ${stockHistoryData.usage_unit || ''}</td>
+          <td class="px-4 py-2.5 text-right font-mono font-semibold">${fmt(row.closing)} ${stockHistoryData.usage_unit || ''}</td>
         </tr>
       `;
     }).join('');

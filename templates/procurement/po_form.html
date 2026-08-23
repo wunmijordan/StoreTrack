@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<h2 class="text-xl font-semibold font-display text-[#1E4536] mb-4">{% if obj %}Edit purchase order{% else %}New purchase order{% endif %}</h2>
+<h2 class="text-xl font-semibold font-display text-[#1E4536] mb-4">{% if obj %}Edit Purchase Order{% else %}New Purchase Order{% endif %}</h2>
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] p-5 max-w-2xl">
   <form method="post">
     {% csrf_token %}
@@ -15,7 +15,7 @@
     <div class="border border-[#E7DFCC] rounded-md overflow-hidden">
       <table class="w-full text-sm">
         <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
-          <th class="text-left px-2 py-1.5">Raw material</th><th class="text-right px-2 py-1.5 w-24">Qty</th><th class="text-right px-2 py-1.5 w-28">Unit cost</th><th class="text-right px-2 py-1.5 w-28">Current cost</th><th class="w-16"></th>
+          <th class="text-left px-2 py-1.5">Raw Material</th><th class="text-right px-2 py-1.5 w-24">Qty</th><th class="text-right px-2 py-1.5 w-28">Unit Cost</th><th class="text-right px-2 py-1.5 w-28">Current Cost</th><th class="w-16"></th>
         </tr></thead>
         <tbody id="po-rows">
           {% for f in formset %}
@@ -39,7 +39,7 @@
           {% endfor %}
         </tbody>
       </table>
-      <button type="button" onclick="addFormsetRow('items','po-rows'); wireRows();" class="w-full text-xs text-[#1E4536] font-medium py-2 hover:bg-[#F0EAD9]">+ Add item</button>
+      <button type="button" onclick="addFormsetRow('items','po-rows'); wireRows();" class="w-full text-xs text-[#1E4536] font-medium py-2 hover:bg-[#F0EAD9]">+ Add Item</button>
     </div>
 
     <div class="flex justify-end gap-2 mt-4">

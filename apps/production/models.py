@@ -10,7 +10,7 @@ class Order(BusinessOwnedModel):
     Approved and completed as a whole — all its line items together, not
     item-by-item. See docs/ARCHITECTURE.md for the full flow."""
 
-    TYPE_CHOICES = [("customer", "Customer order"), ("physical_store", "Physical store order")]
+    TYPE_CHOICES = [("customer", "Customer Order"), ("physical_store", "Physical Store Order")]
     STATUS_CHOICES = [
         ("pending", "Pending"), ("approved", "Approved"),
         ("completed", "Completed"), ("rejected", "Rejected"),
@@ -62,7 +62,7 @@ class Order(BusinessOwnedModel):
         result = []
         for mat, needed in self.material_requirements().values():
             if needed > mat.stock:
-                result.append({"name": mat.name, "needed": needed, "have": mat.stock, "short": needed - mat.stock})
+                result.append({"name": mat.name, "usage_unit": mat.usage_unit, "needed": needed, "have": mat.stock, "short": needed - mat.stock})
         return result
 
 

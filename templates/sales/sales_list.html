@@ -4,7 +4,7 @@
 <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
   <div>
     <h2 class="text-xl font-semibold font-display text-[#1E4536]">Sales</h2>
-    <p class="text-sm text-stone-500 mt-0.5">All-time revenue: {{ total_revenue|default:0|money:biz.currency_symbol }}</p>
+    <p class="text-sm text-stone-500 mt-0.5">All-time Revenue: {{ total_revenue|default:0|money:biz.currency_symbol }}</p>
   </div>
   <div class="flex gap-2">
     <a href="{% url 'export_sales_csv' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#1E4536] hover:bg-[#E7DFCC] border border-[#D9CFB4]">Export CSV</a>

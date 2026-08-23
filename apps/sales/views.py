@@ -42,7 +42,7 @@ def sale_form(request):
                 upb = good.units_per_batch or Decimal("1")
                 total_units = (f.cleaned_data.get("batch_qty") or Decimal("0")) * upb + (f.cleaned_data.get("piece_qty") or Decimal("0"))
                 if total_units > good.stock:
-                    shortages.append({"name": good.name, "needed": total_units, "have": good.stock, "short": total_units - good.stock})
+                    shortages.append({"name": good.name, "unit": good.unit, "needed": total_units, "have": good.stock, "short": total_units - good.stock})
             if shortages and not force:
                 prices = {str(g.pk): f"{g.selling_price}" for g in FinishedGood.objects.all()}
                 return render(request, "sales/sale_form.html", {"form": form, "formset": formset, "shortages": shortages, "prices": prices})

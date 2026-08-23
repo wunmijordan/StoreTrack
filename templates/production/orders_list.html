@@ -4,13 +4,13 @@
 <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
   <div>
     <h2 class="text-xl font-semibold font-display text-[#1E4536]">Orders</h2>
-    <p class="text-sm text-stone-500 mt-0.5">Customer orders and physical store restocks — approve to release raw materials, complete to finish production</p>
+    <p class="text-sm text-stone-500 mt-0.5">Customer Orders and Physical Store restocks — approve to release Raw Materials, complete to finish production</p>
   </div>
-  <a href="{% url 'order_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">+ New order</a>
+  <a href="{% url 'order_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">+ New Order</a>
 </div>
 
 {% if not orders %}
-  <div class="text-center py-10 text-sm text-stone-400 italic">No orders yet.</div>
+  <div class="text-center py-10 text-sm text-stone-400 italic">No Orders yet.</div>
 {% else %}
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] mb-8 overflow-x-auto overflow-y-auto max-h-[28rem]">
   <table class="min-w-max w-full text-sm">

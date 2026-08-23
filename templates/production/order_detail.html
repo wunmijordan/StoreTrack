@@ -12,13 +12,13 @@
 </div>
 <p class="text-sm text-stone-500 mb-4">
   {% if order.order_type == 'customer' %}For {{ order.customer_name }} — will appear on the Sales list once completed.
-  {% else %}Physical store restock — adds to shelf stock once completed, no sale involved.{% endif %}
+  {% else %}Physical Store restock — adds to Shelf Stock once completed, no Sale involved.{% endif %}
 </p>
 
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] mb-8 overflow-x-auto overflow-y-auto max-h-[28rem]">
   <table class="min-w-max w-full text-sm">
     <thead class="bg-[#F0EAD9] text-stone-600 text-md text-middle"><tr>
-      <th class="px-2 py-1.5">Product</th><th class="px-2 py-1.5">Batches</th><th class="px-2 py-1.5">Pieces</th><th class="px-2 py-1.5">Total units</th><th class="px-2 py-1.5">Price</th><th class="px-2 py-1.5">Discount</th><th class="px-2 py-1.5">Line total</th>
+      <th class="px-2 py-1.5">Product</th><th class="px-2 py-1.5">Batches</th><th class="px-2 py-1.5">Pieces</th><th class="px-2 py-1.5">Total Units</th><th class="px-2 py-1.5">Price</th><th class="px-2 py-1.5">Discount</th><th class="px-2 py-1.5">Line Total</th>
     </tr></thead>
     <tbody>
       {% for i in order.items.all %}
@@ -42,14 +42,22 @@
 
 {% if shortages %}
 <div class="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-md p-3 mb-4 max-w-2xl">
-  <div class="font-medium mb-1">⚠ Not enough raw material to approve:</div>
+  <div class="text-lg mb-1">
+    <span class="text-xl text-[#f91616]">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-alert-triangle">
+        <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M12 9v4" />
+        <path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0" /><path d="M12 16h.01" />
+      </svg>
+    </span> 
+    Not enough Raw Material to approve:
+  </div>
   <ul class="list-disc list-inside">
-    {% for s in shortages %}<li>{{ s.name }} — need {{ s.needed|num }}, have {{ s.have|num }}, short by {{ s.short|num }}</li>{% endfor %}
+    {% for s in shortages %}<li>{{ s.name }} — needs {{ s.needed|num }} {{ s.usage_unit }}, has {{ s.have|num }} {{ s.usage_unit }}, short by {{ s.short|num }} {{ s.usage_unit }}</li>{% endfor %}
   </ul>
   {% if confirm_approve %}
   <form method="post" action="{% url 'order_approve' order.pk %}" class="mt-2">
     {% csrf_token %}<input type="hidden" name="force" value="1">
-    <button type="submit" class="px-3 py-1.5 text-xs rounded-md font-medium bg-rose-600 text-white hover:bg-rose-700">Approve anyway (raw materials go negative)</button>
+    <button type="submit" class="px-3 py-1.5 text-xs rounded-md font-medium bg-rose-600 text-white hover:bg-rose-700">Approve anyway (Raw Materials go negative)</button>
   </form>
   {% endif %}
 </div>
@@ -59,7 +67,7 @@
   {% if order.status == 'pending' %}
   <a href="{% url 'order_edit' order.pk %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#1E4536] hover:bg-[#E7DFCC] border border-[#D9CFB4]">Edit</a>
   <form method="post" action="{% url 'order_approve' order.pk %}">{% csrf_token %}
-    <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">Approve — release raw materials</button>
+    <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">Approve — release Raw Materials</button>
   </form>
   <form method="post" action="{% url 'order_reject' order.pk %}" onsubmit="return confirm('Reject this order?');">{% csrf_token %}
     <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200">Reject</button>
@@ -67,7 +75,7 @@
   {% endif %}
   {% if order.status == 'approved' %}
   <form method="post" action="{% url 'order_complete' order.pk %}">{% csrf_token %}
-    <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">Complete — add finished goods</button>
+    <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">Complete — add Finished Goods</button>
   </form>
   {% endif %}
   {% if order.status == 'pending' or order.status == 'rejected' %}

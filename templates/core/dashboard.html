@@ -133,7 +133,9 @@
                     <h4 class="font-semibold text-stone-800 text-sm">{{ m.name }}</h4>
                     <span class="text-[10px] text-stone-400 font-bold uppercase">Raw Material</span>
                   </div>
-                  <div class="text-right font-mono text-sm font-bold text-red-600">{{ m.stock|num }} {{ m.usage_unit }}</div>
+                  <div class="text-right text-sm">
+                    <span class="font-mono font-bold text-amber-700">{{ m.stock_breakdown.0 }}</span> <span class="text-stone-400 italic text-xs">{{ m.purchase_unit }}{{ m.stock_breakdown.0|pluralize }}</span>, <span class="font-mono font-bold text-amber-700">{{ m.stock_breakdown.1|num }}</span> <span class="text-stone-400 italic text-xs">{{ m.usage_unit }}</span>
+                  </div>
                 </div>
               {% empty %}
                 <p class="text-center text-xs italic text-stone-400 py-4">No raw materials are critically low.</p>
@@ -162,7 +164,9 @@
                     <h4 class="font-semibold text-stone-800 text-sm">{{ m.name }}</h4>
                     <span class="text-[10px] text-stone-400 font-bold uppercase">Raw Material</span>
                   </div>
-                  <div class="text-right font-mono text-sm font-bold text-amber-700">{{ m.stock|num }} {{ m.usage_unit }}</div>
+                  <div class="text-right text-sm">
+                    <span class="font-mono font-bold text-amber-700">{{ m.stock_breakdown.0 }}</span> <span class="text-stone-400 italic text-xs">{{ m.purchase_unit }}{{ m.stock_breakdown.0|pluralize }}</span>, <span class="font-mono font-bold text-amber-700">{{ m.stock_breakdown.1|num }}</span> <span class="text-stone-400 italic text-xs">{{ m.usage_unit }}</span>
+                  </div>
                 </div>
               {% empty %}
                 <p class="text-center text-xs italic text-stone-400 py-4">No raw materials in warning parameters.</p>
@@ -200,7 +204,7 @@
 
   <div class="lg:col-span-2 bg-[#F5EFE0] border border-[#E7DFCC] rounded-xl shadow-[2px_-2px_8px_#000000d2] p-5 h-full">
     <!-- Card Header -->
-    <div class="flex items-center justify-between border-b border-[#E7DFCC]/60 pb-3 mb-4">
+    <div class="flex items-center justify-between border-[#E7DFCC]/60 pb-2 mb-2">
       <h3 class="text-xs flex items-center justify-between uppercase tracking-tight font-bold text-[#1E4536] mb-1 gap-2">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#de08f1ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-device-analytics">
           <path stroke="none" d="M0 0h24v24H0z" fill="none" />
@@ -213,32 +217,32 @@
     </div>
 
     <!-- Performance Comparison Grid -->
-    <div class="grid grid-cols-2 gap-x-6 divide-x divide-[#E7DFCC]/60">
+    <div class="flex flex-wrap items-center gap-5 mb-1">
       <!-- Month Column -->
-      <div class="space-y-2.5">
-        <div class="text-[11px] uppercase tracking-wider text-stone-500 font-bold">This Month</div>
+      <div class="px-3 py-2 items-center rounded-md shadow-[0_2px_4px_#000000d2] min-w-[260px]">
+        <div class="text-[11px] uppercase tracking-wider text-stone-500 font-bold mb-3">This Month</div>
         <div class="flex flex-col">
           <span class="text-xs text-stone-400 font-medium">Sales Revenue</span>
-          <span class="text-xl font-mono font-bold text-emerald-700 tracking-tight">
+          <span class="text-xl font-mono font-bold text-[#b168b8] tracking-tight">
             {{ monthly_revenue|money:biz.currency_symbol }}
           </span>
         </div>
-        <div class="flex items-center justify-between text-xs pt-1 border-t border-dashed border-[#E7DFCC]/40">
+        <div class="flex items-center justify-between text-xs pt-1 border-t border-dashed border-[#E7DFCC]">
           <span class="text-stone-500">Goods Finished</span>
           <span class="font-mono font-semibold text-stone-700 bg-stone-100/80 px-1.5 py-0.5 rounded">{{ monthly_units|num }}</span>
         </div>
       </div>
 
       <!-- Year Column -->
-      <div class="space-y-2.5 pl-6">
-        <div class="text-[11px] uppercase tracking-wider text-stone-500 font-bold">This Year</div>
+      <div class="px-3 py-2 items-center rounded-md shadow-[0_2px_4px_#000000d2] min-w-[260px]">
+        <div class="text-[11px] uppercase tracking-wider text-stone-500 font-bold mb-3">This Year</div>
         <div class="flex flex-col">
           <span class="text-xs text-stone-400 font-medium">Sales Revenue</span>
-          <span class="text-xl font-mono font-bold text-emerald-800 tracking-tight">
+          <span class="text-xl font-mono font-bold text-[#b61dc4] tracking-tight">
             {{ yearly_revenue|money:biz.currency_symbol }}
           </span>
         </div>
-        <div class="flex items-center justify-between text-xs pt-1 border-t border-dashed border-[#E7DFCC]/40">
+        <div class="flex items-center justify-between text-xs pt-1 border-t border-dashed border-[#E7DFCC]">
           <span class="text-stone-500">Goods Finished</span>
           <span class="font-mono font-semibold text-stone-700 bg-stone-100/80 px-1.5 py-0.5 rounded">{{ yearly_units|num }}</span>
         </div>
@@ -273,7 +277,7 @@
   </div>
   {% if selected_kind == "fg" and selected_item %}
     <div class="flex flex-wrap items-center gap-3 mb-3">
-      <div class="rounded-md bg-sky-50 border border-sky-100 px-3 py-2">
+      <div class="rounded-md bg-sky-50 border border-sky-100 px-3 py-2 shadow-[0_2px_4px_#000000d2]">
         <div class="text-[10px] uppercase tracking-wider font-bold text-sky-700">
           Total Made
         </div>
@@ -285,7 +289,7 @@
         </div>
       </div>
 
-      <div class="rounded-md bg-stone-50 border border-stone-200 px-3 py-2">
+      <div class="rounded-md bg-stone-50 border border-stone-200 px-3 py-2 shadow-[0_2px_4px_#000000d2]">
         <div class="text-[10px] uppercase tracking-wider font-bold text-stone-500">
           Current Shelf Stock
         </div>
@@ -297,7 +301,7 @@
         </div>
       </div>
 
-      <div class="rounded-md bg-stone-50 border border-stone-200 px-3 py-2">
+      <div class="rounded-md bg-stone-50 border border-stone-200 px-3 py-2 shadow-[0_2px_4px_#000000d2]">
         <div class="text-[10px] uppercase tracking-wider font-bold text-rose-500">
           Customer Orders
         </div>
@@ -313,7 +317,7 @@
   {% if stock_periods %}
   <table class="w-full text-sm">
     <thead class="text-xs text-stone-500 border-b border-[#E7DFCC]"><tr>
-      <th class="text-left py-1.5">Period</th><th class="text-right py-1.5">Opening</th>{% if selected_kind == "fg" %}<th class="text-right py-1.5">Made</th>{% endif %}<th class="text-right py-1.5">Closing</th><th class="text-right py-1.5">Net change</th>
+      <th class="text-left py-1.5">Period</th><th class="text-right py-1.5">Opening</th>{% if selected_kind == "fg" %}<th class="text-right py-1.5">Made</th>{% endif %}<th class="text-right py-1.5">Closing</th><th class="text-right py-1.5">Net Change</th>
     </tr></thead>
     <tbody>
       {% for p in stock_periods %}
@@ -351,20 +355,20 @@
       
       <!-- LAYER 1: AMBER WARNING ALERTS (100% - 150% of reorder level) -->
       {% for m in warning_raw %}
-        <div class="min-w-0 flex items-center justify-between rounded-md bg-amber-50 px-3 py-2.5 ring-1 ring-inset ring-amber-600/20">
+        <div class="min-w-0 flex items-center justify-between rounded-md bg-amber-50 px-3 py-2.5 ring-1 ring-inset ring-amber-600/20 shadow-[inset_0_2px_4px_#f59f00]">
           <div>
             <span class="text-[10px] font-bold uppercase tracking-wider text-amber-800">Raw Material (Warning)</span>
             <h4 class="font-semibold text-stone-900 text-sm">{{ m.name }}</h4>
           </div>
           <div class="text-right">
-            <span class="text-sm font-bold text-amber-800">{{ m.stock|num }} {{ m.usage_unit }}</span>
-            <div class="text-[11px] text-stone-500">Reorder threshold: {{ m.reorder_level|num }}</div>
+            <span class="text-sm font-bold text-amber-800">{{ m.package_qty|num }} {{ m.package_unit }}</span>
+            <div class="text-[11px] text-stone-500">Reorder threshold: {{ m.reorder_level_purchase_units|num }} {{ m.purchase_unit }}{{ m.reorder_level_purchase_units|pluralize }}</div>
           </div>
         </div>
       {% endfor %}
 
       {% for g in warning_goods %}
-        <div class="min-w-0 flex items-center justify-between rounded-md bg-amber-50 px-3 py-2.5 ring-1 ring-inset ring-amber-600/20">
+        <div class="min-w-0 flex items-center justify-between rounded-md bg-amber-50 px-3 py-2.5 ring-1 ring-inset ring-amber-600/20 shadow-[inset_0_2px_4px_#f59f00]">
           <div>
             <span class="text-[10px] font-bold uppercase tracking-wider text-amber-800">Product (Warning)</span>
             <h4 class="font-semibold text-stone-900 text-sm">{{ g.name }}</h4>
@@ -378,20 +382,20 @@
 
       <!-- LAYER 2: RED CRITICAL ALERTS (<= reorder level) -->
       {% for m in low_raw %}
-        <div class="min-w-0 flex items-center justify-between rounded-md bg-red-50 px-3 py-2.5 ring-1 ring-inset ring-red-600/10">
+        <div class="min-w-0 flex items-center justify-between rounded-md bg-red-50 px-3 py-2.5 ring-1 ring-inset ring-red-600/10 shadow-[inset_0_2px_4px_#f91616]">
           <div>
             <span class="text-[10px] font-bold uppercase tracking-wider text-red-700">Raw Material (Low)</span>
             <h4 class="font-semibold text-stone-900 text-sm">{{ m.name }}</h4>
           </div>
           <div class="text-right">
-            <span class="text-sm font-bold text-red-700">{{ m.stock|num }} {{ m.usage_unit }}</span>
-            <div class="text-[11px] text-stone-500">Reorder threshold: {{ m.reorder_level|num }}</div>
+            <span class="text-sm font-bold text-red-700">{{ m.package_qty|num }} {{ m.package_unit }}{{ m.package_qty|pluralize }}</span>
+            <div class="text-[11px] text-stone-500">Reorder threshold: {{ m.reorder_level_purchase_units|num }} {{ m.purchase_unit }}{{ m.reorder_level_purchase_units|pluralize }}</div>
           </div>
         </div>
       {% endfor %}
 
       {% for g in low_goods %}
-        <div class="min-w-0 flex items-center justify-between rounded-md bg-red-50 px-3 py-2.5 ring-1 ring-inset ring-red-600/10">
+        <div class="min-w-0 flex items-center justify-between rounded-md bg-red-50 px-3 py-2.5 ring-1 ring-inset ring-red-600/10 shadow-[inset_0_2px_4px_#f91616]">
           <div>
             <span class="text-[10px] font-bold uppercase tracking-wider text-red-700">Product (Low)</span>
             <h4 class="font-semibold text-stone-900 text-sm">{{ g.name }}</h4>
