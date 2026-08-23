@@ -9,6 +9,11 @@ from django.utils import timezone
 from .forms import OrderForm, OrderItemFormSet
 from .models import Order
 from inventory.models import FinishedGood
+from inventory.services import (
+    record_raw_material_movement,
+    record_finished_good_movement,
+)
+from inventory.models import StockMovement
 
 
 def today():
@@ -78,8 +83,12 @@ def order_approve(request, pk):
         for mat, needed in order.material_requirements().values():
             materials[mat.id] = (mat, materials.get(mat.id, (mat, Decimal("0")))[1] + needed)
         for mat, needed in materials.values():
-            mat.stock = mat.stock - needed
-            mat.save()
+            record_raw_material_movement(
+                mat,
+                -needed,
+                StockMovement.RAW_CONSUMPTION,
+                note=f"Materials released for order #{order.pk}",
+            )
         order.status = "approved"
         order.approved_date = today()
         order.save()
@@ -100,38 +109,77 @@ def order_reject(request, pk):
 @login_required
 def order_complete(request, pk):
     order = get_object_or_404(Order, pk=pk)
+
     if request.method != "POST" or order.status != "approved":
         return redirect("orders_list")
+
     with transaction.atomic():
         for item in order.items.select_related("finished_good"):
             good = item.finished_good
-            good.total_produced = good.total_produced + item.total_units
+
+            # Every completed order represents completed production.
+            good.total_produced += item.total_units
+
             if order.order_type == "physical_store":
-                good.stock = good.stock + item.total_units
+                record_finished_good_movement(
+                    good,
+                    item.total_units,
+                    StockMovement.FG_PRODUCTION,
+                    note=f"Production completed for order #{order.pk}",
+                    affects_stock=True,
+                )
+                good.save(update_fields=["total_produced"])
             else:
-                good.total_delivered_to_customers = good.total_delivered_to_customers + item.total_units
-            good.save()
+                # Production happened, but the finished goods went directly to
+                # the customer and never entered physical shelf stock.
+                record_finished_good_movement(
+                    good,
+                    item.total_units,
+                    StockMovement.FG_PRODUCTION,
+                    note=f"Customer-order production completed for order #{order.pk}",
+                    affects_stock=False,
+                )
+                good.total_delivered_to_customers += item.total_units
+                good.save(update_fields=["total_produced", "total_delivered_to_customers"])
+
         order.status = "completed"
         order.completed_date = today()
         order.save()
 
         if order.order_type == "customer":
             from sales.models import Sale, SaleItem
+
             sale = Sale.objects.create(
-                business=order.business, date=order.completed_date, customer=order.customer_name,
-                payment_method=order.payment_method, source="customer_order", linked_order=order,
+                business=order.business,
+                date=order.completed_date,
+                customer=order.customer_name,
+                payment_method=order.payment_method,
+                source="customer_order",
+                linked_order=order,
                 created_by=request.user,
             )
+
             for item in order.items.all():
                 SaleItem.objects.create(
-                    sale=sale, finished_good=item.finished_good,
-                    batch_qty=item.batch_qty, piece_qty=item.piece_qty,
-                    discount=item.discount, price=item.price,
+                    sale=sale,
+                    finished_good=item.finished_good,
+                    batch_qty=item.batch_qty,
+                    piece_qty=item.piece_qty,
+                    discount=item.discount,
+                    price=item.price,
                 )
+
     if order.order_type == "customer":
-        messages.success(request, "Order completed — added to the Sales list as fulfilled.")
+        messages.success(
+            request,
+            "Order completed — added to the Sales list as fulfilled.",
+        )
     else:
-        messages.success(request, "Order completed — stock updated.")
+        messages.success(
+            request,
+            "Order completed — stock updated.",
+        )
+
     return redirect("orders_list")
 
 

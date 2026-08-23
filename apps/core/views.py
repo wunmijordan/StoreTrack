@@ -8,10 +8,11 @@ from django.core import serializers
 from django.http import HttpResponse
 from django.shortcuts import render
 from django.utils import timezone
+from django.db.models import Sum
 
 from .models import Business
 from .forms import BusinessForm
-from inventory.models import RawMaterial, FinishedGood, RecipeItem
+from inventory.models import RawMaterial, FinishedGood, RecipeItem, StockMovement
 from procurement.models import PurchaseOrder, PurchaseOrderItem
 from production.models import Order, OrderItem
 from sales.models import Sale, SaleItem
@@ -40,60 +41,16 @@ def _quarter_start(d):
     return d.replace(month=q_month, day=1)
 
 
-def _raw_material_net_change(material, start_date, end_date):
-    """Net stock change for a raw material over a date range, reconstructed
-    from real records — no snapshot table needed. Adds what was received
-    (procurement), subtracts what was consumed (approved/completed orders'
-    recipe requirements, using the exact batch+piece formula). Uses the
-    material's CURRENT conversion factors/recipe quantities — if those
-    changed after a historical transaction, this is a best-effort
-    reconstruction, not a literal replay of what happened at the time."""
-    added = Decimal("0")
-    for poi in PurchaseOrderItem.objects.filter(
-        raw_material=material, purchase_order__status="received",
-        purchase_order__received_date__gte=start_date, purchase_order__received_date__lte=end_date,
-    ):
-        added += poi.qty * material.total_conversion_factor
+def _stock_periods(item):
+    """
+    Build the dashboard stock overview from StockMovement.
 
-    consumed = Decimal("0")
-    order_items = OrderItem.objects.filter(
-        finished_good__recipe_items__raw_material=material,
-        order__status__in=["approved", "completed"],
-        order__approved_date__gte=start_date, order__approved_date__lte=end_date,
-    ).select_related("finished_good").distinct()
-    for oi in order_items:
-        upb = oi.finished_good.units_per_batch or Decimal("1")
-        for ri in oi.finished_good.recipe_items.filter(raw_material=material):
-            per_piece = ri.qty_per_batch / upb
-            consumed += ri.qty_per_batch * oi.batch_qty + per_piece * oi.piece_qty
-
-    return added - consumed
-
-
-def _finished_good_net_change(good, start_date, end_date):
-    """Net shelf-stock change for a finished good over a date range.
-    Physical store order completions add; walk-in sales subtract. Customer
-    order completions never touch shelf stock, so they're excluded here —
-    matches how the Inventory page already treats the two differently."""
-    added = Decimal("0")
-    for oi in OrderItem.objects.filter(
-        finished_good=good, order__order_type="physical_store", order__status="completed",
-        order__completed_date__gte=start_date, order__completed_date__lte=end_date,
-    ):
-        added += oi.total_units
-
-    removed = Decimal("0")
-    for si in SaleItem.objects.filter(
-        finished_good=good, sale__source="walkin",
-        sale__date__gte=start_date, sale__date__lte=end_date,
-    ):
-        removed += si.total_units
-
-    return added - removed
-
-
-def _stock_periods(item, delta_fn):
+    Stock changes come only from movements where affects_stock=True.
+    Production is calculated separately from ALL FG_PRODUCTION movements,
+    including customer-order production where affects_stock=False.
+    """
     t = today()
+
     periods = [
         ("Today", t),
         ("This week", t - timedelta(days=t.weekday())),
@@ -101,11 +58,51 @@ def _stock_periods(item, delta_fn):
         ("This quarter", _quarter_start(t)),
         ("This year", t.replace(month=1, day=1)),
     ]
+
+    if isinstance(item, RawMaterial):
+        movements = item.stock_movements.all()
+        is_finished_good = False
+    else:
+        movements = item.stock_movements.all()
+        is_finished_good = True
+
     closing = item.stock
     rows = []
+
     for label, start in periods:
-        net = delta_fn(item, start, t)
-        rows.append({"label": label, "opening": closing - net, "closing": closing, "net": net})
+        period_movements = movements.filter(
+            occurred_at__date__gte=start,
+            occurred_at__date__lte=t,
+        )
+
+        # Only movements that actually alter physical stock.
+        stock_movements = period_movements.filter(
+            affects_stock=True,
+        )
+
+        net = stock_movements.aggregate(
+            total=Sum("quantity")
+        )["total"] or Decimal("0")
+
+        opening = closing - net
+
+        production = Decimal("0")
+
+        if is_finished_good:
+            production = period_movements.filter(
+                movement_type=StockMovement.FG_PRODUCTION,
+            ).aggregate(
+                total=Sum("quantity")
+            )["total"] or Decimal("0")
+
+        rows.append({
+            "label": label,
+            "opening": opening,
+            "closing": closing,
+            "net": net,
+            "production": production,
+        })
+
     return rows
 
 
@@ -140,13 +137,16 @@ def dashboard(request):
     stock_unit = ""
     if selected_kind == "raw":
         selected_item = raw_materials.filter(pk=selected_pk).first()
+
         if selected_item:
-            stock_periods = _stock_periods(selected_item, _raw_material_net_change)
+            stock_periods = _stock_periods(selected_item)
             stock_unit = selected_item.usage_unit
+
     elif selected_kind == "fg":
         selected_item = finished_goods.filter(pk=selected_pk).first()
+
         if selected_item:
-            stock_periods = _stock_periods(selected_item, _finished_good_net_change)
+            stock_periods = _stock_periods(selected_item)
             stock_unit = selected_item.unit
 
     return render(request, "core/dashboard.html", {

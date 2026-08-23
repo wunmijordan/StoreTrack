@@ -34,7 +34,13 @@ class RawMaterialForm(StyledModelForm):
         help_text="How many usage units in ONE package unit. Standard: kg→g is 1000. "
                    "Non-standard (spoon, cap…): count it yourself.",
     )
-    reorder_level = forms.DecimalField(max_digits=12, decimal_places=2, initial=0)
+    reorder_level_purchase_units = forms.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        initial=0,
+        label="Reorder level (purchase units)",
+        help_text="How many purchase units should trigger a reorder, e.g. 2 bags.",
+    )
     stock_purchase_units = forms.DecimalField(
         label="Stock (in purchase units)", max_digits=14, decimal_places=2,
         required=False, initial=0,
@@ -51,7 +57,7 @@ class RawMaterialForm(StyledModelForm):
         # stock & cost_per_unit deliberately excluded — captured above in
         # purchase-unit terms and converted in save().
         fields = ["name", "purchase_unit", "package_qty", "package_unit",
-                  "usage_unit", "usage_conversion_factor", "reorder_level"]
+                  "usage_unit", "usage_conversion_factor", "reorder_level_purchase_units"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -64,6 +70,7 @@ class RawMaterialForm(StyledModelForm):
             # 2.60 bags are shown and kept exactly, just cleaned to 2dp.
             self.fields["stock_purchase_units"].initial = (self.instance.stock / factor).quantize(Decimal("0.01"))
             self.fields["cost_per_purchase_unit"].initial = (self.instance.cost_per_unit * factor).quantize(Decimal("0.01"))
+            self.fields["reorder_level_purchase_units"].initial = (self.instance.reorder_level / factor).quantize(Decimal("0.01"))
 
     def clean_package_qty(self):
         v = self.cleaned_data.get("package_qty")
@@ -84,8 +91,10 @@ class RawMaterialForm(StyledModelForm):
         factor = package_qty * usage_conv
         purchase_stock = self.cleaned_data.get("stock_purchase_units") or Decimal("0")
         purchase_cost = self.cleaned_data.get("cost_per_purchase_unit") or Decimal("0")
+        purchase_reorder = (self.cleaned_data.get("reorder_level_purchase_units") or Decimal("0"))
         instance.stock = (purchase_stock * factor).quantize(Decimal("0.01"))
         instance.cost_per_unit = (purchase_cost / factor).quantize(Decimal("0.01"))
+        instance.reorder_level = (purchase_reorder * factor).quantize(Decimal("0.01"))
         if commit:
             instance.save()
         return instance

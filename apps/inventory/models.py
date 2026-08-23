@@ -69,6 +69,12 @@ class RawMaterial(BusinessOwnedModel):
         return whole, remainder
 
     @property
+    def reorder_level_purchase_units(self):
+        """Stored in usage units, displayed in purchase units."""
+        factor = self.total_conversion_factor or Decimal("1")
+        return (self.reorder_level / factor).quantize(Decimal("0.01"))
+
+    @property
     def cost_per_purchase_unit(self):
         """cost_per_unit is always stored per (fine) usage unit internally —
         what recipe costing and production deductions run on; this is just
@@ -141,3 +147,71 @@ class RecipeItem(TimestampedModel):
 
     def __str__(self):
         return f"{self.qty_per_batch} {self.raw_material.usage_unit} {self.raw_material.name} / batch of {self.finished_good.name}"
+
+
+class StockMovement(BusinessOwnedModel):
+    RAW_PURCHASE = "raw_purchase"
+    RAW_CONSUMPTION = "raw_consumption"
+    FG_PRODUCTION = "fg_production"
+    FG_SALE = "fg_sale"
+    ADJUSTMENT = "adjustment"
+
+    MOVEMENT_TYPES = [
+        (RAW_PURCHASE, "Raw material purchase"),
+        (RAW_CONSUMPTION, "Raw material consumption"),
+        (FG_PRODUCTION, "Finished goods production"),
+        (FG_SALE, "Finished goods sale"),
+        (ADJUSTMENT, "Adjustment"),
+    ]
+
+    raw_material = models.ForeignKey(
+        RawMaterial,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="stock_movements",
+    )
+
+    finished_good = models.ForeignKey(
+        FinishedGood,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="stock_movements",
+    )
+
+    movement_type = models.CharField(
+        max_length=30,
+        choices=MOVEMENT_TYPES,
+    )
+
+    quantity = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        help_text="Signed quantity in the item's internal stock unit.",
+    )
+
+    # A finished good can be produced for physical store stock or directly
+    # for a customer order. Customer-order production contributes to
+    # total_produced but does not change physical shelf stock.
+    affects_stock = models.BooleanField(
+        default=True,
+        help_text="Whether this movement changes the item's physical stock balance.",
+    )
+
+    balance_after = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        help_text="Stock balance immediately after this movement.",
+    )
+
+    occurred_at = models.DateTimeField(auto_now_add=True)
+
+    note = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+    )
+
+    class Meta:
+        ordering = ["-occurred_at"]

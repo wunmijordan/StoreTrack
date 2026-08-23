@@ -9,6 +9,8 @@ from django.utils import timezone
 from .forms import SaleForm, SaleItemFormSet
 from .models import Sale
 from inventory.models import FinishedGood
+from inventory.services import record_finished_good_movement
+from inventory.models import StockMovement
 
 
 def today():
@@ -59,8 +61,13 @@ def sale_form(request):
                     obj.delete()
                 for item in sale.items.select_related("finished_good"):
                     good = item.finished_good
-                    good.stock = good.stock - item.total_units
-                    good.save()
+                    record_finished_good_movement(
+                        good,
+                        -item.total_units,
+                        StockMovement.FG_SALE,
+                        note="Walk-in sale",
+                        affects_stock=True,
+                    )
             messages.success(request, "Sale recorded.")
             return redirect("sales_list")
     else:

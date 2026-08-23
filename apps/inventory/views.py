@@ -1,9 +1,15 @@
+from decimal import Decimal
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, redirect, render
+from django.http import JsonResponse
+from django.db.models import Q, Sum
+from django.db.models.functions import TruncDate
 
 from .forms import RawMaterialForm, FinishedGoodForm, RecipeItemFormSet
-from .models import RawMaterial, FinishedGood
+from .models import RawMaterial, FinishedGood, StockMovement
+
 
 
 @login_required
@@ -72,3 +78,167 @@ def finished_good_delete(request, pk):
         obj.delete()
         messages.success(request, "Removed.")
     return redirect("inventory")
+
+
+@login_required
+def stock_history(request, kind, pk):
+    if kind == "raw":
+        item = get_object_or_404(
+            RawMaterial,
+            pk=pk,
+            business=request.business,
+        )
+        movements = item.stock_movements.all()
+        factor = item.total_conversion_factor or Decimal("1")
+        purchase_unit = item.purchase_unit or item.usage_unit
+        usage_unit = item.usage_unit
+        name = item.name
+
+        # Raw materials do not have production.
+        is_finished_good = False
+        total_produced = None
+        total_delivered = None
+
+    elif kind == "finished":
+        item = get_object_or_404(
+            FinishedGood,
+            pk=pk,
+            business=request.business,
+        )
+        movements = item.stock_movements.all()
+        factor = Decimal("1")
+        purchase_unit = item.unit
+        usage_unit = item.unit
+        name = item.name
+
+        is_finished_good = True
+        total_produced = item.total_produced
+        total_delivered = item.total_delivered_to_customers
+
+    else:
+        return JsonResponse(
+            {"error": "Invalid stock history type."},
+            status=400,
+        )
+
+    days = (
+        movements
+        .values("occurred_at__date")
+        .annotate(
+            inflow=Sum(
+                "quantity",
+                filter=Q(
+                    affects_stock=True,
+                    quantity__gt=0,
+                ),
+            ),
+            outflow=Sum(
+                "quantity",
+                filter=Q(
+                    affects_stock=True,
+                    quantity__lt=0,
+                ),
+            ),
+        )
+    )
+
+    # Only finished goods get production data.
+    if is_finished_good:
+        days = days.annotate(
+            production=Sum(
+                "quantity",
+                filter=Q(
+                    movement_type=StockMovement.FG_PRODUCTION,
+                ),
+            ),
+            customer_production=Sum(
+                "quantity",
+                filter=Q(
+                    movement_type=StockMovement.FG_PRODUCTION,
+                    affects_stock=False,
+                ),
+            ),
+        )
+    else:
+        days = days.annotate(
+            production=Sum(
+                "quantity",
+                filter=Q(pk__isnull=True),
+            ),
+            customer_production=Sum(
+                "quantity",
+                filter=Q(pk__isnull=True),
+            ),
+        )
+
+    days = days.order_by("occurred_at__date")
+
+    data = []
+    previous_closing = None
+
+    for day in days:
+        date = day["occurred_at__date"]
+
+        day_movements = movements.filter(
+            occurred_at__date=date,
+            affects_stock=True,
+        ).order_by("occurred_at")
+
+        first_movement = day_movements.first()
+        last_movement = day_movements.last()
+
+        if first_movement:
+            opening = first_movement.balance_after - first_movement.quantity
+            closing = last_movement.balance_after
+            previous_closing = closing
+        else:
+            # Production/customer-order movements that do not affect
+            # physical stock do not change opening or closing stock.
+            opening = (
+                previous_closing
+                if previous_closing is not None
+                else item.stock
+            )
+            closing = opening
+
+        row = {
+            "date": date.isoformat(),
+            "opening": str(opening),
+            "inflow": str(day["inflow"] or Decimal("0")),
+            "outflow": str(day["outflow"] or Decimal("0")),
+            "closing": str(closing),
+            "closing_purchase_units": str(
+                (closing / factor).quantize(Decimal("0.01"))
+            ),
+        }
+
+        if is_finished_good:
+            row["production"] = str(
+                day["production"] or Decimal("0")
+            )
+            row["customer_production"] = str(
+                day["customer_production"] or Decimal("0")
+            )
+
+        data.append(row)
+
+    response = {
+        "kind": kind,
+        "name": name,
+        "purchase_unit": purchase_unit,
+        "usage_unit": usage_unit,
+        "factor": str(factor),
+        "total_produced": (
+            str(total_produced)
+            if total_produced is not None
+            else None
+        ),
+        "total_delivered_to_customers": (
+            str(total_delivered)
+            if total_delivered is not None
+            else None
+        ),
+        "data": data,
+    }
+
+    return JsonResponse(response)

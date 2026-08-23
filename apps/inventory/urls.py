@@ -9,4 +9,5 @@ urlpatterns = [
     path("product/add/", views.finished_good_form, name="finished_good_add"),
     path("product/<int:pk>/edit/", views.finished_good_form, name="finished_good_edit"),
     path("product/<int:pk>/delete/", views.finished_good_delete, name="finished_good_delete"),
+    path("stock-history/<str:kind>/<int:pk>/", views.stock_history, name="stock_history"),
 ]
