@@ -29,7 +29,7 @@
     </nav>
     <form action="{% url 'logout' %}" method="post" class="px-5 py-3 border-t border-white/10">
       {% csrf_token %}
-      <button class="text-[11px] text-[#9DB5A6] hover:text-white">Log out ({{ user.username }})</button>
+      <button class="text-[11px] text-[#9DB5A6] hover:text-white">Log Out ({{ user.username }})</button>
     </form>
   </aside>
 

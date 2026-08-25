@@ -131,7 +131,7 @@
         <div id="raw-panel">
 
         <!-- Scrollable Quick List Content (Raw Materials) -->
-        <div class="p-4 overflow-y-auto space-y-2 bg-stone-50/50">
+        <div class="p-4 overflow-y-auto max-h-[28rem] space-y-2 bg-stone-50/50">
           
           <!-- CRITICAL LIST RENDER -->
           <template x-if="openModal === 'critical'">
@@ -181,7 +181,7 @@
         <div id="finished-panel" class="hidden">
 
         <!-- Scrollable Quick List Content (Finished Goods) -->
-        <div class="p-4 overflow-y-auto space-y-2 bg-stone-50/50">
+        <div class="p-4 overflow-y-auto max-h-[28rem] space-y-2 bg-stone-50/50">
           
           <!-- CRITICAL LIST RENDER -->
           <template x-if="openModal === 'critical'">
@@ -229,7 +229,7 @@
           <button 
             @click="openModal = null" 
             type="button" 
-            class="rounded-md bg-white px-3 py-1.5 text-xs font-semibold text-stone-700 shadow-xs ring-1 ring-inset ring-stone-300 hover:bg-stone-50 cursor-pointer">
+            class="rounded-md bg-white px-3 px-3 py-2 text-xs font-semibold text-stone-700 shadow-xs ring-1 ring-inset ring-stone-300 hover:bg-stone-50 cursor-pointer">
             Close Window
           </button>
         </div>
@@ -314,8 +314,8 @@
       <p class="text-[11px] text-stone-400 mt-0.5">Sales minus all realised spend — procurement + miscellaneous expenses.</p>
     </div>
     <div class="flex gap-2">
-      <a href="{% url 'export_financial_csv' %}" class="text-[11px] px-2.5 py-1.5 rounded-md border border-[#D9CFB4] bg-white text-[#1E4536]">CSV</a>
-      <a href="{% url 'export_financial_xlsx' %}" class="text-[11px] px-2.5 py-1.5 rounded-md border border-[#D9CFB4] bg-white text-[#1E4536]">Excel</a>
+      <a href="{% url 'export_financial_csv' %}" class="text-[11px] px-2.5 px-3 py-2 rounded-md border border-[#D9CFB4] bg-white text-[#1E4536]">CSV</a>
+      <a href="{% url 'export_financial_xlsx' %}" class="text-[11px] px-2.5 px-3 py-2 rounded-md border border-[#D9CFB4] bg-white text-[#1E4536]">Excel</a>
     </div>
   </div>
   <div class="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
@@ -359,7 +359,7 @@
         <!-- Physical Store -->
         <button
           type="button"
-          class="w-full flex items-center justify-between rounded-md px-2 py-1.5 -mx-2 hover:bg-stone-50 text-left"
+          class="w-full flex items-center justify-between rounded-md px-2 px-3 py-2 -mx-2 hover:bg-stone-50 text-left"
           @click="channelModal = 'walkin'"
         >
           <span class="text-xs">
@@ -377,7 +377,7 @@
         <!-- Distribution -->
         <button
           type="button"
-          class="w-full flex items-center justify-between rounded-md px-2 py-1.5 -mx-2 hover:bg-stone-50 text-left"
+          class="w-full flex items-center justify-between rounded-md px-2 px-3 py-2 -mx-2 hover:bg-stone-50 text-left"
           @click="channelModal = 'distribution'"
         >
           <span class="text-xs">
@@ -395,7 +395,7 @@
         <!-- Online -->
         <button
           type="button"
-          class="w-full flex items-center justify-between rounded-md px-2 py-1.5 -mx-2 hover:bg-stone-50 text-left"
+          class="w-full flex items-center justify-between rounded-md px-2 px-3 py-2 -mx-2 hover:bg-stone-50 text-left"
           @click="channelModal = 'online'"
         >
           <span class="text-xs">
@@ -472,9 +472,9 @@
             <table class="w-full text-xs">
               <thead class="text-stone-400 border-b border-[#E7DFCC]">
                 <tr>
-                  <th class="text-left py-1.5">Region</th>
-                  <th class="text-left py-1.5">Group</th>
-                  <th class="text-right py-1.5">Sales</th>
+                  <th class="text-left px-3 py-2">Region</th>
+                  <th class="text-left px-3 py-2">Group</th>
+                  <th class="text-right px-3 py-2">Sales</th>
                 </tr>
               </thead>
 
@@ -517,9 +517,9 @@
             <table class="w-full text-xs">
               <thead class="text-stone-400 border-b border-[#E7DFCC]">
                 <tr>
-                  <th class="text-left py-1.5">Region</th>
-                  <th class="text-left py-1.5">Group</th>
-                  <th class="text-right py-1.5">Sales</th>
+                  <th class="text-left px-3 py-2">Region</th>
+                  <th class="text-left px-3 py-2">Group</th>
+                  <th class="text-right px-3 py-2">Sales</th>
                 </tr>
               </thead>
 
@@ -584,7 +584,7 @@
             <button
               type="button"
               @click="channelModal = null"
-              class="rounded-md bg-white px-3 py-1.5 text-xs font-semibold text-stone-700 shadow-xs ring-1 ring-inset ring-stone-300 hover:bg-stone-50"
+              class="rounded-md bg-white px-3 px-3 py-2 text-xs font-semibold text-stone-700 shadow-xs ring-1 ring-inset ring-stone-300 hover:bg-stone-50"
             >
               Close
             </button>
@@ -607,7 +607,7 @@
       Stock movement
     </h3>
     <form method="get" class="flex items-center gap-2">
-      <select name="stock_item" onchange="this.form.submit()" class="rounded-md border border-[#D9CFB4] shadow-[inset_0_2px_8px_#000000d2] bg-white px-2.5 py-1.5 text-sm min-w-[220px]">
+      <select name="stock_item" onchange="this.form.submit()" class="rounded-md border border-[#D9CFB4] shadow-[inset_0_2px_8px_#000000d2] bg-white px-2.5 px-3 py-2 text-sm min-w-[220px]">
         <option value="">Select a Raw Material or Product…</option>
         {% for category in raw_material_categories %}
           {% if category.items %}
@@ -666,56 +666,60 @@
     </div>
   {% endif %}
   {% if stock_periods %}
-  <table class="w-full text-sm">
-    <thead class="text-xs text-stone-500 border-b border-[#E7DFCC]"><tr>
-      <th class="text-left py-1.5">Period</th><th class="text-right py-1.5">Opening</th>{% if selected_kind == "fg" %}<th class="text-right py-1.5">Made</th>{% endif %}<th class="text-right py-1.5">Closing</th><th class="text-right py-1.5">Net Change</th>{% if selected_kind == "raw" %}<th class="text-right py-1.5">Net Spend</th><th class="text-right py-1.5">Price Δ</th>{% endif %}
-    </tr></thead>
-    <tbody>
-      {% for p in stock_periods %}
-      <tr class="border-b border-[#E7DFCC] last:border-0">
-        <td class="py-1.5">{{ p.label }}</td>
-        <td class="py-1.5 text-right font-mono">{{ p.opening|num }} <span class="text-stone-400 text-xs">{{ stock_unit }}</span></td>
-        {% if selected_kind == "fg" %}<td class="py-1.5 text-right font-mono text-sky-700">{% if p.production %} +{{ p.production|num }} {% else %} — {% endif %}</td>{% endif %}
-        <td class="py-1.5 text-right font-mono">{{ p.closing|num }} <span class="text-stone-400 text-xs">{{ stock_unit }}</span></td>
-        <td class="py-1.5 text-right font-mono {% if p.net > 0 %}text-emerald-700{% elif p.net < 0 %}text-rose-700{% else %}text-stone-400{% endif %}">{% if p.net > 0 %}+{% endif %}{{ p.net|num }}</td>
-        {% if selected_kind == "raw" %}
-        <td class="py-1.5 text-right font-mono">{% if p.net_spend %}{{ p.net_spend|money:biz.currency_symbol }}{% else %}—{% endif %}</td>
-        <td class="py-1.5 text-right font-mono
-          {% if p.price_difference > 0 %}
-              text-rose-700
-          {% elif p.price_difference < 0 %}
-              text-emerald-700
-          {% else %}
-              text-stone-400
-          {% endif %}">
+  <div class="border border-[#E7DFCC] rounded-md overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full min-w-[680px] text-sm">
+        <thead class="text-xs text-stone-500 border-b border-[#E7DFCC]"><tr>
+          <th class="px-3 py-2">Period</th><th class="px-3 py-2">Opening</th>{% if selected_kind == "fg" %}<th class="px-3 py-2">Made</th>{% endif %}<th class="px-3 py-2">Closing</th><th class="px-3 py-2">Net Change</th>{% if selected_kind == "raw" %}<th class="px-3 py-2">Net Spend</th><th class="px-3 py-2">Price Δ</th>{% endif %}
+        </tr></thead>
+        <tbody>
+          {% for p in stock_periods %}
+          <tr class="border-b border-[#E7DFCC] last:border-0">
+            <td class="px-3 py-2">{{ p.label }}</td>
+            <td class="px-3 py-2 font-mono">{{ p.opening|num }} <span class="text-stone-400 text-xs">{{ stock_unit }}</span></td>
+            {% if selected_kind == "fg" %}<td class="px-3 py-2 font-mono text-sky-700">{% if p.production %} +{{ p.production|num }} {% else %} — {% endif %}</td>{% endif %}
+            <td class="px-3 py-2 font-mono">{{ p.closing|num }} <span class="text-stone-400 text-xs">{{ stock_unit }}</span></td>
+            <td class="px-3 py-2 font-mono {% if p.net > 0 %}text-emerald-700{% elif p.net < 0 %}text-rose-700{% else %}text-stone-400{% endif %}">{% if p.net > 0 %}+{% endif %}{{ p.net|num }}</td>
+            {% if selected_kind == "raw" %}
+            <td class="px-3 py-2 font-mono">{% if p.net_spend %}{{ p.net_spend|money:biz.currency_symbol }}{% else %}—{% endif %}</td>
+            <td class="px-3 py-2 text-right font-mono
+              {% if p.price_difference > 0 %}
+                  text-rose-700
+              {% elif p.price_difference < 0 %}
+                  text-emerald-700
+              {% else %}
+                  text-stone-400
+              {% endif %}">
 
-          {% if p.price_difference is not None %}
+              {% if p.price_difference is not None %}
 
-              <div>
-                  {% if p.price_difference > 0 %}+{% endif %}
-                  {{ p.price_difference|money:biz.currency_symbol }}
-              </div>
-
-              {% if p.price_difference_pct is not None %}
-                  <div class="text-[9px] font-sans font-semibold">
-                      {% if p.price_difference_pct > 0 %}+{% endif %}
-                      {{ p.price_difference_pct|floatformat:2 }}%
+                  <div>
+                      {% if p.price_difference > 0 %}+{% endif %}
+                      {{ p.price_difference|money:biz.currency_symbol }}
                   </div>
+
+                  {% if p.price_difference_pct is not None %}
+                      <div class="text-[9px] font-sans font-semibold">
+                          {% if p.price_difference_pct > 0 %}+{% endif %}
+                          {{ p.price_difference_pct|floatformat:2 }}%
+                      </div>
+                  {% endif %}
+
+                  <span class="block text-[9px] text-stone-400 font-sans">
+                      / {{ selected_item.purchase_unit }}
+                  </span>
+
+              {% else %}
+                  —
               {% endif %}
-
-              <span class="block text-[9px] text-stone-400 font-sans">
-                  / {{ selected_item.purchase_unit }}
-              </span>
-
-          {% else %}
-              —
-          {% endif %}
-        </td>
-        {% endif %}
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
   <p class="text-[11px] text-stone-400 mt-2">Opening and closing stock come from recorded stock movements. {% if selected_kind == "fg" %}“Made” includes all finished-goods production, including customer-order production that does not enter physical shelf stock.{% endif %}</p>
   {% else %}
   <p class="text-sm text-stone-400 italic">Pick an item above to see its opening and closing stock for today, this week, month, quarter, and year — one comprehensive view instead of a card per item.</p>

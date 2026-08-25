@@ -33,46 +33,42 @@
     <p class="text-[11px] text-stone-400 mb-1">Enter exact batches and/or loose pieces — production makes exactly this, no rounding up. Price fills in from the product's current selling price.</p>
     {{ formset.management_form }}
     <div class="border border-[#E7DFCC] rounded-md overflow-hidden">
-      <table class="w-full text-sm">
-        <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
-          <th class="text-left px-2 py-1.5">Product</th>
-          <th class="text-right px-2 py-1.5 w-20">Batches</th>
-          <th class="text-right px-2 py-1.5 w-20">Pieces</th>
-          <th class="text-right px-2 py-1.5 w-24">Discount</th>
-          <th class="text-right px-2 py-1.5 w-28">Price/Unit</th>
-          <th class="w-10"></th>
-        </tr></thead>
-        <tbody id="order-rows">
-          {% for f in formset %}
-          <tr {% if forloop.first %}data-formset-row{% endif %} class="border-t border-[#E7DFCC]" data-row>
-            <td class="px-2 py-1.5">{{ f.id }}{{ f.finished_good }}</td>
-            <td class="px-2 py-1.5">{{ f.batch_qty }}</td>
-            <td class="px-2 py-1.5">{{ f.piece_qty }}</td>
-            <td class="px-2 py-1.5">{{ f.discount }}</td>
-            <td class="px-2 py-1.5 text-right text-xs text-stone-500 font-mono price-display">—</td>
-            <td class="px-2 py-1.5 text-center">
-              {% if f.instance.pk %}
-              <label class="cursor-pointer text-rose-500 hover:text-rose-700" title="Remove">{{ f.DELETE }}
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-trash">
-                  <path stroke="none" d="M0 0h24v24H0z" fill="none" />
-                  <path d="M4 7l16 0" /><path d="M10 11l0 6" /><path d="M14 11l0 6" />
-                  <path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" /><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" />
-                </svg>
-              </label>
-              {% else %}
-              <button type="button" onclick="removeRow(this)" class="text-rose-500 hover:text-rose-700" title="Remove">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-trash">
-                  <path stroke="none" d="M0 0h24v24H0z" fill="none" />
-                  <path d="M4 7l16 0" /><path d="M10 11l0 6" /><path d="M14 11l0 6" />
-                  <path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" /><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" />
-                </svg>
-              </button>
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-[680px] text-sm">
+          <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
+            <th class="text-left px-2 py-1.5">Product</th>
+            <th class="text-right px-2 py-1.5 w-20">Batches</th>
+            <th class="text-right px-2 py-1.5 w-20">Pieces</th>
+            <th class="text-right px-2 py-1.5 w-24">Discount</th>
+            <th class="text-right px-2 py-1.5 w-28">Price/Unit</th>
+            <th class="w-10"></th>
+          </tr></thead>
+          <tbody id="order-rows">
+            {% for f in formset %}
+            <tr {% if forloop.first %}data-formset-row{% endif %} class="border-t border-[#E7DFCC]" data-row>
+              <td class="px-2 py-1.5">{{ f.id }}{{ f.finished_good }}</td>
+              <td class="px-2 py-1.5">{{ f.batch_qty }}</td>
+              <td class="px-2 py-1.5">{{ f.piece_qty }}</td>
+              <td class="px-2 py-1.5">{{ f.discount }}</td>
+              <td class="px-2 py-1.5 text-right text-xs text-stone-500 font-mono price-display">—</td>
+              <td class="px-2 py-1.5 text-center">
+                {% if f.instance.pk %}
+                <label class="cursor-pointer text-rose-500 hover:text-rose-700" title="Remove">{{ f.DELETE }}</label>
+                {% else %}
+                <button type="button" onclick="removeRow(this)" class="text-rose-500 hover:text-rose-700" title="Remove">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-trash">
+                    <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+                    <path d="M4 7l16 0" /><path d="M10 11l0 6" /><path d="M14 11l0 6" />
+                    <path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" /><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" />
+                  </svg>
+                </button>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
       <button type="button" onclick="addFormsetRow('items','order-rows'); wireRows();" class="w-full text-xs text-[#1E4536] font-medium py-2 hover:bg-[#F0EAD9]">+ Add Product</button>
     </div>
 

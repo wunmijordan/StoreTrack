@@ -201,10 +201,10 @@ def _stock_periods(item):
     t = today()
     periods = [
         ("Today", t),
-        ("This week", t - timedelta(days=t.weekday())),
-        ("This month", t.replace(day=1)),
-        ("This quarter", _quarter_start(t)),
-        ("This year", t.replace(month=1, day=1)),
+        ("This Week", t - timedelta(days=t.weekday())),
+        ("This Month", t.replace(day=1)),
+        ("This Quarter", _quarter_start(t)),
+        ("This Year", t.replace(month=1, day=1)),
     ]
 
     movements = item.stock_movements.all()

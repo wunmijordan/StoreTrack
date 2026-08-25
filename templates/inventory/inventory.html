@@ -11,18 +11,17 @@
 
 <div id="raw-panel">
 
-<div class="flex flex-wrap items-end justify-between gap-3 mb-4">
-  <div>
-    <h2 class="text-xl font-semibold font-display text-[#1E4536]">Raw Materials</h2>
-    <p class="text-sm text-stone-500 mt-0.5">Ingredients, production inputs and operational supplies — all procured through the same material form and procurement chain.</p>
-    <div id="material-category-tabs" class="flex flex-wrap gap-1.5 mt-3">
-      <button type="button" data-material-tab="ingredient" class="material-tab px-3 py-1.5 rounded-md text-xs font-medium border">Ingredients <span data-material-count="ingredient" class="ml-1 text-[10px] opacity-70"></span></button>
-      <button type="button" data-material-tab="packaging" class="material-tab px-3 py-1.5 rounded-md text-xs font-medium border">Packaging <span data-material-count="packaging" class="ml-1 text-[10px] opacity-70"></span></button>
-      <button type="button" data-material-tab="production_supply" class="material-tab px-3 py-1.5 rounded-md text-xs font-medium border">Production Supplies <span data-material-count="production_supply" class="ml-1 text-[10px] opacity-70"></span></button>
-      <button type="button" data-material-tab="operational_supply" class="material-tab px-3 py-1.5 rounded-md text-xs font-medium border">Operational Supplies <span data-material-count="operational_supply" class="ml-1 text-[10px] opacity-70"></span></button>
-      <a href="{% url 'raw_material_add' %}" class="px-3.5 py-2 ms-auto text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">+ Add Material</a>
-    </div>
-  </div>
+
+<h2 class="text-xl font-semibold font-display text-[#1E4536]">Raw Materials</h2>
+<div class="flex flex-wrap items-center justify-between gap-3 mb-2">
+  <p class="text-sm text-stone-500 mt-0.5 flex-1 min-w-[240px]">Ingredients, production inputs and operational supplies — all procured through the same material form and procurement chain.</p>
+  <a href="{% url 'raw_material_add' %}" class="shrink-0 px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">+ Add Material</a>
+</div>
+<div id="material-category-tabs" class="flex flex-wrap gap-1.5 mb-4">
+  <button type="button" data-material-tab="ingredient" class="material-tab px-3 py-1.5 rounded-md text-xs font-medium border">Ingredients <span data-material-count="ingredient" class="ml-1 text-[10px] opacity-70"></span></button>
+  <button type="button" data-material-tab="packaging" class="material-tab px-3 py-1.5 rounded-md text-xs font-medium border">Packaging <span data-material-count="packaging" class="ml-1 text-[10px] opacity-70"></span></button>
+  <button type="button" data-material-tab="production_supply" class="material-tab px-3 py-1.5 rounded-md text-xs font-medium border">Production Supplies <span data-material-count="production_supply" class="ml-1 text-[10px] opacity-70"></span></button>
+  <button type="button" data-material-tab="operational_supply" class="material-tab px-3 py-1.5 rounded-md text-xs font-medium border">Operational Supplies <span data-material-count="operational_supply" class="ml-1 text-[10px] opacity-70"></span></button>
 </div>
 
 {% if not raw_materials %}
