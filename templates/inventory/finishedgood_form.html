@@ -45,6 +45,35 @@
       <button type="button" onclick="addFormsetRow('recipe_items','recipe-rows')" class="w-full text-xs text-[#1E4536] font-medium py-2 hover:bg-[#F0EAD9]">+ Add Ingredient</button>
     </div>
 
+    <span class="block text-xs font-medium text-stone-600 mb-1 mt-5">Production Inputs (Packaging, Gas & Production Supplies)</span>
+    <p class="text-[11px] text-stone-400 mb-1">These are consumed per batch but are not recipe ingredients — for example cake boxes, labels, baking gas or other per-production supplies. Quantities use each material's usage unit.</p>
+    {{ production_formset.management_form }}
+    <div class="border border-[#E7DFCC] rounded-md overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
+          <th class="text-left px-2 py-1.5">Production Material</th><th class="text-right px-2 py-1.5 w-28">Qty/Batch</th><th class="w-16"></th>
+        </tr></thead>
+        <tbody id="production-material-rows">
+          {% for f in production_formset %}
+          <tr {% if forloop.first %}data-formset-row{% endif %} class="border-t border-[#E7DFCC]">
+            <td class="px-2 py-1.5">{{ f.id }}{{ f.raw_material }}</td>
+            <td class="px-2 py-1.5">{{ f.qty_per_batch }}</td>
+            <td class="px-2 py-1.5 text-center text-xs text-rose-600">
+              {% if f.instance.pk %}
+              <label>{{ f.DELETE }}
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-trash">
+                  <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M4 7l16 0" /><path d="M10 11l0 6" /><path d="M14 11l0 6" /><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" /><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" />
+                </svg>
+              </label>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <button type="button" onclick="addFormsetRow('production_materials','production-material-rows')" class="w-full text-xs text-[#1E4536] font-medium py-2 hover:bg-[#F0EAD9]">+ Add Production Input</button>
+    </div>
+
     <div class="flex justify-end gap-2 mt-4">
       <a href="{% url 'inventory' %}" class="px-3.5 py-2 text-sm rounded-md text-stone-500 hover:bg-stone-100">Cancel</a>
       <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">Save</button>

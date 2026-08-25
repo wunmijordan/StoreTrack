@@ -14,9 +14,15 @@
 <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
   <div>
     <h2 class="text-xl font-semibold font-display text-[#1E4536]">Raw Materials</h2>
-    <p class="text-sm text-stone-500 mt-0.5">Ingredients & Supplies used in Production</p>
+    <p class="text-sm text-stone-500 mt-0.5">Ingredients, production inputs and operational supplies — all procured through the same material form and procurement chain.</p>
+    <div id="material-category-tabs" class="flex flex-wrap gap-1.5 mt-3">
+      <button type="button" data-material-tab="ingredient" class="material-tab px-3 py-1.5 rounded-md text-xs font-medium border">Ingredients <span data-material-count="ingredient" class="ml-1 text-[10px] opacity-70"></span></button>
+      <button type="button" data-material-tab="packaging" class="material-tab px-3 py-1.5 rounded-md text-xs font-medium border">Packaging <span data-material-count="packaging" class="ml-1 text-[10px] opacity-70"></span></button>
+      <button type="button" data-material-tab="production_supply" class="material-tab px-3 py-1.5 rounded-md text-xs font-medium border">Production Supplies <span data-material-count="production_supply" class="ml-1 text-[10px] opacity-70"></span></button>
+      <button type="button" data-material-tab="operational_supply" class="material-tab px-3 py-1.5 rounded-md text-xs font-medium border">Operational Supplies <span data-material-count="operational_supply" class="ml-1 text-[10px] opacity-70"></span></button>
+      <a href="{% url 'raw_material_add' %}" class="px-3.5 py-2 ms-auto text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">+ Add Material</a>
+    </div>
   </div>
-  <a href="{% url 'raw_material_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">+ Add Material</a>
 </div>
 
 {% if not raw_materials %}
@@ -29,7 +35,7 @@
     </tr></thead>
     <tbody>
       {% for m in raw_materials %}
-      <tr class="border-t border-[#E7DFCC] {% if m.is_low %}bg-rose-400/20{% elif m.is_warning %}bg-amber-100{% endif %}">
+      <tr data-material-category="{{ m.category }}" class="border-t border-[#E7DFCC] {% if m.is_low %}bg-rose-400/20{% elif m.is_warning %}bg-amber-100{% endif %}">
         <td class="px-3 py-2"> 
           <button
             type="button"
@@ -124,11 +130,11 @@
     <thead class="bg-[#F0EAD9] text-stone-600 text-md text-middle"><tr>
       <th class="px-3 py-2">Product</th>
       <th class="px-3 py-2">Stock (Physical Store)</th>
-      <th class="px-3 py-2">Customer Order</th>
+      <th class="px-3 py-2">Customer Orders</th>
       <th class="px-3 py-2">Total Made</th>
       <!--<th class="px-3 py-2">Reorder at</th>-->
       <th class="px-3 py-2">Price</th>
-      <th class="px-3 py-2">Recipe</th>
+      <th class="px-3 py-2">Recipe / Production Inputs</th>
       <th class="w-24"></th>
     </tr></thead>
     <tbody>
@@ -163,7 +169,7 @@
         <td class="px-3 py-2 text-right font-mono text-stone-500">{{ g.total_produced|num }}</td>
         <!--<td class="px-3 py-2 text-right font-mono text-stone-500">{{ g.reorder_level|num }}</td>-->
         <td class="px-3 py-2 text-right font-mono">{{ g.selling_price|money:biz.currency_symbol }}</td>
-        <td class="px-3 py-2 text-xs text-stone-500">{{ g.recipe_items.count }} Ingredient{{ g.recipe_items.count|pluralize }}</td>
+        <td class="px-3 py-2 text-xs text-stone-500">{{ g.recipe_items.count }} Ingredient{{ g.recipe_items.count|pluralize }}{% if g.production_materials.count %}, {{ g.production_materials.count }} production input{{ g.production_materials.count|pluralize }}{% endif %}</td>
         <td class="px-3 py-2 text-right">
           <a href="{% url 'finished_good_edit' g.pk %}" class="text-stone-400 hover:text-[#1E4536] mr-2">Edit</a>
           <form action="{% url 'finished_good_delete' g.pk %}" method="post" class="inline" onsubmit="return confirm('Remove {{ g.name }}?');">{% csrf_token %}<button class="text-stone-400 hover:text-rose-600">Delete</button></form>
@@ -257,6 +263,31 @@
   </div>
 </div>
 
+<script>
+  const materialRows = Array.from(document.querySelectorAll('[data-material-category]'));
+  const materialTabs = Array.from(document.querySelectorAll('[data-material-tab]'));
+  let activeMaterialCategory = 'ingredient';
+  function updateMaterialTabs(category) {
+    activeMaterialCategory = category;
+    materialRows.forEach(row => { row.classList.toggle('hidden', row.dataset.materialCategory !== category); });
+    materialTabs.forEach(tab => {
+      const active = tab.dataset.materialTab === category;
+      tab.classList.toggle('bg-[#1E4536]', active);
+      tab.classList.toggle('text-white', active);
+      tab.classList.toggle('border-[#1E4536]', active);
+      tab.classList.toggle('bg-white', !active);
+      tab.classList.toggle('text-stone-600', !active);
+      tab.classList.toggle('border-[#D9CFB4]', !active);
+    });
+  }
+  materialTabs.forEach(tab => tab.addEventListener('click', () => updateMaterialTabs(tab.dataset.materialTab)));
+  ['ingredient','packaging','production_supply','operational_supply'].forEach(category => {
+    const count = materialRows.filter(row => row.dataset.materialCategory === category).length;
+    const el = document.querySelector(`[data-material-count="${category}"]`);
+    if (el) el.textContent = `(${count})`;
+  });
+  updateMaterialTabs(activeMaterialCategory);
+</script>
 <script>
   const rawTab = document.getElementById('tab-raw');
   const finishedTab = document.getElementById('tab-finished');

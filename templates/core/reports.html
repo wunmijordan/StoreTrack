@@ -7,16 +7,19 @@
   <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[-2px_-2px_8px_#000000d2] p-4">
     <h3 class="font-medium text-sm mb-1">Stock Report</h3>
     <p class="text-xs text-stone-500 mb-3">Current levels for raw materials & products.</p>
+    <a href="{% url 'export_stock_xlsx' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#1E4536] hover:bg-[#E7DFCC] border border-[#D9CFB4] inline-block mr-1">Export Excel</a>
     <a href="{% url 'export_stock_csv' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#1E4536] hover:bg-[#E7DFCC] border border-[#D9CFB4] inline-block">Export CSV</a>
   </div>
   <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[2px_-2px_8px_#000000d2] p-4">
     <h3 class="font-medium text-sm mb-1">Procurement Report</h3>
     <p class="text-xs text-stone-500 mb-3">All purchase orders and spend.</p>
+    <a href="{% url 'export_procurement_xlsx' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#1E4536] hover:bg-[#E7DFCC] border border-[#D9CFB4] inline-block mr-1">Export Excel</a>
     <a href="{% url 'export_procurement_csv' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#1E4536] hover:bg-[#E7DFCC] border border-[#D9CFB4] inline-block">Export CSV</a>
   </div>
   <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[-2px_2px_8px_#000000d2] p-4">
     <h3 class="font-medium text-sm mb-1">Production Report</h3>
     <p class="text-xs text-stone-500 mb-3">Completed production runs.</p>
+    <a href="{% url 'export_production_xlsx' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#1E4536] hover:bg-[#E7DFCC] border border-[#D9CFB4] inline-block mr-1">Export Excel</a>
     <a href="{% url 'export_production_csv' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#1E4536] hover:bg-[#E7DFCC] border border-[#D9CFB4] inline-block">Export CSV</a>
   </div>
   <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[2px_2px_8px_#000000d2] p-4">
@@ -26,8 +29,25 @@
         <input type="date" name="from" class="w-full rounded-md border border-[#D9CFB4] bg-white px-2.5 py-1.5 text-sm">
         <input type="date" name="to" class="w-full rounded-md border border-[#D9CFB4] bg-white px-2.5 py-1.5 text-sm">
       </div>
-      <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#1E4536] hover:bg-[#E7DFCC] border border-[#D9CFB4]">Export CSV</button>
+      <div class="flex gap-2">
+        <button type="submit" formaction="{% url 'export_sales_csv' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#1E4536] hover:bg-[#E7DFCC] border border-[#D9CFB4]">Export CSV</button>
+        <button type="submit" formaction="{% url 'export_sales_xlsx' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#1E4536] hover:bg-[#E7DFCC] border border-[#D9CFB4]">Export Excel</button>
+      </div>
     </form>
+  </div>
+
+  <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[2px_2px_8px_#000000d2] p-4">
+    <h3 class="font-medium text-sm mb-1">Miscellaneous Expenses</h3>
+    <p class="text-xs text-stone-500 mb-3">Overheads and other business spending outside purchase orders.</p>
+    <a href="{% url 'expenses_list' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A] inline-block">Open Expenses</a>
+    <a href="{% url 'export_expenses_csv' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#1E4536] border border-[#D9CFB4] inline-block ml-1">CSV</a>
+    <a href="{% url 'export_expenses_xlsx' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#1E4536] border border-[#D9CFB4] inline-block ml-1">Excel</a>
+  </div>
+  <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[2px_2px_8px_#000000d2] p-4">
+    <h3 class="font-medium text-sm mb-1">Financial Summary</h3>
+    <p class="text-xs text-stone-500 mb-3">Sales, procurement spend, miscellaneous spend and net revenue by period.</p>
+    <a href="{% url 'export_financial_csv' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#1E4536] border border-[#D9CFB4] inline-block">CSV</a>
+    <a href="{% url 'export_financial_xlsx' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#1E4536] border border-[#D9CFB4] inline-block ml-1">Excel</a>
   </div>
 </div>
 

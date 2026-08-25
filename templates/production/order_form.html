@@ -9,8 +9,12 @@
     {% csrf_token %}
     <div class="flex gap-2 mb-3">
       <label class="flex-1">
-        <input type="radio" name="order_type" value="customer" class="hidden peer" {% if form.order_type.value == 'customer' or not form.order_type.value %}checked{% endif %} onchange="toggleOrderType()">
-        <span class="block text-center px-3 py-2 rounded-md text-sm border cursor-pointer peer-checked:bg-[#1E4536] peer-checked:text-white peer-checked:border-[#1E4536] bg-white border-[#D9CFB4] text-stone-600">Customer Order</span>
+        <input type="radio" name="order_type" value="distribution" class="hidden peer" {% if form.order_type.value == 'distribution' or not form.order_type.value %}checked{% endif %} onchange="toggleOrderType()">
+        <span class="block text-center px-3 py-2 rounded-md text-sm border cursor-pointer peer-checked:bg-[#1E4536] peer-checked:text-white peer-checked:border-[#1E4536] bg-white border-[#D9CFB4] text-stone-600">Distribution Order</span>
+      </label>
+      <label class="flex-1">
+        <input type="radio" name="order_type" value="online" class="hidden peer" {% if form.order_type.value == 'online' %}checked{% endif %} onchange="toggleOrderType()">
+        <span class="block text-center px-3 py-2 rounded-md text-sm border cursor-pointer peer-checked:bg-[#1E4536] peer-checked:text-white peer-checked:border-[#1E4536] bg-white border-[#D9CFB4] text-stone-600">Online Order</span>
       </label>
       <label class="flex-1">
         <input type="radio" name="order_type" value="physical_store" class="hidden peer" {% if form.order_type.value == 'physical_store' %}checked{% endif %} onchange="toggleOrderType()">
@@ -87,9 +91,9 @@
     const type = document.querySelector('input[name="order_type"]:checked').value;
     const custFields = document.getElementById('customer-fields');
     const hint = document.getElementById('order-type-hint');
-    if (type === 'customer') {
+    if (type === 'distribution' || type === 'online') {
       custFields.style.display = 'grid';
-      hint.textContent = 'Made specifically for this customer — delivered directly, never sits on the shelf. Appears on the Sales list once completed.';
+      hint.textContent = type === 'online' ? 'Online customer order — made for the named customer and recorded in Sales as Online once completed.' : 'Distribution order — made for the named customer and recorded in Sales as Distribution once completed.';
     } else {
       custFields.style.display = 'none';
       hint.textContent = 'A restock request — no customer, adds straight to physical store shelf stock once completed. Does not appear on the Sales list.';

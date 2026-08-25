@@ -25,4 +25,4 @@ class SaleItemForm(StyledModelForm):
         fields = ["finished_good", "batch_qty", "piece_qty", "discount"]
 
 
-SaleItemFormSet = inlineformset_factory(Sale, SaleItem, form=SaleItemForm, extra=2, can_delete=True)
+SaleItemFormSet = inlineformset_factory(Sale, SaleItem, form=SaleItemForm, extra=1, can_delete=True)

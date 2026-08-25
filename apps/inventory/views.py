@@ -7,7 +7,7 @@ from django.http import JsonResponse
 from django.db.models import Q, Sum
 from django.db.models.functions import TruncDate
 
-from .forms import RawMaterialForm, FinishedGoodForm, RecipeItemFormSet
+from .forms import RawMaterialForm, FinishedGoodForm, RecipeItemFormSet, ProductionMaterialFormSet
 from .models import RawMaterial, FinishedGood, StockMovement
 
 
@@ -58,17 +58,26 @@ def finished_good_form(request, pk=None):
             if obj is None:
                 good.created_by = request.user
             good.save()
-            formset = RecipeItemFormSet(request.POST, instance=good)
-            if formset.is_valid():
+            formset = RecipeItemFormSet(request.POST, instance=good, prefix="recipe_items")
+            production_formset = ProductionMaterialFormSet(request.POST, instance=good, prefix="production_materials")
+            if formset.is_valid() and production_formset.is_valid():
                 formset.save()
+                production_formset.save()
                 messages.success(request, "Product saved.")
                 return redirect("inventory")
         else:
-            formset = RecipeItemFormSet(request.POST, instance=obj if obj else FinishedGood())
+            formset = RecipeItemFormSet(request.POST, instance=obj if obj else FinishedGood(), prefix="recipe_items")
+            production_formset = ProductionMaterialFormSet(request.POST, instance=obj if obj else FinishedGood(), prefix="production_materials")
     else:
         form = FinishedGoodForm(instance=obj)
-        formset = RecipeItemFormSet(instance=obj)
-    return render(request, "inventory/finishedgood_form.html", {"form": form, "formset": formset, "obj": obj})
+        formset = RecipeItemFormSet(instance=obj, prefix="recipe_items")
+        production_formset = ProductionMaterialFormSet(instance=obj, prefix="production_materials")
+    return render(request, "inventory/finishedgood_form.html", {
+        "form": form,
+        "formset": formset,
+        "production_formset": production_formset,
+        "obj": obj,
+    })
 
 
 @login_required

@@ -4,7 +4,25 @@ from core.models import BusinessOwnedModel, TimestampedModel
 
 
 class RawMaterial(BusinessOwnedModel):
+    CATEGORY_INGREDIENT = "ingredient"
+    CATEGORY_PACKAGING = "packaging"
+    CATEGORY_PRODUCTION_SUPPLY = "production_supply"
+    CATEGORY_OPERATIONAL_SUPPLY = "operational_supply"
+
+    CATEGORY_CHOICES = [
+        (CATEGORY_INGREDIENT, "Ingredient"),
+        (CATEGORY_PACKAGING, "Packaging"),
+        (CATEGORY_PRODUCTION_SUPPLY, "Production supply (Gas)"),
+        (CATEGORY_OPERATIONAL_SUPPLY, "Operational supply (Gloves, Cleaning, etc.)"),
+    ]
+
     name = models.CharField(max_length=120)
+    category = models.CharField(
+        max_length=24,
+        choices=CATEGORY_CHOICES,
+        default=CATEGORY_INGREDIENT,
+        help_text="Classifies how the material is used. Operational supplies are not tied to a production recipe.",
+    )
     purchase_unit = models.CharField(max_length=20, default="", blank=True,
         help_text="What you buy — bag, carton, pack…")
     package_qty = models.DecimalField(max_digits=12, decimal_places=2, default=1,
@@ -129,6 +147,8 @@ class FinishedGood(BusinessOwnedModel):
         batch_cost = Decimal("0")
         for ri in self.recipe_items.select_related("raw_material"):
             batch_cost += ri.raw_material.cost_per_unit * ri.qty_per_batch
+        for pm in self.production_materials.select_related("raw_material"):
+            batch_cost += pm.raw_material.cost_per_unit * pm.qty_per_batch
         upb = self.units_per_batch or Decimal("1")
         return batch_cost / upb
 
@@ -144,6 +164,34 @@ class RecipeItem(TimestampedModel):
 
     class Meta:
         unique_together = ("finished_good", "raw_material")
+
+    def __str__(self):
+        return f"{self.qty_per_batch} {self.raw_material.usage_unit} {self.raw_material.name} / batch of {self.finished_good.name}"
+
+
+class ProductionMaterial(TimestampedModel):
+    """A raw material that is consumed as part of producing a finished good,
+    but is not necessarily a recipe ingredient. Examples: cake boxes,
+    packaging sleeves, baking gas and other per-batch production supplies.
+
+    Quantities are per BATCH and are always entered in the raw material's
+    usage unit, just like RecipeItem.
+    """
+    finished_good = models.ForeignKey(
+        FinishedGood,
+        related_name="production_materials",
+        on_delete=models.CASCADE,
+    )
+    raw_material = models.ForeignKey(
+        RawMaterial,
+        related_name="production_material_links",
+        on_delete=models.PROTECT,
+    )
+    qty_per_batch = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
+    class Meta:
+        unique_together = ("finished_good", "raw_material")
+        ordering = ["raw_material__name"]
 
     def __str__(self):
         return f"{self.qty_per_batch} {self.raw_material.usage_unit} {self.raw_material.name} / batch of {self.finished_good.name}"

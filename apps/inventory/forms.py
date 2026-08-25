@@ -2,7 +2,7 @@ from decimal import Decimal, InvalidOperation
 
 from django import forms
 from django.forms import inlineformset_factory
-from .models import RawMaterial, FinishedGood, RecipeItem
+from .models import RawMaterial, FinishedGood, RecipeItem, ProductionMaterial
 
 INPUT_CLS = "w-full rounded-md border border-[#D9CFB4] bg-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E4536]/30 focus:border-[#1E4536]"
 
@@ -56,7 +56,7 @@ class RawMaterialForm(StyledModelForm):
         model = RawMaterial
         # stock & cost_per_unit deliberately excluded — captured above in
         # purchase-unit terms and converted in save().
-        fields = ["name", "purchase_unit", "package_qty", "package_unit",
+        fields = ["name", "category", "purchase_unit", "package_qty", "package_unit",
                   "usage_unit", "usage_conversion_factor", "reorder_level_purchase_units"]
 
     def __init__(self, *args, **kwargs):
@@ -111,5 +111,33 @@ class RecipeItemForm(StyledModelForm):
         model = RecipeItem
         fields = ["raw_material", "qty_per_batch"]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["raw_material"].queryset = RawMaterial.objects.filter(
+            category=RawMaterial.CATEGORY_INGREDIENT
+        )
 
-RecipeItemFormSet = inlineformset_factory(FinishedGood, RecipeItem, form=RecipeItemForm, extra=2, can_delete=True)
+
+class ProductionMaterialForm(StyledModelForm):
+    class Meta:
+        model = ProductionMaterial
+        fields = ["raw_material", "qty_per_batch"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Operational supplies (gloves, head nets, cleaning products, etc.)
+        # are intentionally not attached to individual productions.
+        self.fields["raw_material"].queryset = RawMaterial.objects.filter(
+            category__in=[
+                RawMaterial.CATEGORY_PACKAGING,
+                RawMaterial.CATEGORY_PRODUCTION_SUPPLY,
+            ]
+        )
+
+
+RecipeItemFormSet = inlineformset_factory(
+    FinishedGood, RecipeItem, form=RecipeItemForm, extra=1, can_delete=True
+)
+ProductionMaterialFormSet = inlineformset_factory(
+    FinishedGood, ProductionMaterial, form=ProductionMaterialForm, extra=1, can_delete=True
+)

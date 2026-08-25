@@ -15,7 +15,7 @@ class StyledModelForm(forms.ModelForm):
 class OrderForm(StyledModelForm):
     class Meta:
         model = Order
-        fields = ["date", "order_type", "customer_name", "payment_method", "notes"]
+        fields = ["date", "order_type", "customer_name", "customer_region", "customer_group", "payment_method", "notes"]
         widgets = {
             "date": forms.DateInput(attrs={"type": "date"}),
             "notes": forms.Textarea(attrs={"rows": 2}),
@@ -28,8 +28,8 @@ class OrderForm(StyledModelForm):
 
     def clean(self):
         cleaned = super().clean()
-        if cleaned.get("order_type") == "customer" and not cleaned.get("customer_name"):
-            self.add_error("customer_name", "Required for a customer order.")
+        if cleaned.get("order_type") in ("distribution", "online") and not cleaned.get("customer_name"):
+            self.add_error("customer_name", "Required for distribution and online orders.")
         return cleaned
 
 
@@ -39,4 +39,4 @@ class OrderItemForm(StyledModelForm):
         fields = ["finished_good", "batch_qty", "piece_qty", "discount"]
 
 
-OrderItemFormSet = inlineformset_factory(Order, OrderItem, form=OrderItemForm, extra=2, can_delete=True)
+OrderItemFormSet = inlineformset_factory(Order, OrderItem, form=OrderItemForm, extra=1, can_delete=True)

@@ -3,6 +3,7 @@
 <a href="{% url 'inventory' %}" class="{{ row_class }} {% if current == 'inventory' %}bg-white/10 text-white font-medium{% else %}text-[#D8E3DB] hover:bg-white/5{% endif %}">Inventory</a>
 <a href="{% url 'procurement_list' %}" class="{{ row_class }} {% if current == 'procurement_list' %}bg-white/10 text-white font-medium{% else %}text-[#D8E3DB] hover:bg-white/5{% endif %}">Procurement</a>
 <a href="{% url 'orders_list' %}" class="{{ row_class }} {% if current == 'orders_list' or current == 'order_add' or current == 'order_detail' %}bg-white/10 text-white font-medium{% else %}text-[#D8E3DB] hover:bg-white/5{% endif %}">Orders</a>
+<a href="{% url 'expenses_list' %}" class="{{ row_class }} {% if current == 'expenses_list' or current == 'expense_add' or current == 'expense_edit' %}bg-white/10 text-white font-medium{% else %}text-[#D8E3DB] hover:bg-white/5{% endif %}">Expenses</a>
 <a href="{% url 'sales_list' %}" class="{{ row_class }} {% if current == 'sales_list' %}bg-white/10 text-white font-medium{% else %}text-[#D8E3DB] hover:bg-white/5{% endif %}">Sales</a>
 <a href="{% url 'reports' %}" class="{{ row_class }} {% if current == 'reports' %}bg-white/10 text-white font-medium{% else %}text-[#D8E3DB] hover:bg-white/5{% endif %}">Reports & Backup</a>
 {% endwith %}

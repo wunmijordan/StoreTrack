@@ -10,7 +10,7 @@ class Order(BusinessOwnedModel):
     Approved and completed as a whole — all its line items together, not
     item-by-item. See docs/ARCHITECTURE.md for the full flow."""
 
-    TYPE_CHOICES = [("customer", "Customer Order"), ("physical_store", "Physical Store Order")]
+    TYPE_CHOICES = [("distribution", "Distribution Order"), ("online", "Online Order"), ("physical_store", "Physical Store Order")]
     STATUS_CHOICES = [
         ("pending", "Pending"), ("approved", "Approved"),
         ("completed", "Completed"), ("rejected", "Rejected"),
@@ -20,9 +20,13 @@ class Order(BusinessOwnedModel):
     date = models.DateField()
     order_type = models.CharField(max_length=15, choices=TYPE_CHOICES, default="physical_store")
     customer_name = models.CharField(max_length=120, blank=True,
-        help_text="Required for a customer order; leave blank for a physical store restock.")
+        help_text="Required for distribution and online orders; leave blank for a physical store restock.")
+    customer_region = models.CharField(max_length=100, blank=True,
+        help_text="Optional reporting region/territory for distribution or online customer analytics.")
+    customer_group = models.CharField(max_length=100, blank=True,
+        help_text="Optional customer group/segment for distribution or online customer analytics.")
     payment_method = models.CharField(max_length=10, choices=PAYMENT_CHOICES, default="Cash",
-        help_text="Only relevant for customer orders — recorded on the Sale created when this completes.")
+        help_text="Relevant for distribution/online orders — recorded on the Sale created when this completes.")
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="pending")
     notes = models.TextField(blank=True)
     approved_date = models.DateField(null=True, blank=True)
@@ -32,7 +36,7 @@ class Order(BusinessOwnedModel):
         ordering = ["-date", "-id"]
 
     def __str__(self):
-        who = self.customer_name if self.order_type == "customer" else "Physical store"
+        who = self.customer_name if self.order_type in ("distribution", "online") else "Physical store"
         return f"Order #{self.id} — {who}"
 
     @property
@@ -44,25 +48,41 @@ class Order(BusinessOwnedModel):
         return sum((i.total_units for i in self.items.all()), Decimal("0"))
 
     def material_requirements(self):
-        """Raw material needed across every line item, using the exact
-        batch+piece formula — no batch rounding, so no surplus production.
-        Returns {raw_material: needed_qty}."""
+        """Raw material needed across every line item.
+
+        Both recipe ingredients and per-production inputs (packaging, gas,
+        production supplies) are included. Quantities are exact batch+piece
+        requirements and are returned in each material's usage unit.
+        """
         needed = {}
         for item in self.items.select_related("finished_good"):
-            upb = item.finished_good.units_per_batch or Decimal("1")
-            for ri in item.finished_good.recipe_items.select_related("raw_material"):
-                per_piece = ri.qty_per_batch / upb
-                qty = ri.qty_per_batch * item.batch_qty + per_piece * item.piece_qty
-                mat = ri.raw_material
-                needed[mat.id] = needed.get(mat.id, (mat, Decimal("0")))
-                needed[mat.id] = (mat, needed[mat.id][1] + qty)
+            good = item.finished_good
+            upb = good.units_per_batch or Decimal("1")
+            per_piece_factor = item.piece_qty / upb
+
+            links = list(good.recipe_items.select_related("raw_material"))
+            links += list(good.production_materials.select_related("raw_material"))
+
+            for link in links:
+                qty = link.qty_per_batch * item.batch_qty
+                qty += link.qty_per_batch * per_piece_factor
+                mat = link.raw_material
+                current = needed.get(mat.id)
+                needed[mat.id] = (mat, (current[1] if current else Decimal("0")) + qty)
         return needed
 
     def shortages(self):
         result = []
         for mat, needed in self.material_requirements().values():
             if needed > mat.stock:
-                result.append({"name": mat.name, "usage_unit": mat.usage_unit, "needed": needed, "have": mat.stock, "short": needed - mat.stock})
+                result.append({
+                    "name": mat.name,
+                    "category": mat.get_category_display(),
+                    "usage_unit": mat.usage_unit,
+                    "needed": needed,
+                    "have": mat.stock,
+                    "short": needed - mat.stock,
+                })
         return result
 
 

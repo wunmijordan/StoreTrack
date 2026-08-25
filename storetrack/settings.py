@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     'procurement',
     'production',
     'sales',
+    'expenses',
 ]
 
 MIDDLEWARE = [

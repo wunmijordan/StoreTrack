@@ -56,7 +56,7 @@ def order_form(request, pk=None):
             messages.success(request, "Order updated." if obj else "Order created — approve it from the Orders page when ready.")
             return redirect("order_detail", pk=order.pk)
     else:
-        form = OrderForm(instance=obj, initial=None if obj else {"date": today(), "order_type": "customer"})
+        form = OrderForm(instance=obj, initial=None if obj else {"date": today(), "order_type": "distribution"})
         formset = OrderItemFormSet(instance=obj)
     prices = {str(g.pk): f"{g.selling_price}" for g in FinishedGood.objects.all()}
     return render(request, "production/order_form.html", {"form": form, "formset": formset, "prices": prices, "obj": obj})
@@ -146,7 +146,7 @@ def order_complete(request, pk):
         order.completed_date = today()
         order.save()
 
-        if order.order_type == "customer":
+        if order.order_type in ("distribution", "online"):
             from sales.models import Sale, SaleItem
 
             sale = Sale.objects.create(
@@ -154,7 +154,7 @@ def order_complete(request, pk):
                 date=order.completed_date,
                 customer=order.customer_name,
                 payment_method=order.payment_method,
-                source="customer_order",
+                source=f"{order.order_type}_order",
                 linked_order=order,
                 created_by=request.user,
             )
@@ -169,7 +169,7 @@ def order_complete(request, pk):
                     price=item.price,
                 )
 
-    if order.order_type == "customer":
+    if order.order_type in ("distribution", "online"):
         messages.success(
             request,
             "Order completed — added to the Sales list as fulfilled.",

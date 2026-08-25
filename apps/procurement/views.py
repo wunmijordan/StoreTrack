@@ -17,8 +17,16 @@ def today():
 
 @login_required
 def procurement_list(request):
+    raw_materials = RawMaterial.objects.all()
+    
+    raw_material_categories = []
+    for value, label in RawMaterial.CATEGORY_CHOICES:
+        items = raw_materials.filter(category=value)
+        raw_material_categories.append({"value": value, "label": label, "items": items})
+        
     return render(request, "procurement/procurement_list.html", {
-        "orders": PurchaseOrder.objects.prefetch_related("items__raw_material")
+        "orders": PurchaseOrder.objects.prefetch_related("items__raw_material"),
+        "raw_material_categories": raw_material_categories,
     })
 
 

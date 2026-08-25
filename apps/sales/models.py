@@ -12,15 +12,15 @@ class Sale(BusinessOwnedModel):
     entirely on the Order; this only exists once that's already done."""
 
     PAYMENT_CHOICES = [("Cash", "Cash"), ("Card", "Card"), ("Transfer", "Transfer")]
-    SOURCE_CHOICES = [("walkin", "Physical Store"), ("customer_order", "Customer Order")]
+    SOURCE_CHOICES = [("walkin", "Physical Store"), ("distribution_order", "Distribution Order"), ("online_order", "Online Order")]
 
     date = models.DateField()
     customer = models.CharField(max_length=120, blank=True, default="Walk-in")
     payment_method = models.CharField(max_length=10, choices=PAYMENT_CHOICES, default="Cash")
-    source = models.CharField(max_length=15, choices=SOURCE_CHOICES, default="walkin")
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default="walkin")
     linked_order = models.ForeignKey(
         "production.Order", null=True, blank=True, on_delete=models.SET_NULL,
-        help_text="Set automatically if this sale was created from a completed customer order.",
+        help_text="Set automatically if this sale was created from a completed distribution or online order.",
     )
 
     class Meta:

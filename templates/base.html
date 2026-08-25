@@ -6,6 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ biz.name|default:"Stock Ledger" }}</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
     body { font-family: 'Inter', sans-serif; background:#FAF6EF; color:#211D1A; }
@@ -19,7 +21,7 @@
   {% if user.is_authenticated %}
   <aside class="hidden md:flex w-56 shrink-0 flex-col bg-[#1E4536] text-[#FAF6EF] min-h-screen">
     <div class="px-5 py-5 border-b border-white/10">
-      <div class="font-semibold mt-1 font-display">{{ biz.name }}</div>
+      <a href="{% url 'dashboard' %}" class="font-semibold mt-1 font-display">{{ biz.name }}</a>
       <div class="text-[10px] tracking-[0.2em] uppercase text-[#C69A3E]">Stock Ledger</div>
     </div>
     <nav class="flex-1 py-3 text-sm">
@@ -80,6 +82,5 @@
       totalForms.value = formCount + 1;
     }
   </script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </body>
 </html>

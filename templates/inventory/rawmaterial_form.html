@@ -5,8 +5,10 @@
   <form method="post">
     {% csrf_token %}
     {% include "_field.html" with field=form.name %}
+    {% include "_field.html" with field=form.category %}
 
     <div class="text-xs bg-[#F0EAD9] border border-[#D9CFB4] rounded-md p-3 mb-3 space-y-1.5">
+      <p><strong>Material category</strong> controls how this item is used: ingredients belong in recipes; packaging and production supplies (such as baking gas) can be attached to a product's production inputs; operational supplies (gloves, head nets, cleaning items) remain inventory/procurement items but are not consumed automatically by production.</p>
       <p><strong>Three layers, if you need them:</strong> what you buy → what's in the pack → what a recipe actually uses.</p>
       <p><strong>Purchase unit</strong> — bag, carton, pack. <strong>Package qty/unit</strong> — what's printed on it, e.g. 1 bag = <code>50</code> <code>kg</code>.
       <strong>Usage unit</strong> — the fine unit a recipe consumes: kg, g, spoon, cap.</p>

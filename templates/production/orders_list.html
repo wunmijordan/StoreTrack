@@ -4,7 +4,7 @@
 <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
   <div>
     <h2 class="text-xl font-semibold font-display text-[#1E4536]">Orders</h2>
-    <p class="text-sm text-stone-500 mt-0.5">Customer Orders and Physical Store restocks — approve to release Raw Materials, complete to finish production</p>
+    <p class="text-sm text-stone-500 mt-0.5">Distribution, Online and Physical Store orders — approve to release Raw Materials, complete to finish production</p>
   </div>
   <a href="{% url 'order_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">+ New Order</a>
 </div>
@@ -22,9 +22,9 @@
       <tr class="border-t border-[#E7DFCC]">
         <td class="px-3 py-2 font-mono text-xs">{{ o.date }}</td>
         <td class="px-3 py-2">
-          <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium border {% if o.order_type == 'customer' %}bg-sky-50 text-sky-800 border-sky-300{% else %}bg-violet-50 text-violet-800 border-violet-300{% endif %}">{{ o.get_order_type_display }}</span>
+          <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium border {% if o.order_type == 'online' %}bg-fuchsia-50 text-fuchsia-800 border-fuchsia-300{% elif o.order_type == 'distribution' %}bg-sky-50 text-sky-800 border-sky-300{% else %}bg-violet-50 text-violet-800 border-violet-300{% endif %}">{{ o.get_order_type_display }}</span>
         </td>
-        <td class="px-3 py-2 text-xs">{% if o.order_type == 'customer' %}{{ o.customer_name }}{% else %}Physical store{% endif %}</td>
+        <td class="px-3 py-2 text-xs">{% if o.order_type == 'distribution' or o.order_type == 'online' %}{{ o.customer_name }}{% else %}Physical store{% endif %}</td>
         <td class="px-3 py-2 text-xs text-stone-500">{% for i in o.items.all %}{{ i.finished_good.name }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
         <td class="px-3 py-2 text-right font-mono">{{ o.total_units|num }}</td>
         <td class="px-3 py-2"><span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium border capitalize
