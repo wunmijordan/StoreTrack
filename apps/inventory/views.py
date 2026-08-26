@@ -7,7 +7,7 @@ from django.http import JsonResponse
 from django.db.models import Q, Sum
 from django.db.models.functions import TruncDate
 
-from .forms import RawMaterialForm, FinishedGoodForm, RecipeItemFormSet, ProductionMaterialFormSet
+from .forms import RawMaterialForm, FinishedGoodForm, FinishedGoodChannelPriceFormSet, RecipeItemFormSet, ProductionMaterialFormSet
 from .models import RawMaterial, FinishedGood, StockMovement
 
 
@@ -52,30 +52,33 @@ def finished_good_form(request, pk=None):
     obj = get_object_or_404(FinishedGood, pk=pk) if pk else None
     if request.method == "POST":
         form = FinishedGoodForm(request.POST, instance=obj)
-        if form.is_valid():
+        formset = RecipeItemFormSet(request.POST, instance=obj if obj else FinishedGood(), prefix="recipe_items")
+        production_formset = ProductionMaterialFormSet(request.POST, instance=obj if obj else FinishedGood(), prefix="production_materials")
+        channel_price_formset = FinishedGoodChannelPriceFormSet(request.POST, instance=obj if obj else FinishedGood(), prefix="channel_prices")
+        if form.is_valid() and formset.is_valid() and production_formset.is_valid() and channel_price_formset.is_valid():
             good = form.save(commit=False)
             good.business = request.business
             if obj is None:
                 good.created_by = request.user
             good.save()
-            formset = RecipeItemFormSet(request.POST, instance=good, prefix="recipe_items")
-            production_formset = ProductionMaterialFormSet(request.POST, instance=good, prefix="production_materials")
-            if formset.is_valid() and production_formset.is_valid():
-                formset.save()
-                production_formset.save()
-                messages.success(request, "Product saved.")
-                return redirect("inventory")
-        else:
-            formset = RecipeItemFormSet(request.POST, instance=obj if obj else FinishedGood(), prefix="recipe_items")
-            production_formset = ProductionMaterialFormSet(request.POST, instance=obj if obj else FinishedGood(), prefix="production_materials")
+            formset.instance = good
+            production_formset.instance = good
+            channel_price_formset.instance = good
+            formset.save()
+            production_formset.save()
+            channel_price_formset.save()
+            messages.success(request, "Product saved.")
+            return redirect("inventory")
     else:
         form = FinishedGoodForm(instance=obj)
         formset = RecipeItemFormSet(instance=obj, prefix="recipe_items")
         production_formset = ProductionMaterialFormSet(instance=obj, prefix="production_materials")
+        channel_price_formset = FinishedGoodChannelPriceFormSet(instance=obj, prefix="channel_prices")
     return render(request, "inventory/finishedgood_form.html", {
         "form": form,
         "formset": formset,
         "production_formset": production_formset,
+        "channel_price_formset": channel_price_formset,
         "obj": obj,
     })
 

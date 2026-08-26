@@ -2,9 +2,9 @@ from decimal import Decimal, InvalidOperation
 
 from django import forms
 from django.forms import inlineformset_factory
-from .models import RawMaterial, FinishedGood, RecipeItem, ProductionMaterial
+from .models import RawMaterial, FinishedGood, FinishedGoodChannelPrice, RecipeItem, ProductionMaterial
 
-INPUT_CLS = "w-full rounded-md border border-[#D9CFB4] bg-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E4536]/30 focus:border-[#1E4536]"
+INPUT_CLS = "w-full rounded-md border border-[#D9CFB4] bg-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#8f172d]/30 focus:border-[#8f172d]"
 
 
 class StyledModelForm(forms.ModelForm):
@@ -93,7 +93,7 @@ class RawMaterialForm(StyledModelForm):
         purchase_cost = self.cleaned_data.get("cost_per_purchase_unit") or Decimal("0")
         purchase_reorder = (self.cleaned_data.get("reorder_level_purchase_units") or Decimal("0"))
         instance.stock = (purchase_stock * factor).quantize(Decimal("0.01"))
-        instance.cost_per_unit = (purchase_cost / factor).quantize(Decimal("0.01"))
+        instance.cost_per_unit = (purchase_cost / factor).quantize(Decimal("0.000001"))
         instance.reorder_level = (purchase_reorder * factor).quantize(Decimal("0.01"))
         if commit:
             instance.save()
@@ -104,6 +104,28 @@ class FinishedGoodForm(StyledModelForm):
     class Meta:
         model = FinishedGood
         fields = ["name", "unit", "units_per_batch", "stock", "reorder_level", "selling_price"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["stock"].required = False
+        self.fields["reorder_level"].required = False
+        self.fields["selling_price"].required = False
+
+
+class FinishedGoodChannelPriceForm(StyledModelForm):
+    class Meta:
+        model = FinishedGoodChannelPrice
+        fields = ["channel", "price"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["price"].required = False
+
+
+FinishedGoodChannelPriceFormSet = inlineformset_factory(
+    FinishedGood, FinishedGoodChannelPrice, form=FinishedGoodChannelPriceForm, extra=3,
+    can_delete=True, max_num=3, validate_max=True
+)
 
 
 class RecipeItemForm(StyledModelForm):

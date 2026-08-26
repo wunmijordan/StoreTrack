@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
-<h2 class="text-xl font-semibold font-display text-[#1E4536] mb-1">New Sale</h2>
-<p class="text-sm text-stone-500 mb-4">Physical Store Stock only — immediate, from what's already on the Shelf. For a Distribution/Online Order or a restock, use <a href="{% url 'order_add' %}" class="text-[#1E4536] underline">New Order</a> instead.</p>
+<h2 class="text-xl font-semibold font-display text-[#8f172d] mb-1">New Sale</h2>
+<p class="text-sm text-stone-500 mb-4">Physical Store Stock only — immediate, from what's already on the Shelf. For a Distribution/Online Order or a restock, use <a href="{% url 'order_add' %}" class="text-[#8f172d] underline">New Order</a> instead.</p>
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] p-5 max-w-2xl">
   <form method="post" id="sale-form">
     {% csrf_token %}
@@ -43,7 +43,7 @@
           </tbody>
         </table>
       </div>
-      <button type="button" onclick="addFormsetRow('items','sale-rows'); wireRows();" class="w-full text-xs text-[#1E4536] font-medium py-2 hover:bg-[#F0EAD9]">+ Add Product</button>
+      <button type="button" onclick="addFormsetRow('items','sale-rows'); wireRows();" class="w-full text-xs text-[#8f172d] font-medium py-2 hover:bg-[#F0EAD9]">+ Add Product</button>
     </div>
 
     {% if shortages %}

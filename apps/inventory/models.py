@@ -37,7 +37,9 @@ class RawMaterial(BusinessOwnedModel):
                    "'my spoon holds 5g' → if package_unit is kg, that's 200 spoons per kg → 200.")
     stock = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     reorder_level = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    cost_per_unit = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # Stored in usage units. Higher precision prevents tiny per-gram/per-ml
+    # costs from being rounded away when procurement prices are converted.
+    cost_per_unit = models.DecimalField(max_digits=16, decimal_places=6, default=0)
 
     class Meta:
         ordering = ["name"]
@@ -48,15 +50,12 @@ class RawMaterial(BusinessOwnedModel):
 
     @property
     def is_low(self):
-        return self.stock <= self.reorder_level
+        return self.stock is not None and self.reorder_level is not None and self.stock <= self.reorder_level
 
     @property
     def is_warning(self):
-        """
-        Triggers amber warning state if stock is above the reorder level,
-        but less than or equal to 150% of the reorder level.
-        """
-        if self.is_low:
+        """Triggers amber warning only for products that have physical-store stock configured."""
+        if self.stock is None or self.reorder_level is None or self.is_low:
             return False
         return self.stock <= (self.reorder_level * Decimal("1.5"))
 
@@ -106,16 +105,17 @@ class FinishedGood(BusinessOwnedModel):
     units_per_batch = models.DecimalField(max_digits=12, decimal_places=2, default=1,
         help_text="How many individual units one production batch makes, e.g. 41 loaves per batch. "
                    "Recipe quantities are per BATCH, not per unit. Leave at 1 if you don't produce in batches.")
-    stock = models.DecimalField(max_digits=12, decimal_places=2, default=0,
-        help_text="Physical store (shelf) stock — available to sell right now.")
+    stock = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, default=None,
+        help_text="Physical store (shelf) stock. Leave blank when this product is not stocked in the physical store.")
     total_produced = models.DecimalField(max_digits=14, decimal_places=2, default=0,
         help_text="Cumulative all-time production (customer orders + physical store restocks). "
                    "Never decreases — a running total, not current stock.")
     total_delivered_to_customers = models.DecimalField(max_digits=14, decimal_places=2, default=0,
         help_text="Cumulative units delivered via completed customer orders. Only updates when an "
                    "order is completed — same timing as physical store stock, not when merely ordered.")
-    reorder_level = models.DecimalField(max_digits=12, decimal_places=2, default=0,
-        help_text="In individual units, not batches.")
+    reorder_level = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, default=None,
+        help_text="Physical-store reorder threshold in individual units. Leave blank when this product is not stocked in the physical store.")
+    # Legacy/default price used when no channel-specific price is configured.
     selling_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 
     class Meta:
@@ -127,17 +127,19 @@ class FinishedGood(BusinessOwnedModel):
 
     @property
     def is_low(self):
-        return self.stock <= self.reorder_level
+        return self.stock is not None and self.reorder_level is not None and self.stock <= self.reorder_level
 
     @property
     def is_warning(self):
-        """
-        Triggers amber warning state if stock is above the reorder level,
-        but less than or equal to 150% of the reorder level.
-        """
-        if self.is_low:
+        """Triggers amber warning only when physical-store stock is configured."""
+        if self.stock is None or self.reorder_level is None or self.is_low:
             return False
         return self.stock <= (self.reorder_level * Decimal("1.5"))
+
+    def selling_price_for(self, channel):
+        """Return channel-specific price, falling back to the legacy default."""
+        configured = self.channel_prices.filter(channel=channel).first()
+        return configured.price if configured else self.selling_price
 
     @property
     def est_cost(self):
@@ -151,6 +153,31 @@ class FinishedGood(BusinessOwnedModel):
             batch_cost += pm.raw_material.cost_per_unit * pm.qty_per_batch
         upb = self.units_per_batch or Decimal("1")
         return batch_cost / upb
+
+
+class FinishedGoodChannelPrice(TimestampedModel):
+    CHANNEL_PHYSICAL_STORE = "physical_store"
+    CHANNEL_DISTRIBUTION = "distribution"
+    CHANNEL_ONLINE = "online"
+
+    CHANNEL_CHOICES = [
+        (CHANNEL_PHYSICAL_STORE, "Physical Store"),
+        (CHANNEL_DISTRIBUTION, "Distribution"),
+        (CHANNEL_ONLINE, "Online"),
+    ]
+
+    finished_good = models.ForeignKey(
+        FinishedGood, related_name="channel_prices", on_delete=models.CASCADE
+    )
+    channel = models.CharField(max_length=20, choices=CHANNEL_CHOICES)
+    price = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        unique_together = ("finished_good", "channel")
+        ordering = ["channel"]
+
+    def __str__(self):
+        return f"{self.finished_good.name} — {self.get_channel_display()} — {self.price}"
 
 
 class RecipeItem(TimestampedModel):

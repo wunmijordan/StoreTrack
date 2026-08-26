@@ -42,6 +42,8 @@ class SaleItem(TimestampedModel):
     discount = models.DecimalField(max_digits=12, decimal_places=2, default=0, blank=True)
     price = models.DecimalField(max_digits=12, decimal_places=2, default=0,
         help_text="Snapshot of the product's selling price at sale time — set automatically.")
+    unit_cost = models.DecimalField(max_digits=16, decimal_places=6, null=True, blank=True,
+        help_text="Historical finished-good cost per unit at the time of sale.")
 
     def __str__(self):
         return f"{self.sale.customer} — {self.finished_good.name} x{self.total_units}"

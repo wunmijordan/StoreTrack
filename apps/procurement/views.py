@@ -1,3 +1,4 @@
+from decimal import Decimal
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
@@ -5,10 +6,11 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from .forms import PurchaseOrderForm, PurchaseOrderItemFormSet
-from .models import PurchaseOrder
+from .models import PurchaseOrder, RawMaterialCostSnapshot
 from inventory.models import RawMaterial
 from inventory.services import record_raw_material_movement
 from inventory.models import StockMovement
+from core.invoice import purchase_order_pdf
 
 
 def today():
@@ -75,7 +77,18 @@ def po_receive(request, pk):
                     StockMovement.RAW_PURCHASE,
                     note=f"Purchase order received",
                 )
-                mat.cost_per_unit = item.unit_cost / factor
+                usage_cost = (item.unit_cost / factor).quantize(Decimal("0.000001"))
+                RawMaterialCostSnapshot.objects.create(
+                    business=po.business,
+                    raw_material=mat,
+                    purchase_order_item=item,
+                    effective_date=po.received_date or today(),
+                    purchase_unit_cost=item.unit_cost,
+                    usage_unit_cost=usage_cost,
+                    supplier=po.supplier or "",
+                )
+                # This remains the material's current/latest procurement cost.
+                mat.cost_per_unit = usage_cost
                 mat.save(update_fields=["cost_per_unit"])
             po.status = "received"
             po.received_date = today()
@@ -91,3 +104,8 @@ def po_delete(request, pk):
         obj.delete()
         messages.success(request, "Removed.")
     return redirect("procurement_list")
+
+@login_required
+def po_invoice(request, pk):
+    po = get_object_or_404(PurchaseOrder.objects.prefetch_related("items__raw_material"), pk=pk)
+    return purchase_order_pdf(po)

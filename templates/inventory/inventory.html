@@ -5,14 +5,14 @@
 <div class="flex gap-2 mb-4 border-b border-[#E7DFCC]">
   <input type="radio" name="inv-tab" id="tab-raw" class="hidden peer/raw" checked>
   <input type="radio" name="inv-tab" id="tab-finished" class="hidden peer/finished">
-  <label for="tab-raw" class="cursor-pointer px-4 py-2 text-sm font-medium text-stone-500 border-b-2 border-transparent [.peer\/raw:checked~&]:text-[#1E4536] [.peer\/raw:checked~&]:border-[#1E4536]" id="raw-tab-label">Raw Materials</label>
+  <label for="tab-raw" class="cursor-pointer px-4 py-2 text-sm font-medium text-stone-500 border-b-2 border-transparent [.peer\/raw:checked~&]:text-[#8f172d] [.peer\/raw:checked~&]:border-[#8f172d]" id="raw-tab-label">Raw Materials</label>
   <label for="tab-finished" class="cursor-pointer px-4 py-2 text-sm font-medium text-stone-500 border-b-2 border-transparent" id="finished-tab-label">Finished Goods</label>
 </div>
 
 <div id="raw-panel">
 
 
-<h2 class="text-xl font-semibold font-display text-[#1E4536]">Raw Materials</h2>
+<h2 class="text-xl font-semibold font-display text-[#8f172d]">Raw Materials</h2>
 <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
   <p class="text-sm text-stone-500 mt-0.5 flex-1 min-w-[240px]">Ingredients, production inputs and operational supplies — all procured through the same material form and procurement chain.</p>
   <a href="{% url 'raw_material_add' %}" class="shrink-0 px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">+ Add Material</a>
@@ -38,7 +38,7 @@
         <td class="px-3 py-2"> 
           <button
             type="button"
-            class="text-left font-medium text-[#1E4536] hover:text-[#208d63] focus:outline-none focus:ring-2 focus:ring-[#1E4536]/30 rounded-sm"
+            class="text-left font-medium text-[#8f172d] hover:text-[#208d63] focus:outline-none focus:ring-2 focus:ring-[#8f172d]/30 rounded-sm"
             data-stock-history-trigger
             data-stock-history-kind="raw"
             data-stock-history-url="{% url 'stock_history' 'raw' m.pk %}"
@@ -100,7 +100,7 @@
           {% endif %}
         </td>
         <td class="px-3 py-2 text-right">
-          <a href="{% url 'raw_material_edit' m.pk %}" class="text-stone-400 hover:text-[#1E4536] mr-2">Edit</a>
+          <a href="{% url 'raw_material_edit' m.pk %}" class="text-stone-400 hover:text-[#8f172d] mr-2">Edit</a>
           <form action="{% url 'raw_material_delete' m.pk %}" method="post" class="inline" onsubmit="return confirm('Remove {{ m.name }}?');">{% csrf_token %}<button class="text-stone-400 hover:text-rose-600">Delete</button></form>
         </td>
       </tr>
@@ -115,7 +115,7 @@
 
 <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
   <div>
-    <h2 class="text-xl font-semibold font-display text-[#1E4536]">Products (Finished Goods)</h2>
+    <h2 class="text-xl font-semibold font-display text-[#8f172d]">Products (Finished Goods)</h2>
     <p class="text-sm text-stone-500 mt-0.5">Items you sell, with their recipe and batch size</p>
   </div>
   <a href="{% url 'finished_good_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">+ Add Product</a>
@@ -142,7 +142,7 @@
         <td class="px-3 py-2 font-medium">
           <button
             type="button"
-            class="text-left font-medium text-[#1E4536] hover:text-[#208d63] focus:outline-none focus:ring-2 focus:ring-[#1E4536]/30 rounded-sm"
+            class="text-left font-medium text-[#8f172d] hover:text-[#208d63] focus:outline-none focus:ring-2 focus:ring-[#8f172d]/30 rounded-sm"
             data-stock-history-trigger
             data-stock-history-kind="finished"
             data-stock-history-url="{% url 'stock_history' 'finished' g.pk %}"
@@ -170,7 +170,7 @@
         <td class="px-3 py-2 text-right font-mono">{{ g.selling_price|money:biz.currency_symbol }}</td>
         <td class="px-3 py-2 text-xs text-stone-500">{{ g.recipe_items.count }} Ingredient{{ g.recipe_items.count|pluralize }}{% if g.production_materials.count %}, {{ g.production_materials.count }} production input{{ g.production_materials.count|pluralize }}{% endif %}</td>
         <td class="px-3 py-2 text-right">
-          <a href="{% url 'finished_good_edit' g.pk %}" class="text-stone-400 hover:text-[#1E4536] mr-2">Edit</a>
+          <a href="{% url 'finished_good_edit' g.pk %}" class="text-stone-400 hover:text-[#8f172d] mr-2">Edit</a>
           <form action="{% url 'finished_good_delete' g.pk %}" method="post" class="inline" onsubmit="return confirm('Remove {{ g.name }}?');">{% csrf_token %}<button class="text-stone-400 hover:text-rose-600">Delete</button></form>
         </td>
       </tr>
@@ -195,7 +195,7 @@
   >
     <div class="flex items-start justify-between gap-4 px-5 py-4 border-b border-[#E7DFCC] bg-[#FFFDF8]">
       <div>
-        <h3 id="stock-history-title" class="text-lg font-bold text-[#1E4536]">Stock History</h3>
+        <h3 id="stock-history-title" class="text-lg font-bold text-[#8f172d]">Stock History</h3>
         <p id="stock-history-subtitle" class="text-xs text-stone-500 mt-0.5">Production and Daily Stock Flow</p>
       </div>
       <button
@@ -211,7 +211,7 @@
         <span>Loading…</span>
       </div>
       <div class="flex items-center gap-1 rounded-lg bg-white border border-stone-200 p-1" role="group" aria-label="Chart period">
-        <button type="button" class="stock-period-btn px-2.5 py-1 text-xs rounded-md bg-[#1E4536] text-white" data-days="7">7 Days</button>
+        <button type="button" class="stock-period-btn px-2.5 py-1 text-xs rounded-md bg-[#8f172d] text-white" data-days="7">7 Days</button>
         <button type="button" class="stock-period-btn px-2.5 py-1 text-xs rounded-md text-stone-600 hover:bg-stone-100" data-days="30">30 Days</button>
         <button type="button" class="stock-period-btn px-2.5 py-1 text-xs rounded-md text-stone-600 hover:bg-stone-100" data-days="90">90 Days</button>
       </div>
@@ -232,7 +232,7 @@
             <svg id="stock-history-chart" viewBox="0 0 900 340" class="w-full min-w-[720px] h-[320px]" role="img" aria-label="Stock balance chart"></svg>
           </div>
           <div class="mt-2 flex flex-wrap gap-4 text-[11px] text-stone-500">
-            <span class="inline-flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm bg-[#1E4536]"></span>Closing Stock</span>
+            <span class="inline-flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm bg-[#8f172d]"></span>Closing Stock</span>
             <span class="inline-flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm bg-emerald-300"></span>Stock In</span>
             <span class="inline-flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm bg-rose-300"></span>Stock Out</span>
             <span data-production-legend class="inline-flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm bg-sky-300"></span>Production</span>
@@ -273,7 +273,7 @@
       const active = tab.dataset.materialTab === category;
       tab.classList.toggle('bg-[#8f172d]', active);
       tab.classList.toggle('text-white', active);
-      tab.classList.toggle('border-[#1E4536]', active);
+      tab.classList.toggle('border-[#8f172d]', active);
       tab.classList.toggle('bg-white', !active);
       tab.classList.toggle('text-stone-600', !active);
       tab.classList.toggle('border-[#D9CFB4]', !active);
@@ -299,10 +299,10 @@
     const showRaw = rawTab.checked;
     rawPanel.classList.toggle('hidden', !showRaw);
     finishedPanel.classList.toggle('hidden', showRaw);
-    rawLabel.classList.toggle('text-[#1E4536]', showRaw);
-    rawLabel.classList.toggle('border-[#1E4536]', showRaw);
-    finishedLabel.classList.toggle('text-[#1E4536]', !showRaw);
-    finishedLabel.classList.toggle('border-[#1E4536]', !showRaw);
+    rawLabel.classList.toggle('text-[#8f172d]', showRaw);
+    rawLabel.classList.toggle('border-[#8f172d]', showRaw);
+    finishedLabel.classList.toggle('text-[#8f172d]', !showRaw);
+    finishedLabel.classList.toggle('border-[#8f172d]', !showRaw);
   }
   rawTab.addEventListener('change', updateTabs);
   finishedTab.addEventListener('change', updateTabs);
@@ -338,7 +338,7 @@
     selectedDays = Number(days);
     periodButtons.forEach(btn => {
       const active = Number(btn.dataset.days) === selectedDays;
-      btn.classList.toggle('bg-[#1E4536]', active);
+      btn.classList.toggle('bg-[#8f172d]', active);
       btn.classList.toggle('text-white', active);
       btn.classList.toggle('text-stone-600', !active);
       btn.classList.toggle('hover:bg-stone-100', !active);
@@ -535,8 +535,8 @@
       <line x1="${pad.left}" x2="${width - pad.right}" y1="${zeroY}" y2="${zeroY}" stroke="#A8A29E" stroke-width="1" stroke-dasharray="4 4" />
       ${grid}
       ${bars}
-      <polyline points="${points}" fill="none" stroke="#1E4536" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
-      ${rows.map((r, i) => `<circle cx="${x(i)}" cy="${y(r.closing)}" r="3.5" fill="#1E4536"><title>${r.date}: ${fmt(r.closing)}</title></circle>`).join('')}
+      <polyline points="${points}" fill="none" stroke="#8f172d" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+      ${rows.map((r, i) => `<circle cx="${x(i)}" cy="${y(r.closing)}" r="3.5" fill="#8f172d"><title>${r.date}: ${fmt(r.closing)}</title></circle>`).join('')}
       ${labels}
     `;
   }

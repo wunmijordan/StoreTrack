@@ -6,14 +6,17 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
+from procurement.models import RawMaterialCostSnapshot
+
 from .forms import OrderForm, OrderItemFormSet
-from .models import Order
+from .models import Order, OrderItem, ProductionCostSnapshot, ProductionCostLine
 from inventory.models import FinishedGood
 from inventory.services import (
     record_raw_material_movement,
     record_finished_good_movement,
 )
 from inventory.models import StockMovement
+from core.invoice import production_order_pdf
 
 
 def today():
@@ -24,6 +27,17 @@ def today():
 def orders_list(request):
     orders = Order.objects.prefetch_related("items__finished_good")
     return render(request, "production/orders_list.html", {"orders": orders})
+
+
+def _price_map():
+    return {
+        str(g.pk): {
+            "physical_store": f"{g.selling_price_for('physical_store')}",
+            "distribution": f"{g.selling_price_for('distribution')}",
+            "online": f"{g.selling_price_for('online')}",
+        }
+        for g in FinishedGood.objects.all().prefetch_related("channel_prices")
+    }
 
 
 @login_required
@@ -41,6 +55,15 @@ def order_form(request, pk=None):
         if form.is_valid() and formset.is_valid() and not has_items:
             messages.error(request, "Add at least one product.")
         elif form.is_valid() and has_items:
+            if form.cleaned_data.get("order_type") == "physical_store":
+                unstocked = [
+                    f.cleaned_data["finished_good"].name
+                    for f in formset.forms
+                    if f.cleaned_data and not f.cleaned_data.get("DELETE") and f.cleaned_data.get("finished_good") and f.cleaned_data["finished_good"].stock is None
+                ]
+                if unstocked:
+                    messages.error(request, "These products are not configured for physical-store stock: " + ", ".join(unstocked) + ".")
+                    return render(request, "production/order_form.html", {"form": form, "formset": formset, "prices": _price_map(), "obj": obj})
             order = form.save(commit=False)
             order.business = request.business
             if obj is None:
@@ -49,7 +72,7 @@ def order_form(request, pk=None):
             formset.instance = order
             items = formset.save(commit=False)
             for item in items:
-                item.price = item.finished_good.selling_price
+                item.price = item.finished_good.selling_price_for(order.order_type)
                 item.save()
             for deleted in formset.deleted_objects:
                 deleted.delete()
@@ -58,7 +81,7 @@ def order_form(request, pk=None):
     else:
         form = OrderForm(instance=obj, initial=None if obj else {"date": today(), "order_type": "distribution"})
         formset = OrderItemFormSet(instance=obj)
-    prices = {str(g.pk): f"{g.selling_price}" for g in FinishedGood.objects.all()}
+    prices = _price_map()
     return render(request, "production/order_form.html", {"form": form, "formset": formset, "prices": prices, "obj": obj})
 
 
@@ -106,6 +129,46 @@ def order_reject(request, pk):
     return redirect("orders_list")
 
 
+def _latest_material_cost(material, production_date):
+    snapshot = RawMaterialCostSnapshot.objects.filter(
+        raw_material=material, effective_date__lte=production_date
+    ).order_by("-effective_date", "-id").first()
+    if snapshot:
+        return snapshot.usage_unit_cost, "latest_procurement"
+    # Legacy/manual fallback for materials that predate historical snapshots.
+    return material.cost_per_unit, "legacy_current_cost"
+
+
+def _create_production_cost_snapshot(order, item):
+    good = item.finished_good
+    production_date = order.completed_date or today()
+    upb = good.units_per_batch or Decimal("1")
+    links = list(good.recipe_items.select_related("raw_material")) + list(good.production_materials.select_related("raw_material"))
+    piece_factor = item.piece_qty / upb
+    total_batch_multiplier = item.batch_qty + piece_factor
+    total_cost = Decimal("0")
+    sources = set()
+    snapshot = ProductionCostSnapshot.objects.create(
+        business=order.business, order=order, order_item=item, finished_good=good,
+        production_date=production_date, produced_units=item.total_units,
+    )
+    for link in links:
+        qty = link.qty_per_batch * total_batch_multiplier
+        unit_cost, source = _latest_material_cost(link.raw_material, production_date)
+        line_total = qty * unit_cost
+        total_cost += line_total
+        sources.add(source)
+        ProductionCostLine.objects.create(
+            snapshot=snapshot, raw_material=link.raw_material, quantity=qty,
+            usage_unit_cost=unit_cost, total_cost=line_total, source=source,
+        )
+    snapshot.total_cost = total_cost
+    snapshot.unit_cost = total_cost / item.total_units if item.total_units else Decimal("0")
+    snapshot.cost_source = "latest_procurement" if sources == {"latest_procurement"} else "latest_procurement_with_legacy_fallback"
+    snapshot.save(update_fields=["total_cost", "unit_cost", "cost_source"])
+    return snapshot
+
+
 @login_required
 def order_complete(request, pk):
     order = get_object_or_404(Order, pk=pk)
@@ -116,6 +179,9 @@ def order_complete(request, pk):
     with transaction.atomic():
         for item in order.items.select_related("finished_good"):
             good = item.finished_good
+
+            # Freeze the production cost before any later procurement can change it.
+            _create_production_cost_snapshot(order, item)
 
             # Every completed order represents completed production.
             good.total_produced += item.total_units
@@ -160,6 +226,7 @@ def order_complete(request, pk):
             )
 
             for item in order.items.all():
+                snapshot = item.cost_snapshots.order_by("-id").first()
                 SaleItem.objects.create(
                     sale=sale,
                     finished_good=item.finished_good,
@@ -167,6 +234,7 @@ def order_complete(request, pk):
                     piece_qty=item.piece_qty,
                     discount=item.discount,
                     price=item.price,
+                    unit_cost=snapshot.unit_cost if snapshot else None,
                 )
 
     if order.order_type in ("distribution", "online"):
@@ -190,3 +258,8 @@ def order_delete(request, pk):
         order.delete()
         messages.success(request, "Removed.")
     return redirect("orders_list")
+
+@login_required
+def order_invoice(request, pk):
+    order = get_object_or_404(Order.objects.prefetch_related("items__finished_good"), pk=pk)
+    return production_order_pdf(order)

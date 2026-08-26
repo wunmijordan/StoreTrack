@@ -9,8 +9,10 @@ from django.utils import timezone
 from .forms import SaleForm, SaleItemFormSet
 from .models import Sale
 from inventory.models import FinishedGood
+from production.models import ProductionCostSnapshot
 from inventory.services import record_finished_good_movement
 from inventory.models import StockMovement
+from core.invoice import sale_invoice_pdf
 
 
 def today():
@@ -41,10 +43,12 @@ def sale_form(request):
                 good = f.cleaned_data["finished_good"]
                 upb = good.units_per_batch or Decimal("1")
                 total_units = (f.cleaned_data.get("batch_qty") or Decimal("0")) * upb + (f.cleaned_data.get("piece_qty") or Decimal("0"))
-                if total_units > good.stock:
+                if good.stock is None:
+                    shortages.append({"name": good.name, "unit": good.unit, "needed": total_units, "have": 0, "short": total_units, "message": "Not configured for physical-store stock."})
+                elif total_units > good.stock:
                     shortages.append({"name": good.name, "unit": good.unit, "needed": total_units, "have": good.stock, "short": total_units - good.stock})
             if shortages and not force:
-                prices = {str(g.pk): f"{g.selling_price}" for g in FinishedGood.objects.all()}
+                prices = {str(g.pk): f"{g.selling_price_for('physical_store')}" for g in FinishedGood.objects.all().prefetch_related("channel_prices")}
                 return render(request, "sales/sale_form.html", {"form": form, "formset": formset, "shortages": shortages, "prices": prices})
             with transaction.atomic():
                 sale = form.save(commit=False)
@@ -55,12 +59,17 @@ def sale_form(request):
                 formset.instance = sale
                 items = formset.save(commit=False)
                 for item in items:
-                    item.price = item.finished_good.selling_price
+                    item.price = item.finished_good.selling_price_for("physical_store")
                     item.save()
                 for obj in formset.deleted_objects:
                     obj.delete()
                 for item in sale.items.select_related("finished_good"):
                     good = item.finished_good
+                    latest_cost = ProductionCostSnapshot.objects.filter(
+                        finished_good=good, production_date__lte=sale.date
+                    ).order_by("-production_date", "-id").first()
+                    item.unit_cost = latest_cost.unit_cost if latest_cost else None
+                    item.save(update_fields=["unit_cost"])
                     record_finished_good_movement(
                         good,
                         -item.total_units,
@@ -73,7 +82,7 @@ def sale_form(request):
     else:
         form = SaleForm(initial={"date": today(), "customer": "Walk-in"})
         formset = SaleItemFormSet(instance=Sale())
-    prices = {str(g.pk): f"{g.selling_price}" for g in FinishedGood.objects.all()}
+    prices = {str(g.pk): f"{g.selling_price_for('physical_store')}" for g in FinishedGood.objects.all().prefetch_related("channel_prices")}
     return render(request, "sales/sale_form.html", {"form": form, "formset": formset, "prices": prices})
 
 
@@ -84,3 +93,8 @@ def sale_delete(request, pk):
         obj.delete()
         messages.success(request, "Removed.")
     return redirect("sales_list")
+
+@login_required
+def sale_invoice(request, pk):
+    sale = get_object_or_404(Sale.objects.prefetch_related("items__finished_good"), pk=pk)
+    return sale_invoice_pdf(sale)

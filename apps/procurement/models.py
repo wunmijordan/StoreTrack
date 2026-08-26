@@ -31,3 +31,23 @@ class PurchaseOrderItem(TimestampedModel):
     @property
     def line_total(self):
         return self.qty * self.unit_cost
+
+
+class RawMaterialCostSnapshot(BusinessOwnedModel):
+    """Historical procurement price that becomes available when a purchase is received.
+
+    Production costing uses the latest received snapshot at the production date;
+    it never averages older procurement prices into the production cost.
+    """
+    raw_material = models.ForeignKey("inventory.RawMaterial", related_name="cost_snapshots", on_delete=models.PROTECT)
+    purchase_order_item = models.ForeignKey(PurchaseOrderItem, null=True, blank=True, on_delete=models.SET_NULL, related_name="cost_snapshots")
+    effective_date = models.DateField()
+    purchase_unit_cost = models.DecimalField(max_digits=12, decimal_places=2)
+    usage_unit_cost = models.DecimalField(max_digits=16, decimal_places=6)
+    supplier = models.CharField(max_length=120, blank=True)
+
+    class Meta:
+        ordering = ["-effective_date", "-id"]
+
+    def __str__(self):
+        return f"{self.raw_material.name} — {self.purchase_unit_cost} / {self.raw_material.purchase_unit} — {self.effective_date}"

@@ -7,6 +7,8 @@ from django.utils import timezone
 
 from .forms import ExpenseForm
 from .models import Expense
+from .invoice import build_expense_invoice
+from django.http import HttpResponse
 
 
 def today():
@@ -45,3 +47,12 @@ def expense_delete(request, pk):
         obj.delete()
         messages.success(request, "Expense removed.")
     return redirect("expenses_list")
+
+
+@login_required
+def expense_invoice(request, pk):
+    expense = get_object_or_404(Expense, pk=pk)
+    pdf = build_expense_invoice(expense, request.business)
+    response = HttpResponse(pdf, content_type="application/pdf")
+    response["Content-Disposition"] = f'attachment; filename="expense-{expense.pk}.pdf"'
+    return response

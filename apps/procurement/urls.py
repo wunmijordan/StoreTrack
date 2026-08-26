@@ -6,5 +6,6 @@ urlpatterns = [
     path("add/", views.po_form, name="po_add"),
     path("<int:pk>/edit/", views.po_form, name="po_edit"),
     path("<int:pk>/receive/", views.po_receive, name="po_receive"),
+    path("<int:pk>/invoice/", views.po_invoice, name="po_invoice"),
     path("<int:pk>/delete/", views.po_delete, name="po_delete"),
 ]

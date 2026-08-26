@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<h2 class="text-xl font-semibold font-display text-[#1E4536] mb-4">{% if obj %}Edit Order{% else %}New Order{% endif %}</h2>
+<h2 class="text-xl font-semibold font-display text-[#8f172d] mb-4">{% if obj %}Edit Order{% else %}New Order{% endif %}</h2>
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] p-5 max-w-2xl">
   {% if formset.non_field_errors %}
     <div class="text-sm bg-rose-50 text-rose-700 border border-rose-200 rounded-md px-3 py-2 mb-3">{{ formset.non_field_errors }}</div>
@@ -10,15 +10,15 @@
     <div class="flex gap-2 mb-3">
       <label class="flex-1">
         <input type="radio" name="order_type" value="distribution" class="hidden peer" {% if form.order_type.value == 'distribution' or not form.order_type.value %}checked{% endif %} onchange="toggleOrderType()">
-        <span class="block text-center px-3 py-2 rounded-md text-sm border cursor-pointer peer-checked:bg-[#8f172d] peer-checked:text-white peer-checked:border-[#1E4536] bg-white border-[#D9CFB4] text-stone-600">Distribution Order</span>
+        <span class="block text-center px-3 py-2 rounded-md text-sm border cursor-pointer peer-checked:bg-[#8f172d] peer-checked:text-white peer-checked:border-[#8f172d] bg-white border-[#D9CFB4] text-stone-600">Distribution Order</span>
       </label>
       <label class="flex-1">
         <input type="radio" name="order_type" value="online" class="hidden peer" {% if form.order_type.value == 'online' %}checked{% endif %} onchange="toggleOrderType()">
-        <span class="block text-center px-3 py-2 rounded-md text-sm border cursor-pointer peer-checked:bg-[#8f172d] peer-checked:text-white peer-checked:border-[#1E4536] bg-white border-[#D9CFB4] text-stone-600">Online Order</span>
+        <span class="block text-center px-3 py-2 rounded-md text-sm border cursor-pointer peer-checked:bg-[#8f172d] peer-checked:text-white peer-checked:border-[#8f172d] bg-white border-[#D9CFB4] text-stone-600">Online Order</span>
       </label>
       <label class="flex-1">
         <input type="radio" name="order_type" value="physical_store" class="hidden peer" {% if form.order_type.value == 'physical_store' %}checked{% endif %} onchange="toggleOrderType()">
-        <span class="block text-center px-3 py-2 rounded-md text-sm border cursor-pointer peer-checked:bg-[#8f172d] peer-checked:text-white peer-checked:border-[#1E4536] bg-white border-[#D9CFB4] text-stone-600">Physical Store Order</span>
+        <span class="block text-center px-3 py-2 rounded-md text-sm border cursor-pointer peer-checked:bg-[#8f172d] peer-checked:text-white peer-checked:border-[#8f172d] bg-white border-[#D9CFB4] text-stone-600">Physical Store Order</span>
       </label>
     </div>
     <p id="order-type-hint" class="text-[11px] text-stone-400 mb-3"></p>
@@ -61,7 +61,7 @@
           </tbody>
         </table>
       </div>
-      <button type="button" onclick="addFormsetRow('items','order-rows'); wireRows();" class="w-full text-xs text-[#1E4536] font-medium py-2 hover:bg-[#F0EAD9]">+ Add Product</button>
+      <button type="button" onclick="addFormsetRow('items','order-rows'); wireRows();" class="w-full text-xs text-[#8f172d] font-medium py-2 hover:bg-[#F0EAD9]">+ Add Product</button>
     </div>
 
     {% include "_field.html" with field=form.notes %}
@@ -91,21 +91,33 @@
     const row = btn.closest('tr');
     row.remove();
   }
-  function wireRows() {
+  function currentChannel() {
+    return document.querySelector('input[name="order_type"]:checked')?.value || 'distribution';
+  }
+  function priceFor(goodId) {
+    const row = PRICES[goodId];
+    if (!row) return null;
+    return row[currentChannel()] || row.distribution || row.online || row.physical_store || null;
+  }
+  function refreshPrices() {
     document.querySelectorAll('#order-rows tr[data-row]').forEach((row) => {
       const select = row.querySelector('select');
       const priceCell = row.querySelector('.price-display');
-      if (!select || select.dataset.wired) return;
-      select.dataset.wired = '1';
-      select.addEventListener('change', () => {
-        const price = PRICES[select.value];
-        priceCell.textContent = price ? '≈ ' + price : '—';
-      });
-      if (select.value && PRICES[select.value]) {
-        priceCell.textContent = '≈ ' + PRICES[select.value];
-      }
+      if (!select || !priceCell) return;
+      const price = priceFor(select.value);
+      priceCell.textContent = price ? '≈ ' + price : '—';
     });
   }
+  function wireRows() {
+    document.querySelectorAll('#order-rows tr[data-row]').forEach((row) => {
+      const select = row.querySelector('select');
+      if (!select || select.dataset.wired) return;
+      select.dataset.wired = '1';
+      select.addEventListener('change', refreshPrices);
+    });
+    refreshPrices();
+  }
+  document.querySelectorAll('input[name="order_type"]').forEach(el => el.addEventListener('change', () => { toggleOrderType(); refreshPrices(); }));
   toggleOrderType();
   wireRows();
 </script>

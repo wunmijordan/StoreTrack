@@ -3,7 +3,7 @@
 {% block content %}
 <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
   <div>
-    <h2 class="text-xl font-semibold font-display text-[#1E4536]">Orders</h2>
+    <h2 class="text-xl font-semibold font-display text-[#8f172d]">Orders</h2>
     <p class="text-sm text-stone-500 mt-0.5">Distribution, Online and Physical Store orders — approve to release Raw Materials, complete to finish production</p>
   </div>
   <a href="{% url 'order_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">+ New Order</a>
@@ -32,7 +32,7 @@
           {% elif o.status == 'approved' %}bg-sky-50 text-sky-800 border-sky-300
           {% elif o.status == 'completed' %}bg-emerald-50 text-emerald-800 border-emerald-300
           {% else %}bg-stone-100 text-stone-500 border-stone-300{% endif %}">{{ o.get_status_display }}</span></td>
-        <td class="px-3 py-2 text-right"><a href="{% url 'order_detail' o.pk %}" class="text-[#1E4536] hover:underline text-xs font-medium">View</a></td>
+        <td class="px-3 py-2 text-right whitespace-nowrap"><a href="{% url 'order_detail' o.pk %}" class="text-[#8f172d] hover:underline text-xs font-medium mr-2">View</a><a href="{% url 'order_invoice' o.pk %}" class="text-stone-400 hover:text-[#8f172d] text-xs">PDF</a></td>
       </tr>
       {% endfor %}
     </tbody>

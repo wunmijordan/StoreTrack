@@ -79,6 +79,97 @@ def _financial_periods():
     ]
 
 
+def _financial_breakdown(start, end):
+    """Return a cash-flow and revenue breakdown for one reporting window.
+
+    Procurement is split by the raw-material classification already used by
+    inventory. Sales are split by actual sale channel. Production itself is
+    an internal conversion, not a second cash outflow, so it is shown only as
+    an informational production figure rather than being subtracted twice.
+    """
+    procurement_qs = PurchaseOrder.objects.filter(status="received").filter(
+        Q(received_date__range=(start, end)) |
+        Q(received_date__isnull=True, date__range=(start, end))
+    ).prefetch_related("items__raw_material")
+
+    procurement = {
+        "raw_materials": Decimal("0"),
+        "production_materials": Decimal("0"),
+        "operational_materials": Decimal("0"),
+        "other_procurement": Decimal("0"),
+    }
+    for po in procurement_qs:
+        for line in po.items.all():
+            category = line.raw_material.category
+            if category == RawMaterial.CATEGORY_INGREDIENT:
+                key = "raw_materials"
+            elif category in (RawMaterial.CATEGORY_PACKAGING, RawMaterial.CATEGORY_PRODUCTION_SUPPLY):
+                key = "production_materials"
+            elif category == RawMaterial.CATEGORY_OPERATIONAL_SUPPLY:
+                key = "operational_materials"
+            else:
+                key = "other_procurement"
+            procurement[key] += line.line_total or Decimal("0")
+
+    expense_qs = Expense.objects.filter(date__range=(start, end))
+    misc_by_category = {}
+    for expense in expense_qs:
+        label = expense.get_category_display()
+        misc_by_category[label] = misc_by_category.get(label, Decimal("0")) + (expense.amount or Decimal("0"))
+
+    channel_map = {
+        "walkin": "Physical Store",
+        "distribution_order": "Distribution",
+        "online_order": "Online",
+    }
+    sales_by_channel = {label: Decimal("0") for label in channel_map.values()}
+    for sale in Sale.objects.filter(date__range=(start, end)).prefetch_related("items__finished_good"):
+        sales_by_channel[channel_map.get(sale.source, sale.source.replace("_", " ").title())] = \
+            sales_by_channel.get(channel_map.get(sale.source, sale.source.replace("_", " ").title()), Decimal("0")) + sale.total
+
+    production_orders = Order.objects.filter(
+        status="completed", completed_date__range=(start, end)
+    ).prefetch_related("items__finished_good")
+    produced_units = _production_units(production_orders)
+
+    procurement_total = sum(procurement.values(), Decimal("0"))
+    misc_total = sum(misc_by_category.values(), Decimal("0"))
+    sales_total = sum(sales_by_channel.values(), Decimal("0"))
+    total_cash_out = procurement_total + misc_total
+
+    outflows = [
+        ("Raw materials", procurement["raw_materials"]),
+        ("Production materials", procurement["production_materials"]),
+        ("Operational materials", procurement["operational_materials"]),
+    ]
+    outflows.extend((label, amount) for label, amount in sorted(misc_by_category.items()) if amount)
+    if procurement["other_procurement"]:
+        outflows.append(("Other procurement", procurement["other_procurement"]))
+
+    return {
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "sales_total": sales_total,
+        "sales_by_channel": [{"label": k, "value": float(v)} for k, v in sales_by_channel.items() if v],
+        "outflows": [{"label": k, "value": float(v)} for k, v in outflows if v],
+        "procurement": {k: float(v) for k, v in procurement.items()},
+        "misc_total": float(misc_total),
+        "total_cash_out": float(total_cash_out),
+        "net_cash_flow": float(sales_total - total_cash_out),
+        "produced_units": float(produced_units),
+    }
+
+
+def _financial_breakdown_json():
+    t = today()
+    month_start = t.replace(day=1)
+    year_start = t.replace(month=1, day=1)
+    return {
+        "month": _financial_breakdown(month_start, t),
+        "year": _financial_breakdown(year_start, t),
+    }
+
+
 def _financial_snapshot():
     rows = []
     for label, start, end in _financial_periods():
@@ -916,6 +1007,7 @@ def dashboard(request):
 
     financial = _financial_snapshot()
     financial_json = _financial_chart_series()
+    financial_breakdown_json = _financial_breakdown_json()
     channel = _sales_by_channel(month_start, today())
     channel_breakdowns = {
         "distribution": _channel_breakdown(
@@ -970,6 +1062,7 @@ def dashboard(request):
         "yearly_revenue": yearly_revenue,
         "financial": financial,
         "financial_json": financial_json,
+        "financial_breakdown_json": financial_breakdown_json,
         "channel_sales": channel,
         "channel_breakdowns": channel_breakdowns,
         "all_raw_materials": raw_materials,
@@ -1062,7 +1155,7 @@ def _sales_rows(qs=None):
 
 def _expense_rows():
     rows = []
-    for e in Expense.objects.select_related("raw_material"):
+    for e in Expense.objects.all():
         rows.append([e.date, e.get_category_display(), e.description, e.vendor, e.amount, e.notes])
     return rows
 

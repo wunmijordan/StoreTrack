@@ -9,7 +9,7 @@
 <div x-data="dashboardSearch()" class="relative mb-6">
   <div class="bg-white border border-[#E7DFCC] rounded-xl shadow-[0_-4px_8px_#00000022] p-3 md:p-4">
     <div class="flex items-center gap-3">
-      <div class="shrink-0 text-[#1E4536]">
+      <div class="shrink-0 text-[#8f172d]">
         <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>
         </svg>
@@ -38,7 +38,7 @@
       <button type="button" @click="open(result)" class="w-full text-left px-4 py-3 border-b border-stone-100 last:border-0 hover:bg-stone-50 transition">
         <div class="flex items-center justify-between gap-3">
           <span class="font-semibold text-sm text-stone-800 truncate" x-text="result.label"></span>
-          <span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-2 py-1 rounded-full bg-[#F5EFE0] text-[#1E4536]" x-text="result.identifier"></span>
+          <span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-2 py-1 rounded-full bg-[#F5EFE0] text-[#8f172d]" x-text="result.identifier"></span>
         </div>
         <div class="text-[11px] text-stone-400 mt-0.5" x-text="result.meta"></div>
       </button>
@@ -52,10 +52,10 @@
       <div class="px-5 py-4 md:px-6 border-b border-[#E7DFCC] bg-white flex items-start justify-between gap-4">
         <div class="min-w-0">
           <div class="flex flex-wrap items-center gap-2 mb-1">
-            <span class="text-[10px] font-bold uppercase tracking-wider text-[#1E4536] bg-[#E8F0EB] px-2 py-1 rounded-full" x-text="detail?.type"></span>
+            <span class="text-[10px] font-bold uppercase tracking-wider text-[#8f172d] bg-[#E8F0EB] px-2 py-1 rounded-full" x-text="detail?.type"></span>
             <span class="text-[10px] font-semibold uppercase tracking-wider text-stone-500 bg-stone-100 px-2 py-1 rounded-full" x-text="detail?.identifier"></span>
           </div>
-          <h3 class="text-xl font-semibold font-display text-[#1E4536] truncate" x-text="detail?.title"></h3>
+          <h3 class="text-xl font-semibold font-display text-[#8f172d] truncate" x-text="detail?.title"></h3>
         </div>
         <button @click="closeDetail()" type="button" class="shrink-0 text-stone-400 hover:text-stone-700 text-2xl leading-none">&times;</button>
       </div>
@@ -66,7 +66,7 @@
           <template x-for="card in summaryCards()" :key="card.label">
             <div class="bg-white border border-[#E7DFCC] rounded-lg p-3 min-w-0">
               <div class="text-[10px] uppercase tracking-wide font-bold text-stone-400" x-text="card.label"></div>
-              <div class="text-sm md:text-base font-semibold font-mono text-[#1E4536] mt-1 break-words" x-text="card.value"></div>
+              <div class="text-sm md:text-base font-semibold font-mono text-[#8f172d] mt-1 break-words" x-text="card.value"></div>
             </div>
           </template>
         </div>
@@ -74,7 +74,7 @@
         <!-- Period analytics -->
         <section x-show="detail?.periods?.length" class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden">
           <div class="px-4 py-3 border-b border-[#E7DFCC]">
-            <h4 class="text-xs uppercase tracking-wider font-bold text-[#1E4536]">Period performance</h4>
+            <h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Period performance</h4>
             <p class="text-[10px] text-stone-400 mt-0.5">Operational activity and financial movement inside each reporting window.</p>
           </div>
           <div class="overflow-x-auto">
@@ -109,14 +109,14 @@
         <template x-if="detail?.type === 'Raw material'">
           <div class="space-y-5">
             <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden">
-              <div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#1E4536]">Procurement price movement</h4></div>
+              <div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Procurement price movement</h4></div>
               <div class="overflow-x-auto">
                 <table class="w-full text-xs min-w-[620px]"><thead class="bg-stone-50 text-stone-500"><tr><th class="px-3 py-2 text-left">Date</th><th class="px-3 py-2 text-left">Vendor</th><th class="px-3 py-2 text-right">Unit cost</th><th class="px-3 py-2 text-left">Purchase unit</th></tr></thead>
                 <tbody><template x-for="row in detail.price_history" :key="row.date + row.supplier + row.unit_cost"><tr class="border-t border-stone-100"><td class="px-3 py-2" x-text="row.date"></td><td class="px-3 py-2" x-text="row.supplier"></td><td class="px-3 py-2 text-right font-mono" x-text="money(row.unit_cost)"></td><td class="px-3 py-2" x-text="row.purchase_unit || '—'"></td></tr></template></tbody></table>
               </div>
             </section>
             <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden">
-              <div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#1E4536]">Usage / production links</h4></div>
+              <div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Usage / production links</h4></div>
               <div class="p-4 grid grid-cols-1 md:grid-cols-2 gap-2"><template x-for="row in detail.linked_goods" :key="row.name"><div class="border border-stone-100 rounded-lg p-3 flex justify-between gap-3"><span class="font-semibold text-sm text-stone-700" x-text="row.name"></span><span class="font-mono text-xs text-stone-500" x-text="fmt(row.qty_per_batch) + ' ' + row.usage_unit + ' / batch'"></span></div></template><div x-show="!detail.linked_goods.length" class="text-xs text-stone-400">Not currently linked to a finished-good recipe or production material.</div></div>
             </section>
           </div>
@@ -126,32 +126,32 @@
         <template x-if="detail?.type === 'Finished good'">
           <div class="space-y-5">
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#1E4536]">Production frequency by channel</h4></div><div class="p-4 space-y-2"><template x-for="row in detail.production_channels" :key="row.channel"><div class="flex items-center justify-between text-xs border-b border-stone-100 pb-2"><span x-text="row.channel"></span><span class="font-mono" x-text="fmt(row.units) + ' units • ' + row.production_events + ' event(s)'"></span></div></template></div></section>
-              <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#1E4536]">Sales by channel</h4></div><div class="p-4 space-y-2"><template x-for="row in detail.sales_channels" :key="row.channel"><div class="flex items-center justify-between text-xs border-b border-stone-100 pb-2"><span x-text="row.channel"></span><span class="font-mono" x-text="fmt(row.units) + ' units • ' + money(row.revenue)"></span></div></template></div></section>
+              <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Production frequency by channel</h4></div><div class="p-4 space-y-2"><template x-for="row in detail.production_channels" :key="row.channel"><div class="flex items-center justify-between text-xs border-b border-stone-100 pb-2"><span x-text="row.channel"></span><span class="font-mono" x-text="fmt(row.units) + ' units • ' + row.production_events + ' event(s)'"></span></div></template></div></section>
+              <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Sales by channel</h4></div><div class="p-4 space-y-2"><template x-for="row in detail.sales_channels" :key="row.channel"><div class="flex items-center justify-between text-xs border-b border-stone-100 pb-2"><span x-text="row.channel"></span><span class="font-mono" x-text="fmt(row.units) + ' units • ' + money(row.revenue)"></span></div></template></div></section>
             </div>
-            <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#1E4536]">Recipe / production cost</h4></div><div class="overflow-x-auto"><table class="w-full text-xs min-w-[620px]"><thead class="bg-stone-50 text-stone-500"><tr><th class="px-3 py-2 text-left">Material</th><th class="px-3 py-2 text-right">Qty / batch</th><th class="px-3 py-2 text-left">Unit</th><th class="px-3 py-2 text-right">Current cost / usage unit</th></tr></thead><tbody><template x-for="row in detail.recipe" :key="row.name"><tr class="border-t border-stone-100"><td class="px-3 py-2 font-semibold" x-text="row.name"></td><td class="px-3 py-2 text-right font-mono" x-text="fmt(row.qty_per_batch)"></td><td class="px-3 py-2" x-text="row.unit"></td><td class="px-3 py-2 text-right font-mono" x-text="money(row.current_cost)"></td></tr></template></tbody></table></div><p class="px-4 py-3 text-[10px] text-stone-400" x-text="detail.note"></p></section>
+            <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Recipe / production cost</h4></div><div class="overflow-x-auto"><table class="w-full text-xs min-w-[620px]"><thead class="bg-stone-50 text-stone-500"><tr><th class="px-3 py-2 text-left">Material</th><th class="px-3 py-2 text-right">Qty / batch</th><th class="px-3 py-2 text-left">Unit</th><th class="px-3 py-2 text-right">Current cost / usage unit</th></tr></thead><tbody><template x-for="row in detail.recipe" :key="row.name"><tr class="border-t border-stone-100"><td class="px-3 py-2 font-semibold" x-text="row.name"></td><td class="px-3 py-2 text-right font-mono" x-text="fmt(row.qty_per_batch)"></td><td class="px-3 py-2" x-text="row.unit"></td><td class="px-3 py-2 text-right font-mono" x-text="money(row.current_cost)"></td></tr></template></tbody></table></div><p class="px-4 py-3 text-[10px] text-stone-400" x-text="detail.note"></p></section>
           </div>
         </template>
 
         <!-- Supplier -->
         <template x-if="detail?.type === 'Procurement vendor'">
           <div class="space-y-5">
-            <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#1E4536]">Materials purchased from this vendor</h4></div><div class="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2"><template x-for="row in detail.materials" :key="row.name"><div class="border border-stone-100 rounded-lg p-3 flex justify-between"><span class="text-xs font-semibold" x-text="row.name"></span><span class="text-xs font-mono" x-text="money(row.spend)"></span></div></template></div></section>
-            <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#1E4536]">Recent purchase history</h4></div><div class="overflow-x-auto"><table class="w-full text-xs min-w-[700px]"><thead class="bg-stone-50 text-stone-500"><tr><th class="px-3 py-2 text-left">Date</th><th class="px-3 py-2 text-left">Status</th><th class="px-3 py-2 text-left">Items</th><th class="px-3 py-2 text-right">Total</th></tr></thead><tbody><template x-for="po in detail.purchases" :key="po.date + po.total"><tr class="border-t border-stone-100"><td class="px-3 py-2" x-text="po.date"></td><td class="px-3 py-2" x-text="po.status"></td><td class="px-3 py-2" x-text="po.items.map(i => i.name + ' × ' + fmt(i.qty)).join(', ')"></td><td class="px-3 py-2 text-right font-mono" x-text="money(po.total)"></td></tr></template></tbody></table></div></section>
+            <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Materials purchased from this vendor</h4></div><div class="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2"><template x-for="row in detail.materials" :key="row.name"><div class="border border-stone-100 rounded-lg p-3 flex justify-between"><span class="text-xs font-semibold" x-text="row.name"></span><span class="text-xs font-mono" x-text="money(row.spend)"></span></div></template></div></section>
+            <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Recent purchase history</h4></div><div class="overflow-x-auto"><table class="w-full text-xs min-w-[700px]"><thead class="bg-stone-50 text-stone-500"><tr><th class="px-3 py-2 text-left">Date</th><th class="px-3 py-2 text-left">Status</th><th class="px-3 py-2 text-left">Items</th><th class="px-3 py-2 text-right">Total</th></tr></thead><tbody><template x-for="po in detail.purchases" :key="po.date + po.total"><tr class="border-t border-stone-100"><td class="px-3 py-2" x-text="po.date"></td><td class="px-3 py-2" x-text="po.status"></td><td class="px-3 py-2" x-text="po.items.map(i => i.name + ' × ' + fmt(i.qty)).join(', ')"></td><td class="px-3 py-2 text-right font-mono" x-text="money(po.total)"></td></tr></template></tbody></table></div></section>
           </div>
         </template>
 
         <!-- Customer -->
         <template x-if="detail?.type === 'Customer'">
           <div class="space-y-5">
-            <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#1E4536]">Order history</h4></div><div class="overflow-x-auto"><table class="w-full text-xs min-w-[720px]"><thead class="bg-stone-50 text-stone-500"><tr><th class="px-3 py-2 text-left">Date</th><th class="px-3 py-2 text-left">Status</th><th class="px-3 py-2 text-left">Region</th><th class="px-3 py-2 text-left">Group</th><th class="px-3 py-2 text-right">Units</th><th class="px-3 py-2 text-right">Total</th></tr></thead><tbody><template x-for="o in detail.orders" :key="o.date + o.total + o.status"><tr class="border-t border-stone-100"><td class="px-3 py-2" x-text="o.date"></td><td class="px-3 py-2" x-text="o.status"></td><td class="px-3 py-2" x-text="o.region"></td><td class="px-3 py-2" x-text="o.group"></td><td class="px-3 py-2 text-right font-mono" x-text="fmt(o.units)"></td><td class="px-3 py-2 text-right font-mono" x-text="money(o.total)"></td></tr></template></tbody></table></div></section>
-            <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#1E4536]">Completed sales</h4></div><div class="overflow-x-auto"><table class="w-full text-xs min-w-[500px]"><thead class="bg-stone-50 text-stone-500"><tr><th class="px-3 py-2 text-left">Date</th><th class="px-3 py-2 text-left">Payment</th><th class="px-3 py-2 text-right">Revenue</th></tr></thead><tbody><template x-for="s in detail.sales" :key="s.date + s.total + s.payment"><tr class="border-t border-stone-100"><td class="px-3 py-2" x-text="s.date"></td><td class="px-3 py-2" x-text="s.payment"></td><td class="px-3 py-2 text-right font-mono" x-text="money(s.total)"></td></tr></template></tbody></table></div></section>
+            <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Order history</h4></div><div class="overflow-x-auto"><table class="w-full text-xs min-w-[720px]"><thead class="bg-stone-50 text-stone-500"><tr><th class="px-3 py-2 text-left">Date</th><th class="px-3 py-2 text-left">Status</th><th class="px-3 py-2 text-left">Region</th><th class="px-3 py-2 text-left">Group</th><th class="px-3 py-2 text-right">Units</th><th class="px-3 py-2 text-right">Total</th></tr></thead><tbody><template x-for="o in detail.orders" :key="o.date + o.total + o.status"><tr class="border-t border-stone-100"><td class="px-3 py-2" x-text="o.date"></td><td class="px-3 py-2" x-text="o.status"></td><td class="px-3 py-2" x-text="o.region"></td><td class="px-3 py-2" x-text="o.group"></td><td class="px-3 py-2 text-right font-mono" x-text="fmt(o.units)"></td><td class="px-3 py-2 text-right font-mono" x-text="money(o.total)"></td></tr></template></tbody></table></div></section>
+            <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Completed sales</h4></div><div class="overflow-x-auto"><table class="w-full text-xs min-w-[500px]"><thead class="bg-stone-50 text-stone-500"><tr><th class="px-3 py-2 text-left">Date</th><th class="px-3 py-2 text-left">Payment</th><th class="px-3 py-2 text-right">Revenue</th></tr></thead><tbody><template x-for="s in detail.sales" :key="s.date + s.total + s.payment"><tr class="border-t border-stone-100"><td class="px-3 py-2" x-text="s.date"></td><td class="px-3 py-2" x-text="s.payment"></td><td class="px-3 py-2 text-right font-mono" x-text="money(s.total)"></td></tr></template></tbody></table></div></section>
           </div>
         </template>
 
         <!-- Region / group -->
         <template x-if="detail?.type === 'Customer region' || detail?.type === 'Customer group'">
-          <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#1E4536]">Customers in this segment</h4></div><div class="p-4 flex flex-wrap gap-2"><template x-for="name in detail.customers" :key="name"><span class="text-xs bg-stone-100 text-stone-700 px-2.5 py-1 rounded-full" x-text="name"></span></template></div></section>
+          <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Customers in this segment</h4></div><div class="p-4 flex flex-wrap gap-2"><template x-for="name in detail.customers" :key="name"><span class="text-xs bg-stone-100 text-stone-700 px-2.5 py-1 rounded-full" x-text="name"></span></template></div></section>
         </template>
       </div>
 
@@ -164,7 +164,7 @@
 
 <div class="flex flex-wrap gap-3 mb-4">
   <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[-2px_-2px_8px_#000000d2] p-4 flex-1 min-w-[140px]">
-    <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#1E4536] block mb-1 gap-2">
+    <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#8f172d] block mb-1 gap-2">
       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0897cf" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-grain">
         <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M3.5 9.5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M8.5 4.5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
         <path d="M8.5 14.5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M3.5 19.5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M13.5 9.5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
@@ -172,19 +172,19 @@
       </svg>
       Raw materials
     </div>
-    <div class="text-2xl font-semibold mt-1 font-mono text-[#1E4536]">{{ raw_count }}</div>
+    <div class="text-2xl font-semibold mt-1 font-mono text-[#8f172d]">{{ raw_count }}</div>
   </div>
   <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[-2px_-2px_8px_#000000d2] p-4 flex-1 min-w-[140px]">
-    <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#1E4536] block mb-1 gap-2">
+    <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#8f172d] block mb-1 gap-2">
       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fde403" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-burger">
         <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M4 15h16a4 4 0 0 1 -4 4h-8a4 4 0 0 1 -4 -4" /><path d="M12 4c3.783 0 6.953 2.133 7.786 5h-15.572c.833 -2.867 4.003 -5 7.786 -5" /><path d="M5 12h14" />
       </svg>
       Products
     </div>
-    <div class="text-2xl font-semibold mt-1 font-mono text-[#1E4536]">{{ goods_count }}</div>
+    <div class="text-2xl font-semibold mt-1 font-mono text-[#8f172d]">{{ goods_count }}</div>
   </div>
   <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] p-4 flex-1 min-w-[140px]">
-    <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#1E4536] block mb-1 gap-2">
+    <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#8f172d] block mb-1 gap-2">
       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fa029b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-cash-register">
         <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M21 15h-2.5c-.398 0 -.779 .158 -1.061 .439c-.281 .281 -.439 .663 -.439 1.061c0 .398 .158 .779 .439 1.061c.281 .281 .663 .439 1.061 .439h1c.398 0 .779 .158 1.061 .439c.281 .281 .439 .663 .439 1.061c0 .398 -.158 .779 -.439 1.061c-.281 .281 -.663 .439 -1.061 .439h-2.5" />
         <path d="M19 21v1m0 -8v1" /><path d="M13 21h-7c-.53 0 -1.039 -.211 -1.414 -.586c-.375 -.375 -.586 -.884 -.586 -1.414v-10c0 -.53 .211 -1.039 .586 -1.414c.375 -.375 .884 -.586 1.414 -.586h2m12 3.12v-1.12c0 -.53 -.211 -1.039 -.586 -1.414c-.375 -.375 -.884 -.586 -1.414 -.586h-2" />
@@ -196,23 +196,23 @@
     <div class="text-xs text-stone-400 mt-0.5">{{ today_sales_count }} transaction{{ today_sales_count|pluralize }}</div>
   </div>
   <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[2px_-2px_8px_#000000d2] p-4 flex-1 min-w-[140px]">
-    <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#1E4536] block mb-1 gap-2">
+    <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#8f172d] block mb-1 gap-2">
       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#dd2f3e88" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-loader-4">
         <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M12 21v-3m6.36 .36l-2.12 -2.12m4.76 -4.24h-3m.36 -6.36l-2.12 2.12m-4.24 -4.76v3m-6.36 -.36l2.12 2.12m-3.76 4.24h2m1 4.95l.71 -.71" />
       </svg>
       Pending Orders
     </div>
-    <div class="text-2xl font-semibold mt-1 font-mono {% if pending_orders_count %}text-rose-700{% else %}text-[#1E4536]{% endif %}">{{ pending_orders_count }}</div>
+    <div class="text-2xl font-semibold mt-1 font-mono {% if pending_orders_count %}text-rose-700{% else %}text-[#8f172d]{% endif %}">{{ pending_orders_count }}</div>
   </div>
   <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[2px_-2px_8px_#000000d2] p-4 flex-1 min-w-[140px]">
-    <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#1E4536] block mb-1 gap-2">
+    <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#8f172d] block mb-1 gap-2">
       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2825ec" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-circle-dashed-check">
         <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M8.56 3.69a9 9 0 0 0 -2.92 1.95" /><path d="M3.69 8.56a9 9 0 0 0 -.69 3.44" /><path d="M3.69 15.44a9 9 0 0 0 1.95 2.92" /><path d="M8.56 20.31a9 9 0 0 0 3.44 .69" />
         <path d="M15.44 20.31a9 9 0 0 0 2.92 -1.95" /><path d="M20.31 15.44a9 9 0 0 0 .69 -3.44" /><path d="M20.31 8.56a9 9 0 0 0 -1.95 -2.92" /><path d="M15.44 3.69a9 9 0 0 0 -3.44 -.69" /><path d="M9 12l2 2l4 -4" />
       </svg>
       Today's Production
     </div>
-    <div class="text-2xl font-semibold mt-1 font-mono text-[#1E4536]">{{ daily_units_made|num }}</div>
+    <div class="text-2xl font-semibold mt-1 font-mono text-[#8f172d]">{{ daily_units_made|num }}</div>
     <div class="text-xs text-stone-400 mt-0.5">Finished Goods Units</div>
   </div>
 </div>
@@ -221,7 +221,7 @@
   <!-- Interactive Alerts Status Card -->
   <div x-data="{ openModal: null }" class="lg:col-span-1 border-[2px] border-[#f59f00] bg-white rounded-xl p-5 shadow-[-2px_-2px_8px_#000000d2] flex flex-col justify-between h-full">
     <div>
-      <span class="text-xs flex items-center uppercase tracking-wider font-bold text-[#1E4536] block mb-1 gap-2">
+      <span class="text-xs flex items-center uppercase tracking-wider font-bold text-[#8f172d] block mb-1 gap-2">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-heart-rate-monitor">
           <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1l0 -10" />
           <path d="M7 20h10" /><path d="M9 16v4" /><path d="M15 16v4" /><path d="M7 10h2l2 3l2 -6l1 3h3" />
@@ -282,7 +282,7 @@
         <div class="flex gap-2 mb-4 border-b border-[#E7DFCC]">
           <input type="radio" name="inv-tab" id="tab-raw" class="hidden peer/raw" checked>
           <input type="radio" name="inv-tab" id="tab-finished" class="hidden peer/finished">
-          <label for="tab-raw" class="cursor-pointer px-4 py-2 text-sm font-medium text-stone-500 border-b-2 border-transparent [.peer\/raw:checked~&]:text-[#1E4536] [.peer\/raw:checked~&]:border-[#1E4536]" id="raw-tab-label">Raw Materials</label>
+          <label for="tab-raw" class="cursor-pointer px-4 py-2 text-sm font-medium text-stone-500 border-b-2 border-transparent [.peer\/raw:checked~&]:text-[#8f172d] [.peer\/raw:checked~&]:border-[#8f172d]" id="raw-tab-label">Raw Materials</label>
           <label for="tab-finished" class="cursor-pointer px-4 py-2 text-sm font-medium text-stone-500 border-b-2 border-transparent" id="finished-tab-label">Finished Goods</label>
         </div>
 
@@ -396,10 +396,10 @@
     </div>
   </div>
 
-  <div class="lg:col-span-2 bg-[#F5EFE0] border border-[#E7DFCC] rounded-xl shadow-[2px_-2px_8px_#000000d2] p-5 h-full">
+  <div x-data="{ financialScope: null }" class="lg:col-span-2 bg-[#F5EFE0] border border-[#E7DFCC] rounded-xl shadow-[2px_-2px_8px_#000000d2] p-5 h-full">
     <!-- Card Header -->
     <div class="flex items-center justify-between border-[#E7DFCC]/60 pb-2 mb-2">
-      <h3 class="text-xs flex items-center justify-between uppercase tracking-tight font-bold text-[#1E4536] mb-1 gap-2">
+      <h3 class="text-xs flex items-center justify-between uppercase tracking-tight font-bold text-[#8f172d] mb-1 gap-2">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#de08f1ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-device-analytics">
           <path stroke="none" d="M0 0h24v24H0z" fill="none" />
           <path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1l0 -10" /><path d="M7 20l10 0" />
@@ -414,9 +414,9 @@
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-1">
 
       <!-- Month Column -->
-      <div class="px-3 py-2 rounded-md shadow-[0_2px_4px_#000000d2] w-full">
-        <div class="text-[11px] uppercase tracking-wider text-stone-500 font-bold mb-3">
-          This Month
+      <button type="button" @click="window.dispatchEvent(new CustomEvent('financial-scope', { detail: 'month' }))" class="text-left px-3 py-2 rounded-md shadow-[0_2px_4px_#000000d2] w-full hover:ring-2 hover:ring-[#8f172d]/20 transition">
+        <div class="text-[11px] uppercase tracking-wider text-stone-500 font-bold mb-3 flex justify-between">
+          <span>This Month</span><span class="text-[#8f172d] text-[9px]">View breakdown →</span>
         </div>
 
         <div class="flex flex-col">
@@ -435,12 +435,12 @@
             {{ monthly_units|num }}
           </span>
         </div>
-      </div>
+      </button>
 
       <!-- Year Column -->
-      <div class="px-3 py-2 rounded-md shadow-[0_2px_4px_#000000d2] w-full">
-        <div class="text-[11px] uppercase tracking-wider text-stone-500 font-bold mb-3">
-          This Year
+      <button type="button" @click="window.dispatchEvent(new CustomEvent('financial-scope', { detail: 'year' }))" class="text-left px-3 py-2 rounded-md shadow-[0_2px_4px_#000000d2] w-full hover:ring-2 hover:ring-[#8f172d]/20 transition">
+        <div class="text-[11px] uppercase tracking-wider text-stone-500 font-bold mb-3 flex justify-between">
+          <span>This Year</span><span class="text-[#8f172d] text-[9px]">View breakdown →</span>
         </div>
 
         <div class="flex flex-col">
@@ -459,7 +459,7 @@
             {{ yearly_units|num }}
           </span>
         </div>
-      </div>
+      </button>
 
     </div>
   </div>
@@ -468,19 +468,19 @@
 <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-xl shadow-[0_2px_8px_#000000d2] p-5 mb-6">
   <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
     <div>
-      <h3 class="text-xs uppercase tracking-tight font-bold text-[#1E4536]">Financial Outlook</h3>
+      <h3 class="text-xs uppercase tracking-tight font-bold text-[#8f172d]">Financial Outlook</h3>
       <p class="text-[11px] text-stone-400 mt-0.5">Sales minus all realised spend — procurement + miscellaneous expenses.</p>
     </div>
     <div class="flex gap-2">
-      <a href="{% url 'export_financial_csv' %}" class="text-[11px] px-2.5 px-3 py-2 rounded-md border border-[#D9CFB4] bg-white text-[#1E4536]">CSV</a>
-      <a href="{% url 'export_financial_xlsx' %}" class="text-[11px] px-2.5 px-3 py-2 rounded-md border border-[#D9CFB4] bg-white text-[#1E4536]">Excel</a>
+      <a href="{% url 'export_financial_csv' %}" class="text-[11px] px-2.5 px-3 py-2 rounded-md border border-[#D9CFB4] bg-white text-[#8f172d]">CSV</a>
+      <a href="{% url 'export_financial_xlsx' %}" class="text-[11px] px-2.5 px-3 py-2 rounded-md border border-[#D9CFB4] bg-white text-[#8f172d]">Excel</a>
     </div>
   </div>
   <div class="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
     {% for f in financial %}
     <div class="rounded-lg bg-white/70 border border-[#E7DFCC] px-3 py-3">
       <div class="text-[10px] uppercase tracking-wider font-bold text-stone-400">{{ f.label }}</div>
-      <div class="text-lg font-mono font-bold text-[#1E4536] mt-1">{{ f.revenue|money:biz.currency_symbol }}</div>
+      <div class="text-lg font-mono font-bold text-[#8f172d] mt-1">{{ f.revenue|money:biz.currency_symbol }}</div>
       <div class="flex justify-between text-[10px] mt-2"><span class="text-stone-400">Sales</span><span class="font-mono">{{ f.sales|money:biz.currency_symbol }}</span></div>
       <div class="flex justify-between text-[10px]"><span class="text-stone-400">Spend</span><span class="font-mono text-rose-700">{{ f.spend|money:biz.currency_symbol }}</span></div>
     </div>
@@ -722,7 +722,7 @@
                   Physical Store Sales
                 </span>
 
-                <span class="font-mono font-semibold text-[#1E4536]">
+                <span class="font-mono font-semibold text-[#8f172d]">
                   {{ channel_sales.walkin|money:biz.currency_symbol }}
                 </span>
               </div>
@@ -758,7 +758,7 @@
 
 <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] p-4 mb-6">
   <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
-    <h3 class="text-xs flex items-center justify-between uppercase tracking-tight font-bold text-[#1E4536] mb-1 gap-2">
+    <h3 class="text-xs flex items-center justify-between uppercase tracking-tight font-bold text-[#8f172d] mb-1 gap-2">
       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ec2546" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-trending-up-3">
         <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M18 5l3 3l-3 3" /><path d="M3 18h2.397a5 5 0 0 0 4.096 -2.133l4.014 -5.734a5 5 0 0 1 4.096 -2.133h3.397" />
       </svg>
@@ -897,7 +897,106 @@
 </div>
 
 {{ financial_json|json_script:"financial-data" }}
+{{ financial_breakdown_json|json_script:"financial-breakdown-data" }}
+
+<div x-data="{ scope: null, data: {}, chart: null }"
+     x-init="
+       data = JSON.parse(document.getElementById('financial-breakdown-data').textContent || '{}');
+       window.addEventListener('financial-scope', e => { scope = e.detail; $nextTick(() => renderFinancialBreakdown(scope, data)); });
+     "
+     x-show="scope"
+     x-cloak
+     class="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-stone-950/55 backdrop-blur-sm"
+     @keydown.escape.window="scope = null"
+     @click.self="scope = null">
+  <div class="w-full max-w-5xl max-h-[90vh] overflow-y-auto bg-[#FFFDF8] rounded-2xl border border-[#E7DFCC] shadow-2xl">
+    <div class="px-5 py-4 border-b border-[#E7DFCC] bg-[#F5EFE0] flex items-center justify-between sticky top-0 z-10">
+      <div>
+        <div class="text-[10px] uppercase tracking-[0.18em] font-bold text-[#8f172d]">Financial scope</div>
+        <h3 class="text-lg font-display font-semibold text-[#8f172d]" x-text="scope === 'year' ? 'Year-to-date Financial Summary' : 'Month-to-date Financial Summary'"></h3>
+        <p class="text-[11px] text-stone-500">Cash inflows, cash outflows and production activity — without mixing internal production with cash spend.</p>
+      </div>
+      <button @click="scope = null" class="text-stone-400 hover:text-stone-700 text-xl">&times;</button>
+    </div>
+    <div class="p-5">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+        <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Sales revenue</div><div class="font-mono font-bold text-[#8f172d] mt-1" x-text="money(scope ? data[scope].sales_total : 0)"></div></div>
+        <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Cash outflow</div><div class="font-mono font-bold text-rose-700 mt-1" x-text="money(scope ? data[scope].total_cash_out : 0)"></div></div>
+        <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Net cash flow</div><div class="font-mono font-bold mt-1" :class="(scope && data[scope].net_cash_flow) >= 0 ? 'text-emerald-700' : 'text-rose-700'" x-text="money(scope ? data[scope].net_cash_flow : 0)"></div></div>
+        <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Goods produced</div><div class="font-mono font-bold text-stone-700 mt-1" x-text="number(scope ? data[scope].produced_units : 0)"></div></div>
+      </div>
+      <div class="grid lg:grid-cols-2 gap-5">
+        <div class="rounded-xl bg-white border border-[#E7DFCC] p-4">
+          <div class="text-xs font-bold text-[#8f172d] mb-1">Cash inflow by sales channel</div>
+          <div class="text-[10px] text-stone-400 mb-3">Actual realised sales revenue.</div>
+          <div class="relative h-[290px]"><canvas id="financial-revenue-pie"></canvas></div>
+        </div>
+        <div class="rounded-xl bg-white border border-[#E7DFCC] p-4">
+          <div class="text-xs font-bold text-[#8f172d] mb-1">Cash outflow by scope</div>
+          <div class="text-[10px] text-stone-400 mb-3">Supplier procurement plus miscellaneous operating expenses.</div>
+          <div class="relative h-[290px]"><canvas id="financial-outflow-pie"></canvas></div>
+        </div>
+      </div>
+      <div class="grid md:grid-cols-2 gap-5 mt-5">
+        <div class="rounded-xl bg-white border border-[#E7DFCC] p-4">
+          <div class="text-xs font-bold text-[#8f172d] mb-3">Procurement scopes</div>
+          <div class="space-y-2 text-xs">
+            <template x-for="row in [
+              ['Raw materials', data[scope]?.procurement?.raw_materials || 0],
+              ['Production materials', data[scope]?.procurement?.production_materials || 0],
+              ['Operational materials', data[scope]?.procurement?.operational_materials || 0],
+              ['Other procurement', data[scope]?.procurement?.other_procurement || 0]
+            ]" :key="row[0]">
+              <div class="flex justify-between border-b border-dashed border-[#E7DFCC] pb-1"><span x-text="row[0]"></span><span class="font-mono" x-text="money(row[1])"></span></div>
+            </template>
+          </div>
+        </div>
+        <div class="rounded-xl bg-white border border-[#E7DFCC] p-4">
+          <div class="text-xs font-bold text-[#8f172d] mb-3">How to read this summary</div>
+          <div class="text-[11px] leading-5 text-stone-500">
+            <p><strong>Raw materials</strong> = ingredient procurement.</p>
+            <p><strong>Production materials</strong> = packaging and production supplies such as gas.</p>
+            <p><strong>Operational materials</strong> = supplies not tied to a production recipe.</p>
+            <p><strong>Misc expenses</strong> = rent, utilities, labour, transport, marketing, bank fees and other recorded expenses.</p>
+            <p><strong>Production</strong> is an internal conversion and is therefore not subtracted as another cash outflow.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
 <script>
+function money(value) {
+  const symbol = '{{ biz.currency_symbol|default:"₦"|escapejs }}';
+  return `${symbol}${Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+}
+function number(value) {
+  return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+function renderFinancialBreakdown(scope, data) {
+  const current = data[scope] || {};
+  const revenueCanvas = document.getElementById('financial-revenue-pie');
+  const outflowCanvas = document.getElementById('financial-outflow-pie');
+  if (typeof Chart === 'undefined' || !revenueCanvas || !outflowCanvas) return;
+  [revenueCanvas, outflowCanvas].forEach(canvas => {
+    if (canvas._chartInstance) canvas._chartInstance.destroy();
+  });
+  const revenue = current.sales_by_channel || [];
+  const outflows = current.outflows || [];
+  revenueCanvas._chartInstance = new Chart(revenueCanvas, {
+    type: 'doughnut',
+    data: { labels: revenue.map(x => x.label), datasets: [{ data: revenue.map(x => x.value), borderWidth: 2 }] },
+    options: { responsive: true, maintainAspectRatio: false, cutout: '58%', plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } }, tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${money(ctx.raw)}` } } } }
+  });
+  outflowCanvas._chartInstance = new Chart(outflowCanvas, {
+    type: 'doughnut',
+    data: { labels: outflows.map(x => x.label), datasets: [{ data: outflows.map(x => x.value), borderWidth: 2 }] },
+    options: { responsive: true, maintainAspectRatio: false, cutout: '58%', plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } }, tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${money(ctx.raw)}` } } } }
+  });
+}
+
 (function () {
   const dataEl = document.getElementById('financial-data');
   const canvas = document.getElementById('financial-outlook-chart');
@@ -1087,10 +1186,10 @@
     const showRaw = rawTab.checked;
     rawPanel.classList.toggle('hidden', !showRaw);
     finishedPanel.classList.toggle('hidden', showRaw);
-    rawLabel.classList.toggle('text-[#1E4536]', showRaw);
-    rawLabel.classList.toggle('border-[#1E4536]', showRaw);
-    finishedLabel.classList.toggle('text-[#1E4536]', !showRaw);
-    finishedLabel.classList.toggle('border-[#1E4536]', !showRaw);
+    rawLabel.classList.toggle('text-[#8f172d]', showRaw);
+    rawLabel.classList.toggle('border-[#8f172d]', showRaw);
+    finishedLabel.classList.toggle('text-[#8f172d]', !showRaw);
+    finishedLabel.classList.toggle('border-[#8f172d]', !showRaw);
   }
   rawTab.addEventListener('change', updateTabs);
   finishedTab.addEventListener('change', updateTabs);
@@ -1164,7 +1263,7 @@ function dashboardSearch() {
     },
 
     money(value) {
-      return `${Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+      return `${this.currency}${Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
     },
 
     summaryCards() {

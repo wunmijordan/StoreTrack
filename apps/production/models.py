@@ -109,3 +109,35 @@ class OrderItem(TimestampedModel):
         50 units at 1500 with a 200 discount is (1500-200)*50 = 65,000,
         not 1500*50-200. Matches how a per-item price cut actually works."""
         return self.total_units * ((self.price or Decimal("0")) - (self.discount or Decimal("0")))
+class ProductionCostSnapshot(BusinessOwnedModel):
+    """Frozen production cost calculated when an order is completed.
+
+    Each raw-material line uses the latest received procurement cost available
+    on the production date. Older procurement prices are never averaged in.
+    """
+    order = models.ForeignKey(Order, null=True, blank=True, on_delete=models.SET_NULL, related_name="cost_snapshots")
+    order_item = models.ForeignKey(OrderItem, null=True, blank=True, on_delete=models.SET_NULL, related_name="cost_snapshots")
+    finished_good = models.ForeignKey("inventory.FinishedGood", on_delete=models.PROTECT, related_name="production_cost_snapshots")
+    production_date = models.DateField()
+    produced_units = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    total_cost = models.DecimalField(max_digits=16, decimal_places=4, default=0)
+    unit_cost = models.DecimalField(max_digits=16, decimal_places=6, default=0)
+    cost_source = models.CharField(max_length=20, default="latest_procurement")
+
+    class Meta:
+        ordering = ["-production_date", "-id"]
+
+    def __str__(self):
+        return f"{self.finished_good.name} — {self.unit_cost} / unit — {self.production_date}"
+
+
+class ProductionCostLine(TimestampedModel):
+    snapshot = models.ForeignKey(ProductionCostSnapshot, related_name="lines", on_delete=models.CASCADE)
+    raw_material = models.ForeignKey("inventory.RawMaterial", on_delete=models.PROTECT)
+    quantity = models.DecimalField(max_digits=14, decimal_places=4, default=0)
+    usage_unit_cost = models.DecimalField(max_digits=16, decimal_places=6, default=0)
+    total_cost = models.DecimalField(max_digits=16, decimal_places=4, default=0)
+    source = models.CharField(max_length=20, default="latest_procurement")
+
+    def __str__(self):
+        return f"{self.snapshot.finished_good.name} — {self.raw_material.name}"
