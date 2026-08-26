@@ -7,7 +7,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core import serializers
 from django.db.models import Q, Sum
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.utils import timezone
 from openpyxl import Workbook
@@ -331,6 +331,564 @@ def _stock_periods(item):
         })
 
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Dashboard global search
+# ---------------------------------------------------------------------------
+
+def _search_periods():
+    """Named reporting windows used by dashboard search detail modals."""
+    t = today()
+    return [
+        ("Today", t),
+        ("This week", t - timedelta(days=t.weekday())),
+        ("This month", t.replace(day=1)),
+        ("This quarter", _quarter_start(t)),
+        ("This year", t.replace(month=1, day=1)),
+    ]
+
+
+def _money(value):
+    return float(value or 0)
+
+
+def _decimal(value):
+    return float(value or 0)
+
+
+def _period_row(label, start, *, spend=0, revenue=0, units=0, events=0):
+    return {
+        "label": label,
+        "spend": _money(spend),
+        "revenue": _money(revenue),
+        "units": _decimal(units),
+        "events": int(events or 0),
+    }
+
+
+def _search_results(q):
+    """Return a deliberately small, labelled result set for the dashboard.
+
+    Results are identifiers, not full objects. The detail endpoint is only
+    called after the user chooses a result, which keeps the dashboard fast.
+    """
+    q = (q or "").strip()
+    if len(q) < 2:
+        return []
+
+    results = []
+    needle = q.lower()
+
+    raw_qs = RawMaterial.objects.filter(
+        Q(name__icontains=q) |
+        Q(category__icontains=q) |
+        Q(purchase_unit__icontains=q) |
+        Q(package_unit__icontains=q) |
+        Q(usage_unit__icontains=q)
+    ).order_by("name")[:12]
+    for m in raw_qs:
+        results.append({
+            "key": f"raw:{m.pk}",
+            "type": "raw",
+            "label": m.name,
+            "identifier": m.get_category_display(),
+            "meta": f"{m.usage_unit or '—'} • {m.purchase_unit or 'purchase unit not set'}",
+        })
+
+    fg_qs = FinishedGood.objects.filter(
+        Q(name__icontains=q) | Q(unit__icontains=q)
+    ).order_by("name")[:12]
+    for g in fg_qs:
+        results.append({
+            "key": f"fg:{g.pk}",
+            "type": "fg",
+            "label": g.name,
+            "identifier": "Finished good",
+            "meta": f"{g.unit} • selling {g.selling_price}",
+        })
+
+    suppliers = PurchaseOrder.objects.filter(
+        supplier__icontains=q
+    ).values_list("supplier", flat=True).distinct()[:12]
+    for supplier in suppliers:
+        if supplier:
+            results.append({
+                "key": f"supplier:{supplier}",
+                "type": "supplier",
+                "label": supplier,
+                "identifier": "Procurement vendor",
+                "meta": "Purchase history and spend",
+            })
+
+    # Keep customer identities separate by channel. This is intentional: the
+    # same name can legitimately exist in Distribution and Online records.
+    customer_rows = Order.objects.filter(
+        Q(customer_name__icontains=q) |
+        Q(customer_region__icontains=q) |
+        Q(customer_group__icontains=q)
+    ).exclude(customer_name="").values_list(
+        "customer_name", "order_type"
+    ).distinct()[:30]
+    seen = set()
+    for name, order_type in customer_rows:
+        channel = {
+            "distribution": "Distribution customer",
+            "online": "Online customer",
+        }.get(order_type)
+        if not channel:
+            continue
+        key = (name.strip(), order_type)
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append({
+            "key": f"customer:{order_type}:{name}",
+            "type": "customer",
+            "channel": order_type,
+            "label": name.strip(),
+            "identifier": channel,
+            "meta": "Orders, sales, region and group",
+        })
+
+    # Regions and groups are useful search objects in their own right.
+    regions = Order.objects.filter(customer_region__icontains=q).exclude(
+        customer_region=""
+    ).values_list("customer_region", flat=True).distinct()[:8]
+    for region in regions:
+        results.append({
+            "key": f"region:{region}",
+            "type": "region",
+            "label": region,
+            "identifier": "Customer region",
+            "meta": "Distribution and online activity",
+        })
+
+    groups = Order.objects.filter(customer_group__icontains=q).exclude(
+        customer_group=""
+    ).values_list("customer_group", flat=True).distinct()[:8]
+    for group in groups:
+        results.append({
+            "key": f"group:{group}",
+            "type": "group",
+            "label": group,
+            "identifier": "Customer group",
+            "meta": "Distribution and online activity",
+        })
+
+    # Exact-name matches first, then alphabetical. This makes a search for
+    # "Flour" open the material/product candidates before broader metadata.
+    results.sort(key=lambda r: (0 if r["label"].lower() == needle else 1, r["label"].lower(), r["identifier"]))
+    return results[:30]
+
+
+def _raw_search_detail(material):
+    periods = _search_periods()
+    purchase_lines = list(
+        PurchaseOrderItem.objects.filter(
+            raw_material=material,
+            purchase_order__status="received",
+        ).select_related("purchase_order")
+    )
+
+    def po_date(line):
+        return line.purchase_order.received_date or line.purchase_order.date
+
+    purchase_lines.sort(key=lambda line: (po_date(line), line.pk))
+    purchases = []
+    for line in purchase_lines:
+        purchases.append({
+            "date": po_date(line).isoformat(),
+            "supplier": line.purchase_order.supplier or "Unnamed supplier",
+            "qty": _decimal(line.qty),
+            "unit": material.purchase_unit,
+            "unit_cost": _money(line.unit_cost),
+            "total": _money(line.line_total),
+        })
+
+    rows = []
+    for label, start in periods:
+        lines = [line for line in purchase_lines if start <= po_date(line) <= today()]
+        movements = material.stock_movements.filter(
+            occurred_at__date__range=(start, today())
+        )
+        consumed = movements.filter(
+            movement_type=StockMovement.RAW_CONSUMPTION
+        ).aggregate(total=Sum("quantity"))["total"] or Decimal("0")
+        spend = sum((line.line_total or Decimal("0") for line in lines), Decimal("0"))
+        qty = sum((line.qty or Decimal("0") for line in lines), Decimal("0"))
+        latest = lines[-1] if lines else None
+        rows.append({
+            "label": label,
+            "purchased_qty": _decimal(qty),
+            "purchase_unit": material.purchase_unit,
+            "spend": _money(spend),
+            "consumed_qty": _decimal(abs(consumed)),
+            "usage_unit": material.usage_unit,
+            "purchase_count": len(lines),
+            "latest_unit_cost": _money(latest.unit_cost) if latest else None,
+        })
+
+    price_history = [
+        {
+            "date": po_date(line).isoformat(),
+            "supplier": line.purchase_order.supplier or "Unnamed supplier",
+            "unit_cost": _money(line.unit_cost),
+            "purchase_unit": material.purchase_unit,
+        }
+        for line in purchase_lines
+    ]
+
+    linked_goods = []
+    goods = FinishedGood.objects.filter(
+        Q(recipe_items__raw_material=material) |
+        Q(production_materials__raw_material=material)
+    ).distinct().order_by("name")
+    for good in goods:
+        recipe_qty = sum(
+            (x.qty_per_batch for x in good.recipe_items.filter(raw_material=material)),
+            Decimal("0"),
+        )
+        production_qty = sum(
+            (x.qty_per_batch for x in good.production_materials.filter(raw_material=material)),
+            Decimal("0"),
+        )
+        linked_goods.append({
+            "name": good.name,
+            "qty_per_batch": _decimal(recipe_qty + production_qty),
+            "usage_unit": material.usage_unit,
+        })
+
+    return {
+        "title": material.name,
+        "type": "Raw material",
+        "identifier": material.get_category_display(),
+        "summary": {
+            "category": material.get_category_display(),
+            "stock": _decimal(material.stock),
+            "stock_unit": material.usage_unit,
+            "purchase_unit": material.purchase_unit,
+            "cost_per_purchase_unit": _money(material.cost_per_purchase_unit),
+            "reorder_level": _decimal(material.reorder_level_purchase_units),
+            "reorder_unit": material.purchase_unit,
+            "last_purchase": purchases[-1]["date"] if purchases else None,
+            "supplier_count": len({p["supplier"] for p in purchases}),
+        },
+        "periods": rows,
+        "price_history": price_history,
+        "purchases": purchases[-50:][::-1],
+        "linked_goods": linked_goods,
+    }
+
+
+def _finished_good_search_detail(good):
+    periods = _search_periods()
+    recipe_lines = list(good.recipe_items.select_related("raw_material"))
+    production_lines = list(good.production_materials.select_related("raw_material"))
+    recipe_cost_per_batch = sum(
+        (line.raw_material.cost_per_unit * line.qty_per_batch for line in recipe_lines),
+        Decimal("0"),
+    ) + sum(
+        (line.raw_material.cost_per_unit * line.qty_per_batch for line in production_lines),
+        Decimal("0"),
+    )
+    units_per_batch = good.units_per_batch or Decimal("1")
+    estimated_unit_cost = recipe_cost_per_batch / units_per_batch
+
+    completed_orders = Order.objects.filter(
+        status="completed", items__finished_good=good
+    ).prefetch_related("items")
+    sales = Sale.objects.filter(
+        items__finished_good=good
+    ).prefetch_related("items")
+
+    channel_names = {
+        "physical_store": "Physical store",
+        "distribution": "Distribution",
+        "online": "Online",
+    }
+    channel_rows = []
+    for channel in ("physical_store", "distribution", "online"):
+        qs = completed_orders.filter(order_type=channel)
+        units = Decimal("0")
+        batches = 0
+        for order in qs:
+            for item in order.items.all():
+                if item.finished_good_id == good.id:
+                    units += item.total_units
+                    batches += 1
+        channel_rows.append({
+            "channel": channel_names[channel],
+            "production_events": batches,
+            "units": _decimal(units),
+        })
+
+    period_rows = []
+    for label, start in periods:
+        order_qs = completed_orders.filter(completed_date__range=(start, today()))
+        sale_qs = sales.filter(date__range=(start, today()))
+        produced = Decimal("0")
+        production_events = 0
+        for order in order_qs:
+            for item in order.items.all():
+                if item.finished_good_id == good.id:
+                    produced += item.total_units
+                    production_events += 1
+        sold_units = Decimal("0")
+        revenue = Decimal("0")
+        sale_events = 0
+        for sale in sale_qs:
+            matched = [item for item in sale.items.all() if item.finished_good_id == good.id]
+            if matched:
+                sale_events += 1
+            for item in matched:
+                sold_units += item.total_units
+                revenue += item.line_total
+        estimated_cost = sold_units * estimated_unit_cost
+        period_rows.append({
+            "label": label,
+            "produced_units": _decimal(produced),
+            "production_events": production_events,
+            "sold_units": _decimal(sold_units),
+            "sale_events": sale_events,
+            "revenue": _money(revenue),
+            "estimated_recipe_cost": _money(estimated_cost),
+            "estimated_gross_margin": _money(revenue - estimated_cost),
+        })
+
+    sales_by_channel = []
+    for source, label in (
+        ("walkin", "Physical store sales"),
+        ("distribution_order", "Distribution sales"),
+        ("online_order", "Online sales"),
+    ):
+        qs = sales.filter(source=source)
+        units = Decimal("0")
+        revenue = Decimal("0")
+        for sale in qs:
+            for item in sale.items.all():
+                if item.finished_good_id == good.id:
+                    units += item.total_units
+                    revenue += item.line_total
+        sales_by_channel.append({
+            "channel": label,
+            "units": _decimal(units),
+            "revenue": _money(revenue),
+        })
+
+    return {
+        "title": good.name,
+        "type": "Finished good",
+        "identifier": "Finished good",
+        "summary": {
+            "unit": good.unit,
+            "stock": _decimal(good.stock),
+            "total_produced": _decimal(good.total_produced),
+            "delivered_to_customers": _decimal(good.total_delivered_to_customers),
+            "selling_price": _money(good.selling_price),
+            "estimated_recipe_cost_per_unit": _money(estimated_unit_cost),
+            "estimated_margin_per_unit": _money(good.selling_price - estimated_unit_cost),
+            "margin_pct": _money(((good.selling_price - estimated_unit_cost) / good.selling_price * 100) if good.selling_price else 0),
+            "units_per_batch": _decimal(good.units_per_batch),
+        },
+        "periods": period_rows,
+        "production_channels": channel_rows,
+        "sales_channels": sales_by_channel,
+        "recipe": [
+            {"name": line.raw_material.name, "qty_per_batch": _decimal(line.qty_per_batch), "unit": line.raw_material.usage_unit, "current_cost": _money(line.raw_material.cost_per_unit)}
+            for line in recipe_lines + production_lines
+        ],
+        "note": "Recipe cost and margin are estimates at the current raw-material costs; this system does not currently snapshot recipe input prices at the time of each sale.",
+    }
+
+
+def _supplier_search_detail(supplier):
+    purchase_orders = PurchaseOrder.objects.filter(
+        supplier__iexact=supplier, status="received"
+    ).prefetch_related("items__raw_material")
+    periods = _search_periods()
+    rows = []
+    for label, start in periods:
+        qs = purchase_orders.filter(
+            Q(received_date__range=(start, today())) |
+            Q(received_date__isnull=True, date__range=(start, today()))
+        )
+        spend = Decimal("0")
+        lines = 0
+        for po in qs:
+            spend += po.total
+            lines += po.items.count()
+        rows.append(_period_row(label, start, spend=spend, events=qs.count()))
+
+    all_spend = sum((po.total for po in purchase_orders), Decimal("0"))
+    last = purchase_orders.order_by("-received_date", "-date", "-id").first()
+    material_totals = {}
+    for po in purchase_orders:
+        for line in po.items.all():
+            key = line.raw_material.name
+            material_totals[key] = material_totals.get(key, Decimal("0")) + (line.line_total or Decimal("0"))
+
+    return {
+        "title": supplier,
+        "type": "Procurement vendor",
+        "identifier": "Supplier / vendor",
+        "summary": {
+            "total_purchase": _money(all_spend),
+            "purchase_orders": purchase_orders.count(),
+            "last_purchase": (last.received_date or last.date).isoformat() if last else None,
+            "materials_bought": len(material_totals),
+            "average_purchase": _money(all_spend / purchase_orders.count()) if purchase_orders.count() else 0,
+        },
+        "periods": rows,
+        "materials": [
+            {"name": name, "spend": _money(value)}
+            for name, value in sorted(material_totals.items(), key=lambda x: -x[1])
+        ],
+        "purchases": [
+            {
+                "date": (po.received_date or po.date).isoformat(),
+                "status": po.status,
+                "total": _money(po.total),
+                "items": [{"name": i.raw_material.name, "qty": _decimal(i.qty), "unit_cost": _money(i.unit_cost), "total": _money(i.line_total)} for i in po.items.all()],
+            }
+            for po in purchase_orders[:50]
+        ],
+    }
+
+
+def _customer_search_detail(name, channel):
+    order_qs = Order.objects.filter(
+        customer_name__iexact=name,
+        order_type=channel,
+    ).prefetch_related("items__finished_good")
+    source = "distribution_order" if channel == "distribution" else "online_order"
+    sale_qs = Sale.objects.filter(
+        customer__iexact=name,
+        source=source,
+    ).prefetch_related("items__finished_good", "linked_order")
+    periods = _search_periods()
+    rows = []
+    for label, start in periods:
+        orders = order_qs.filter(date__range=(start, today()))
+        sales = sale_qs.filter(date__range=(start, today()))
+        units = Decimal("0")
+        revenue = Decimal("0")
+        for sale in sales:
+            revenue += sale.total
+            for item in sale.items.all():
+                units += item.total_units
+        rows.append(_period_row(label, start, revenue=revenue, units=units, events=orders.count()))
+
+    total_revenue = Decimal("0")
+    units = Decimal("0")
+    for sale in sale_qs:
+        total_revenue += sale.total
+        for item in sale.items.all():
+            units += item.total_units
+    last_order = order_qs.order_by("-date", "-id").first()
+    last_sale = sale_qs.order_by("-date", "-id").first()
+    regions = sorted({o.customer_region.strip() for o in order_qs if o.customer_region.strip()})
+    groups = sorted({o.customer_group.strip() for o in order_qs if o.customer_group.strip()})
+
+    return {
+        "title": name,
+        "type": "Customer",
+        "identifier": "Distribution customer" if channel == "distribution" else "Online customer",
+        "summary": {
+            "channel": "Distribution" if channel == "distribution" else "Online",
+            "orders": order_qs.count(),
+            "completed_orders": order_qs.filter(status="completed").count(),
+            "sales": sale_qs.count(),
+            "revenue": _money(total_revenue),
+            "units": _decimal(units),
+            "last_order": last_order.date.isoformat() if last_order else None,
+            "last_sale": last_sale.date.isoformat() if last_sale else None,
+            "regions": regions,
+            "groups": groups,
+        },
+        "periods": rows,
+        "orders": [
+            {
+                "date": o.date.isoformat(),
+                "status": o.status,
+                "region": o.customer_region or "—",
+                "group": o.customer_group or "—",
+                "total": _money(o.total),
+                "units": _decimal(o.total_units),
+            }
+            for o in order_qs[:50]
+        ],
+        "sales": [
+            {"date": s.date.isoformat(), "total": _money(s.total), "payment": s.payment_method}
+            for s in sale_qs[:50]
+        ],
+    }
+
+
+def _segment_search_detail(kind, value):
+    field = "customer_region" if kind == "region" else "customer_group"
+    orders = Order.objects.filter(**{f"{field}__iexact": value}).exclude(
+        customer_name=""
+    ).prefetch_related("items")
+    sales = Sale.objects.filter(
+        linked_order__in=orders,
+        source__in=("distribution_order", "online_order"),
+    ).prefetch_related("items")
+    periods = []
+    for label, start in _search_periods():
+        os = orders.filter(date__range=(start, today()))
+        ss = sales.filter(date__range=(start, today()))
+        revenue = sum((s.total for s in ss), Decimal("0"))
+        periods.append(_period_row(label, start, revenue=revenue, events=os.count()))
+    customers = sorted({o.customer_name for o in orders if o.customer_name})
+    return {
+        "title": value,
+        "type": "Customer region" if kind == "region" else "Customer group",
+        "identifier": "Distribution / Online analytics",
+        "summary": {
+            "orders": orders.count(),
+            "sales": sales.count(),
+            "revenue": _money(sum((s.total for s in sales), Decimal("0"))),
+            "customers": len(customers),
+            "customers_sample": customers[:30],
+        },
+        "periods": periods,
+        "customers": customers[:100],
+    }
+
+
+@login_required
+def dashboard_search(request):
+    q = request.GET.get("q", "")
+    return JsonResponse({"results": _search_results(q)})
+
+
+@login_required
+def dashboard_search_detail(request):
+    kind = request.GET.get("type", "")
+    pk = request.GET.get("id", "")
+    channel = request.GET.get("channel", "")
+    value = request.GET.get("value", "")
+
+    detail = None
+    if kind == "raw" and pk.isdigit():
+        material = RawMaterial.objects.filter(pk=int(pk)).first()
+        if material:
+            detail = _raw_search_detail(material)
+    elif kind == "fg" and pk.isdigit():
+        good = FinishedGood.objects.filter(pk=int(pk)).first()
+        if good:
+            detail = _finished_good_search_detail(good)
+    elif kind == "supplier" and value:
+        detail = _supplier_search_detail(value)
+    elif kind == "customer" and value and channel in ("distribution", "online"):
+        detail = _customer_search_detail(value, channel)
+    elif kind in ("region", "group") and value:
+        detail = _segment_search_detail(kind, value)
+
+    if not detail:
+        return JsonResponse({"error": "Search object not found."}, status=404)
+    return JsonResponse(detail)
 
 
 @login_required

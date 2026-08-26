@@ -1,8 +1,166 @@
 {% extends "base.html" %}
 {% load core_extras %}
 {% block content %}
+<style>[x-cloak] { display: none !important; }</style>
 <h1 class="text-2xl font-semibold font-display text-[#1E4536]">{{ biz.name }}</h1>
-<p class="text-sm text-stone-500 mt-0.5 mb-6">{% now "l, j F Y" %}</p>
+<p class="text-sm text-stone-500 mt-0.5 mb-4">{% now "l, j F Y" %}</p>
+
+<!-- Global dashboard search: intentionally lives only on the dashboard. -->
+<div x-data="dashboardSearch()" class="relative mb-6">
+  <div class="bg-white border border-[#E7DFCC] rounded-xl shadow-[0_-4px_8px_#00000022] p-3 md:p-4">
+    <div class="flex items-center gap-3">
+      <div class="shrink-0 text-[#1E4536]">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>
+        </svg>
+      </div>
+      <div class="min-w-0 flex-1">
+        <input
+          x-model="query"
+          @input.debounce.250ms="search()"
+          @keydown.escape="closeResults()"
+          @keydown.enter.prevent="openFirst()"
+          type="search"
+          autocomplete="off"
+          placeholder="Search anything — Material, Product, Vendor, Customer…"
+          class="w-full border-0 bg-transparent p-0 text-sm text-stone-800 placeholder:text-stone-400 focus:ring-0 outline-none"
+        >
+      </div>
+      <button x-show="query" @click="clear()" type="button" class="shrink-0 text-stone-400 hover:text-stone-700 text-lg leading-none">&times;</button>
+    </div>
+  </div>
+
+  <!-- Search result dropdown -->
+  <div x-show="showResults && (results.length || loading || (query.length >= 2 && !loading))" x-cloak
+       class="absolute left-0 right-0 top-full mt-2 z-40 bg-white border border-stone-200 rounded-xl shadow-xl overflow-hidden">
+    <div x-show="loading" class="px-4 py-3 text-xs text-stone-400">Searching the system…</div>
+    <template x-for="result in results" :key="result.key">
+      <button type="button" @click="open(result)" class="w-full text-left px-4 py-3 border-b border-stone-100 last:border-0 hover:bg-stone-50 transition">
+        <div class="flex items-center justify-between gap-3">
+          <span class="font-semibold text-sm text-stone-800 truncate" x-text="result.label"></span>
+          <span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-2 py-1 rounded-full bg-[#F5EFE0] text-[#1E4536]" x-text="result.identifier"></span>
+        </div>
+        <div class="text-[11px] text-stone-400 mt-0.5" x-text="result.meta"></div>
+      </button>
+    </template>
+    <div x-show="!loading && !results.length && query.length >= 2" class="px-4 py-5 text-center text-xs text-stone-400">No matching object found.</div>
+  </div>
+
+  <!-- Search detail modal -->
+  <div x-show="detail" x-cloak x-transition.opacity class="fixed inset-0 z-[60] bg-stone-900/50 backdrop-blur-[2px] p-3 md:p-6 flex items-center justify-center" @keydown.escape.window="closeDetail()">
+    <div @click.away="closeDetail()" class="bg-[#FAF6EF] border border-stone-200 rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] overflow-hidden flex flex-col">
+      <div class="px-5 py-4 md:px-6 border-b border-[#E7DFCC] bg-white flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <div class="flex flex-wrap items-center gap-2 mb-1">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-[#1E4536] bg-[#E8F0EB] px-2 py-1 rounded-full" x-text="detail?.type"></span>
+            <span class="text-[10px] font-semibold uppercase tracking-wider text-stone-500 bg-stone-100 px-2 py-1 rounded-full" x-text="detail?.identifier"></span>
+          </div>
+          <h3 class="text-xl font-semibold font-display text-[#1E4536] truncate" x-text="detail?.title"></h3>
+        </div>
+        <button @click="closeDetail()" type="button" class="shrink-0 text-stone-400 hover:text-stone-700 text-2xl leading-none">&times;</button>
+      </div>
+
+      <div class="overflow-y-auto p-4 md:p-6 space-y-5">
+        <!-- Summary -->
+        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2" x-show="detail?.summary">
+          <template x-for="card in summaryCards()" :key="card.label">
+            <div class="bg-white border border-[#E7DFCC] rounded-lg p-3 min-w-0">
+              <div class="text-[10px] uppercase tracking-wide font-bold text-stone-400" x-text="card.label"></div>
+              <div class="text-sm md:text-base font-semibold font-mono text-[#1E4536] mt-1 break-words" x-text="card.value"></div>
+            </div>
+          </template>
+        </div>
+
+        <!-- Period analytics -->
+        <section x-show="detail?.periods?.length" class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden">
+          <div class="px-4 py-3 border-b border-[#E7DFCC]">
+            <h4 class="text-xs uppercase tracking-wider font-bold text-[#1E4536]">Period performance</h4>
+            <p class="text-[10px] text-stone-400 mt-0.5">Operational activity and financial movement inside each reporting window.</p>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs min-w-[760px]">
+              <thead class="bg-stone-50 text-stone-500">
+                <tr>
+                  <th class="px-3 py-2 text-left">Period</th>
+                  <th class="px-3 py-2 text-right">Events</th>
+                  <th class="px-3 py-2 text-right">Units / Qty</th>
+                  <th class="px-3 py-2 text-right">Spend</th>
+                  <th class="px-3 py-2 text-right">Revenue</th>
+                  <th class="px-3 py-2 text-right">Cost / Margin</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="row in detail.periods" :key="row.label">
+                  <tr class="border-t border-stone-100">
+                    <td class="px-3 py-2 font-semibold text-stone-700" x-text="row.label"></td>
+                    <td class="px-3 py-2 text-right font-mono" x-text="row.events ?? row.purchase_count ?? row.sale_events ?? row.production_events ?? 0"></td>
+                    <td class="px-3 py-2 text-right font-mono" x-text="fmt(row.purchased_qty ?? row.produced_units ?? row.sold_units ?? row.units ?? row.consumed_qty ?? 0)"></td>
+                    <td class="px-3 py-2 text-right font-mono" x-text="money(row.spend ?? 0)"></td>
+                    <td class="px-3 py-2 text-right font-mono" x-text="money(row.revenue ?? 0)"></td>
+                    <td class="px-3 py-2 text-right font-mono" x-text="row.estimated_gross_margin !== undefined ? money(row.estimated_gross_margin) : (row.latest_unit_cost !== undefined && row.latest_unit_cost !== null ? money(row.latest_unit_cost) : '—')"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Raw material -->
+        <template x-if="detail?.type === 'Raw material'">
+          <div class="space-y-5">
+            <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden">
+              <div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#1E4536]">Procurement price movement</h4></div>
+              <div class="overflow-x-auto">
+                <table class="w-full text-xs min-w-[620px]"><thead class="bg-stone-50 text-stone-500"><tr><th class="px-3 py-2 text-left">Date</th><th class="px-3 py-2 text-left">Vendor</th><th class="px-3 py-2 text-right">Unit cost</th><th class="px-3 py-2 text-left">Purchase unit</th></tr></thead>
+                <tbody><template x-for="row in detail.price_history" :key="row.date + row.supplier + row.unit_cost"><tr class="border-t border-stone-100"><td class="px-3 py-2" x-text="row.date"></td><td class="px-3 py-2" x-text="row.supplier"></td><td class="px-3 py-2 text-right font-mono" x-text="money(row.unit_cost)"></td><td class="px-3 py-2" x-text="row.purchase_unit || '—'"></td></tr></template></tbody></table>
+              </div>
+            </section>
+            <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden">
+              <div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#1E4536]">Usage / production links</h4></div>
+              <div class="p-4 grid grid-cols-1 md:grid-cols-2 gap-2"><template x-for="row in detail.linked_goods" :key="row.name"><div class="border border-stone-100 rounded-lg p-3 flex justify-between gap-3"><span class="font-semibold text-sm text-stone-700" x-text="row.name"></span><span class="font-mono text-xs text-stone-500" x-text="fmt(row.qty_per_batch) + ' ' + row.usage_unit + ' / batch'"></span></div></template><div x-show="!detail.linked_goods.length" class="text-xs text-stone-400">Not currently linked to a finished-good recipe or production material.</div></div>
+            </section>
+          </div>
+        </template>
+
+        <!-- Finished good -->
+        <template x-if="detail?.type === 'Finished good'">
+          <div class="space-y-5">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#1E4536]">Production frequency by channel</h4></div><div class="p-4 space-y-2"><template x-for="row in detail.production_channels" :key="row.channel"><div class="flex items-center justify-between text-xs border-b border-stone-100 pb-2"><span x-text="row.channel"></span><span class="font-mono" x-text="fmt(row.units) + ' units • ' + row.production_events + ' event(s)'"></span></div></template></div></section>
+              <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#1E4536]">Sales by channel</h4></div><div class="p-4 space-y-2"><template x-for="row in detail.sales_channels" :key="row.channel"><div class="flex items-center justify-between text-xs border-b border-stone-100 pb-2"><span x-text="row.channel"></span><span class="font-mono" x-text="fmt(row.units) + ' units • ' + money(row.revenue)"></span></div></template></div></section>
+            </div>
+            <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#1E4536]">Recipe / production cost</h4></div><div class="overflow-x-auto"><table class="w-full text-xs min-w-[620px]"><thead class="bg-stone-50 text-stone-500"><tr><th class="px-3 py-2 text-left">Material</th><th class="px-3 py-2 text-right">Qty / batch</th><th class="px-3 py-2 text-left">Unit</th><th class="px-3 py-2 text-right">Current cost / usage unit</th></tr></thead><tbody><template x-for="row in detail.recipe" :key="row.name"><tr class="border-t border-stone-100"><td class="px-3 py-2 font-semibold" x-text="row.name"></td><td class="px-3 py-2 text-right font-mono" x-text="fmt(row.qty_per_batch)"></td><td class="px-3 py-2" x-text="row.unit"></td><td class="px-3 py-2 text-right font-mono" x-text="money(row.current_cost)"></td></tr></template></tbody></table></div><p class="px-4 py-3 text-[10px] text-stone-400" x-text="detail.note"></p></section>
+          </div>
+        </template>
+
+        <!-- Supplier -->
+        <template x-if="detail?.type === 'Procurement vendor'">
+          <div class="space-y-5">
+            <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#1E4536]">Materials purchased from this vendor</h4></div><div class="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2"><template x-for="row in detail.materials" :key="row.name"><div class="border border-stone-100 rounded-lg p-3 flex justify-between"><span class="text-xs font-semibold" x-text="row.name"></span><span class="text-xs font-mono" x-text="money(row.spend)"></span></div></template></div></section>
+            <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#1E4536]">Recent purchase history</h4></div><div class="overflow-x-auto"><table class="w-full text-xs min-w-[700px]"><thead class="bg-stone-50 text-stone-500"><tr><th class="px-3 py-2 text-left">Date</th><th class="px-3 py-2 text-left">Status</th><th class="px-3 py-2 text-left">Items</th><th class="px-3 py-2 text-right">Total</th></tr></thead><tbody><template x-for="po in detail.purchases" :key="po.date + po.total"><tr class="border-t border-stone-100"><td class="px-3 py-2" x-text="po.date"></td><td class="px-3 py-2" x-text="po.status"></td><td class="px-3 py-2" x-text="po.items.map(i => i.name + ' × ' + fmt(i.qty)).join(', ')"></td><td class="px-3 py-2 text-right font-mono" x-text="money(po.total)"></td></tr></template></tbody></table></div></section>
+          </div>
+        </template>
+
+        <!-- Customer -->
+        <template x-if="detail?.type === 'Customer'">
+          <div class="space-y-5">
+            <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#1E4536]">Order history</h4></div><div class="overflow-x-auto"><table class="w-full text-xs min-w-[720px]"><thead class="bg-stone-50 text-stone-500"><tr><th class="px-3 py-2 text-left">Date</th><th class="px-3 py-2 text-left">Status</th><th class="px-3 py-2 text-left">Region</th><th class="px-3 py-2 text-left">Group</th><th class="px-3 py-2 text-right">Units</th><th class="px-3 py-2 text-right">Total</th></tr></thead><tbody><template x-for="o in detail.orders" :key="o.date + o.total + o.status"><tr class="border-t border-stone-100"><td class="px-3 py-2" x-text="o.date"></td><td class="px-3 py-2" x-text="o.status"></td><td class="px-3 py-2" x-text="o.region"></td><td class="px-3 py-2" x-text="o.group"></td><td class="px-3 py-2 text-right font-mono" x-text="fmt(o.units)"></td><td class="px-3 py-2 text-right font-mono" x-text="money(o.total)"></td></tr></template></tbody></table></div></section>
+            <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#1E4536]">Completed sales</h4></div><div class="overflow-x-auto"><table class="w-full text-xs min-w-[500px]"><thead class="bg-stone-50 text-stone-500"><tr><th class="px-3 py-2 text-left">Date</th><th class="px-3 py-2 text-left">Payment</th><th class="px-3 py-2 text-right">Revenue</th></tr></thead><tbody><template x-for="s in detail.sales" :key="s.date + s.total + s.payment"><tr class="border-t border-stone-100"><td class="px-3 py-2" x-text="s.date"></td><td class="px-3 py-2" x-text="s.payment"></td><td class="px-3 py-2 text-right font-mono" x-text="money(s.total)"></td></tr></template></tbody></table></div></section>
+          </div>
+        </template>
+
+        <!-- Region / group -->
+        <template x-if="detail?.type === 'Customer region' || detail?.type === 'Customer group'">
+          <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#1E4536]">Customers in this segment</h4></div><div class="p-4 flex flex-wrap gap-2"><template x-for="name in detail.customers" :key="name"><span class="text-xs bg-stone-100 text-stone-700 px-2.5 py-1 rounded-full" x-text="name"></span></template></div></section>
+        </template>
+      </div>
+
+      <div class="px-5 py-3 border-t border-[#E7DFCC] bg-white flex justify-end">
+        <button @click="closeDetail()" type="button" class="rounded-md bg-[#1E4536] text-white px-4 py-2 text-xs font-semibold hover:opacity-90">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <div class="flex flex-wrap gap-3 mb-4">
   <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[-2px_-2px_8px_#000000d2] p-4 flex-1 min-w-[140px]">
@@ -336,10 +494,10 @@
           <div id="financial-chart-caption" class="text-xs text-stone-500 mt-0.5">Daily sales, spend and revenue</div>
         </div>
         <div class="flex items-center gap-1 rounded-lg bg-[#F5EFE0] border border-[#E7DFCC] p-1" role="group" aria-label="Financial chart period">
-          <button type="button" class="financial-period-btn px-2.5 py-1 text-[10px] rounded-md bg-[#1E4536] text-white" data-period="week">Week</button>
-          <button type="button" class="financial-period-btn px-2.5 py-1 text-[10px] rounded-md text-stone-600 hover:bg-white" data-period="month">Month</button>
-          <button type="button" class="financial-period-btn px-2.5 py-1 text-[10px] rounded-md text-stone-600 hover:bg-white" data-period="quarter">Quarter</button>
-          <button type="button" class="financial-period-btn px-2.5 py-1 text-[10px] rounded-md text-stone-600 hover:bg-white" data-period="year">Year</button>
+          <button type="button" class="financial-period-btn px-2.5 py-1 text-[10px] rounded-md bg-[#8f172d] text-white" data-period="week">Week</button>
+          <button type="button" class="financial-period-btn px-2.5 py-1 text-[10px] rounded-md text-stone-600 hover:bg-[#8f172d] hover:text-white" data-period="month">Month</button>
+          <button type="button" class="financial-period-btn px-2.5 py-1 text-[10px] rounded-md text-stone-600 hover:bg-[#8f172d] hover:text-white" data-period="quarter">Quarter</button>
+          <button type="button" class="financial-period-btn px-2.5 py-1 text-[10px] rounded-md text-stone-600 hover:bg-[#8f172d] hover:text-white" data-period="year">Year</button>
         </div>
       </div>
       <div class="relative h-[300px] w-full">
@@ -801,7 +959,7 @@
       buttons.forEach(btn => {
         const active = btn.dataset.period === period;
 
-        btn.classList.toggle('bg-[#1E4536]', active);
+        btn.classList.toggle('bg-[#8f172d]', active);
         btn.classList.toggle('text-white', active);
         btn.classList.toggle('text-stone-600', !active);
       });
@@ -902,7 +1060,7 @@
     buttons.forEach(btn => {
       const active = btn.dataset.period === period;
 
-      btn.classList.toggle('bg-[#1E4536]', active);
+      btn.classList.toggle('bg-[#8f172d]', active);
       btn.classList.toggle('text-white', active);
       btn.classList.toggle('text-stone-600', !active);
     });
@@ -938,4 +1096,95 @@
   finishedTab.addEventListener('change', updateTabs);
   updateTabs();
 </script>
+
+<script>
+function dashboardSearch() {
+  return {
+    query: '',
+    results: [],
+    showResults: false,
+    loading: false,
+    detail: null,
+    currency: '{{ biz.currency_symbol|escapejs }}',
+
+    async search() {
+      const q = this.query.trim();
+      this.showResults = !!q;
+      if (q.length < 2) {
+        this.results = [];
+        return;
+      }
+      this.loading = true;
+      try {
+        const response = await fetch(`{% url 'dashboard_search' %}?q=${encodeURIComponent(q)}`, {
+          headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        const data = await response.json();
+        this.results = data.results || [];
+      } catch (error) {
+        console.error('Dashboard search failed:', error);
+        this.results = [];
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async open(result) {
+      this.showResults = false;
+      this.loading = true;
+      try {
+        const url = new URL('{% url 'dashboard_search_detail' %}', window.location.origin);
+        url.searchParams.set('type', result.type);
+        if (result.type === 'raw' || result.type === 'fg') url.searchParams.set('id', result.key.split(':')[1]);
+        if (result.type === 'customer') {
+          url.searchParams.set('channel', result.channel);
+          url.searchParams.set('value', result.label);
+        }
+        if (['supplier', 'region', 'group'].includes(result.type)) url.searchParams.set('value', result.label);
+        const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        if (!response.ok) throw new Error('Detail request failed');
+        this.detail = await response.json();
+      } catch (error) {
+        console.error('Dashboard search detail failed:', error);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    openFirst() {
+      if (this.results.length) this.open(this.results[0]);
+    },
+
+    closeResults() { this.showResults = false; },
+    closeDetail() { this.detail = null; },
+    clear() { this.query = ''; this.results = []; this.showResults = false; },
+
+    fmt(value) {
+      return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    },
+
+    money(value) {
+      return `${Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+    },
+
+    summaryCards() {
+      const s = this.detail?.summary || {};
+      const skip = new Set(['regions', 'groups', 'customers_sample', 'customers']);
+      const labels = {
+        category: 'Category', stock: 'Current stock', purchase_unit: 'Purchase unit', cost_per_purchase_unit: 'Cost / purchase unit',
+        reorder_level: 'Reorder level', last_purchase: 'Last purchase', supplier_count: 'Suppliers',
+        unit: 'Unit', total_produced: 'Total produced', delivered_to_customers: 'Delivered', selling_price: 'Selling price',
+        estimated_recipe_cost_per_unit: 'Recipe cost / unit', estimated_margin_per_unit: 'Est. margin / unit', margin_pct: 'Est. margin %', units_per_batch: 'Units / batch',
+        total_purchase: 'Total purchased', purchase_orders: 'Purchase orders', materials_bought: 'Materials bought', average_purchase: 'Average purchase',
+        channel: 'Channel', orders: 'Orders', completed_orders: 'Completed', sales: 'Sales', revenue: 'Revenue', units: 'Units', last_order: 'Last order', last_sale: 'Last sale',
+      };
+      return Object.entries(s).filter(([key]) => !skip.has(key)).slice(0, 8).map(([key, value]) => ({
+        label: labels[key] || key.replaceAll('_', ' '),
+        value: typeof value === 'number' && ['stock','cost_per_purchase_unit','selling_price','estimated_recipe_cost_per_unit','estimated_margin_per_unit','total_purchase','average_purchase','revenue'].includes(key) ? this.money(value) : (Array.isArray(value) ? value.join(', ') || '—' : String(value ?? '—'))
+      }));
+    }
+  };
+}
+</script>
+
 {% endblock %}

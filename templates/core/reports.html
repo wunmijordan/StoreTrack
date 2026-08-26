@@ -39,7 +39,7 @@
   <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[2px_2px_8px_#000000d2] p-4">
     <h3 class="font-medium text-sm mb-1">Miscellaneous Expenses</h3>
     <p class="text-xs text-stone-500 mb-3">Overheads and other business spending outside purchase orders.</p>
-    <a href="{% url 'expenses_list' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A] inline-block">Open Expenses</a>
+    <a href="{% url 'expenses_list' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25] inline-block">Open Expenses</a>
     <a href="{% url 'export_expenses_csv' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#1E4536] border border-[#D9CFB4] inline-block ml-1">CSV</a>
     <a href="{% url 'export_expenses_xlsx' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#1E4536] border border-[#D9CFB4] inline-block ml-1">Excel</a>
   </div>
@@ -59,14 +59,14 @@
       {% include "_field.html" with field=settings_form.name %}
       {% include "_field.html" with field=settings_form.currency_symbol %}
     </div>
-    <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A]">Save settings</button>
+    <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">Save settings</button>
   </form>
 </div>
 
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] p-4 max-w-lg">
   <h3 class="font-medium text-sm mb-1">Full Backup</h3>
   <p class="text-xs text-stone-500 mb-3">Everything in this system, as one file you keep on your device.</p>
-  <a href="{% url 'backup_json' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#1E4536] text-white hover:bg-[#16332A] inline-block">Download backup (JSON)</a>
+  <a href="{% url 'backup_json' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25] inline-block">Download backup (JSON)</a>
   <p class="text-[11px] text-stone-400 mt-2">To restore on the server: <code class="font-mono">python manage.py loaddata backup.json</code> — see the README.</p>
 </div>
 {% endblock %}
