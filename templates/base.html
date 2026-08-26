@@ -39,7 +39,7 @@
       <label for="mobile-nav-toggle" class="cursor-pointer">☰</label>
     </div>
     <input type="checkbox" id="mobile-nav-toggle" class="hidden peer">
-    <nav class="hidden peer-checked:block bg-[#1E4536] text-sm">
+    <nav class="hidden peer-checked:block bg-[#4D1C25] text-sm">
       {% include "_nav_links.html" with row_class="block px-5 py-3 border-t border-white/10" %}
       <form action="{% url 'logout' %}" method="post" class="px-5 py-3 border-t border-white/10">
         {% csrf_token %}

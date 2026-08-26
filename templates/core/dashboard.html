@@ -2,7 +2,7 @@
 {% load core_extras %}
 {% block content %}
 <style>[x-cloak] { display: none !important; }</style>
-<h1 class="text-2xl font-semibold font-display text-[#1E4536]">{{ biz.name }}</h1>
+<h1 class="text-2xl font-semibold font-display text-[#8f172d]">{{ biz.name }}</h1>
 <p class="text-sm text-stone-500 mt-0.5 mb-4">{% now "l, j F Y" %}</p>
 
 <!-- Global dashboard search: intentionally lives only on the dashboard. -->
@@ -156,7 +156,7 @@
       </div>
 
       <div class="px-5 py-3 border-t border-[#E7DFCC] bg-white flex justify-end">
-        <button @click="closeDetail()" type="button" class="rounded-md bg-[#1E4536] text-white px-4 py-2 text-xs font-semibold hover:opacity-90">Close</button>
+        <button @click="closeDetail()" type="button" class="rounded-md bg-[#8f172d] hover:bg-[#4D1C25] text-white px-4 py-2 text-xs font-semibold">Close</button>
       </div>
     </div>
   </div>
@@ -494,10 +494,10 @@
           <div id="financial-chart-caption" class="text-xs text-stone-500 mt-0.5">Daily sales, spend and revenue</div>
         </div>
         <div class="flex items-center gap-1 rounded-lg bg-[#F5EFE0] border border-[#E7DFCC] p-1" role="group" aria-label="Financial chart period">
-          <button type="button" class="financial-period-btn px-2.5 py-1 text-[10px] rounded-md bg-[#8f172d] text-white" data-period="week">Week</button>
-          <button type="button" class="financial-period-btn px-2.5 py-1 text-[10px] rounded-md text-stone-600 hover:bg-[#8f172d] hover:text-white" data-period="month">Month</button>
-          <button type="button" class="financial-period-btn px-2.5 py-1 text-[10px] rounded-md text-stone-600 hover:bg-[#8f172d] hover:text-white" data-period="quarter">Quarter</button>
-          <button type="button" class="financial-period-btn px-2.5 py-1 text-[10px] rounded-md text-stone-600 hover:bg-[#8f172d] hover:text-white" data-period="year">Year</button>
+          <button type="button" class="financial-period-btn px-2.5 py-1 text-[10px] rounded-md bg-[#8f172d] hover:bg-[#4D1C25] hover:text-white text-white" data-period="week">Week</button>
+          <button type="button" class="financial-period-btn px-2.5 py-1 text-[10px] rounded-md text-stone-600 hover:bg-[#4D1C25] hover:text-white" data-period="month">Month</button>
+          <button type="button" class="financial-period-btn px-2.5 py-1 text-[10px] rounded-md text-stone-600 hover:bg-[#4D1C25] hover:text-white" data-period="quarter">Quarter</button>
+          <button type="button" class="financial-period-btn px-2.5 py-1 text-[10px] rounded-md text-stone-600 hover:bg-[#4D1C25] hover:text-white" data-period="year">Year</button>
         </div>
       </div>
       <div class="relative h-[300px] w-full">
@@ -885,13 +885,13 @@
 </div>
 
 <div class="grid sm:grid-cols-3 gap-3 mt-6">
-  <a href="{% url 'po_add' %}" class="p-4 rounded-lg bg-[#1E4536] text-white text-center hover:bg-[#16332A] shadow-[0_2px_8px_#000000d2]">
+  <a href="{% url 'po_add' %}" class="p-4 rounded-lg bg-[#8f172d] text-white text-center hover:bg-[#4D1C25] shadow-[0_2px_8px_#000000d2]">
     <div class="font-medium text-sm">Log a Purchase</div><div class="text-xs text-[#D8E3DB]">Record incoming stock from a supplier</div>
   </a>
-  <a href="{% url 'order_add' %}" class="p-4 rounded-lg bg-[#1E4536] text-white text-center hover:bg-[#16332A] shadow-[0_2px_8px_#000000d2]">
+  <a href="{% url 'order_add' %}" class="p-4 rounded-lg bg-[#8f172d] text-white text-center hover:bg-[#4D1C25] shadow-[0_2px_8px_#000000d2]">
     <div class="font-medium text-sm">New Order</div><div class="text-xs text-[#D8E3DB]">Customer order or physical store restock</div>
   </a>
-  <a href="{% url 'sale_add' %}" class="p-4 rounded-lg bg-[#1E4536] text-white text-center hover:bg-[#16332A] shadow-[0_2px_8px_#000000d2]">
+  <a href="{% url 'sale_add' %}" class="p-4 rounded-lg bg-[#8f172d] text-white text-center hover:bg-[#4D1C25] shadow-[0_2px_8px_#000000d2]">
     <div class="font-medium text-sm">Record a Sale</div><div class="text-xs text-[#D8E3DB]">Physical store stock, immediate</div>
   </a>
 </div>
