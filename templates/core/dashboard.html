@@ -1,15 +1,15 @@
-{% extends "base.html" %}
-{% load core_extras %}
-{% block content %}
-<style>[x-cloak] { display: none !important; }</style>
-<h1 class="text-2xl font-semibold font-display text-[#8f172d]">{{ biz.name }}</h1>
-<p class="text-sm text-stone-500 mt-0.5 mb-4">{% now "l, j F Y" %}</p>
-
-<!-- Global dashboard search: intentionally lives only on the dashboard. -->
-<div x-data="dashboardSearch()" class="relative mb-6">
-  <div class="bg-white border border-[#E7DFCC] rounded-xl shadow-[0_-4px_8px_#00000022] p-3 md:p-4">
-    <div class="flex items-center gap-3">
-      <div class="shrink-0 text-[#8f172d]">
+{% extends "base.html" %} 
+{% load core_extras %} 
+{% block content %} 
+<style>[x-cloak] { display: none !important; }</style> 
+<h1 class="text-2xl font-semibold font-display text-[#8f172d]">{{ biz.name }}</h1> 
+<p class="text-sm text-stone-500 mt-0.5 mb-4">{% now "l, j F Y" %}</p> 
+ 
+<!-- Global dashboard search: intentionally lives only on the dashboard. --> 
+<div x-data="dashboardSearch()" class="relative mb-6"> 
+  <div class="bg-white border border-[#E7DFCC] rounded-xl shadow-[0_-4px_8px_#00000022] p-3 md:p-4"> 
+    <div class="flex items-center gap-3"> 
+      <div class="shrink-0 text-[#8f172d]"> 
         <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>
         </svg>
@@ -75,18 +75,19 @@
         <section x-show="detail?.periods?.length" class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden">
           <div class="px-4 py-3 border-b border-[#E7DFCC]">
             <h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Period performance</h4>
-            <p class="text-[10px] text-stone-400 mt-0.5">Operational activity and financial movement inside each reporting window.</p>
+            <p class="text-[10px] text-stone-400 mt-0.5" x-text="detail?.type === 'Raw material' || detail?.type === 'Procurement vendor' ? 'Procurement activity and procurement-price movement inside each reporting window.' : 'Operational activity and historical financial performance inside each reporting window.'"></p>
           </div>
           <div class="overflow-x-auto">
-            <table class="w-full text-xs min-w-[760px]">
+            <table class="w-full text-xs min-w-[620px]">
               <thead class="bg-stone-50 text-stone-500">
                 <tr>
                   <th class="px-3 py-2 text-left">Period</th>
                   <th class="px-3 py-2 text-right">Events</th>
-                  <th class="px-3 py-2 text-right">Units / Qty</th>
-                  <th class="px-3 py-2 text-right">Spend</th>
-                  <th class="px-3 py-2 text-right">Revenue</th>
-                  <th class="px-3 py-2 text-right">Cost / Margin</th>
+                  <th class="px-3 py-2 text-right">Qty / Units</th>
+                  <th x-show="detail?.type === 'Raw material' || detail?.type === 'Procurement vendor'" class="px-3 py-2 text-right">Spend</th>
+                  <th x-show="detail?.type === 'Finished good' || detail?.type === 'Customer'" class="px-3 py-2 text-right">Revenue</th>
+                  <th x-show="detail?.type === 'Raw material' || detail?.type === 'Procurement vendor'" class="px-3 py-2 text-right">Procurement price Δ</th>
+                  <th x-show="detail?.type === 'Finished good' || detail?.type === 'Customer'" class="px-3 py-2 text-right">Gross margin</th>
                 </tr>
               </thead>
               <tbody>
@@ -95,9 +96,10 @@
                     <td class="px-3 py-2 font-semibold text-stone-700" x-text="row.label"></td>
                     <td class="px-3 py-2 text-right font-mono" x-text="row.events ?? row.purchase_count ?? row.sale_events ?? row.production_events ?? 0"></td>
                     <td class="px-3 py-2 text-right font-mono" x-text="fmt(row.purchased_qty ?? row.produced_units ?? row.sold_units ?? row.units ?? row.consumed_qty ?? 0)"></td>
-                    <td class="px-3 py-2 text-right font-mono" x-text="money(row.spend ?? 0)"></td>
-                    <td class="px-3 py-2 text-right font-mono" x-text="money(row.revenue ?? 0)"></td>
-                    <td class="px-3 py-2 text-right font-mono" x-text="row.estimated_gross_margin !== undefined ? money(row.estimated_gross_margin) : (row.latest_unit_cost !== undefined && row.latest_unit_cost !== null ? money(row.latest_unit_cost) : '—')"></td>
+                    <td x-show="detail?.type === 'Raw material' || detail?.type === 'Procurement vendor'" class="px-3 py-2 text-right font-mono" x-text="money(row.spend ?? 0)"></td>
+                    <td x-show="detail?.type === 'Finished good' || detail?.type === 'Customer'" class="px-3 py-2 text-right font-mono" x-text="money(row.revenue ?? 0)"></td>
+                    <td x-show="detail?.type === 'Raw material' || detail?.type === 'Procurement vendor'" class="px-3 py-2 text-right font-mono" x-text="row.price_difference !== null && row.price_difference !== undefined ? ((row.price_difference > 0 ? '+' : '') + money(row.price_difference) + (row.price_difference_pct !== null && row.price_difference_pct !== undefined ? ' (' + (row.price_difference_pct > 0 ? '+' : '') + fmt(row.price_difference_pct) + '%)' : '')) : '—'"></td>
+                    <td x-show="detail?.type === 'Finished good' || detail?.type === 'Customer'" class="px-3 py-2 text-right font-mono" x-text="row.gross_profit !== undefined ? (money(row.gross_profit) + (row.gross_margin_pct !== null && row.gross_margin_pct !== undefined ? ' (' + fmt(row.gross_margin_pct) + '%)' : '')) : '—'"></td>
                   </tr>
                 </template>
               </tbody>
@@ -125,6 +127,12 @@
         <!-- Finished good -->
         <template x-if="detail?.type === 'Finished good'">
           <div class="space-y-5">
+            <section x-show="detail.channel_prices?.length" class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden">
+              <div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Channel selling prices</h4></div>
+              <div class="p-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <template x-for="row in detail.channel_prices" :key="row.channel"><div class="border border-stone-100 rounded-lg p-3"><div class="text-[10px] uppercase tracking-wide font-bold text-stone-400" x-text="row.channel"></div><div class="font-mono font-semibold text-[#8f172d] mt-1" x-text="money(row.price)"></div></div></template>
+              </div>
+            </section>
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Production frequency by channel</h4></div><div class="p-4 space-y-2"><template x-for="row in detail.production_channels" :key="row.channel"><div class="flex items-center justify-between text-xs border-b border-stone-100 pb-2"><span x-text="row.channel"></span><span class="font-mono" x-text="fmt(row.units) + ' units • ' + row.production_events + ' event(s)'"></span></div></template></div></section>
               <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Sales by channel</h4></div><div class="p-4 space-y-2"><template x-for="row in detail.sales_channels" :key="row.channel"><div class="flex items-center justify-between text-xs border-b border-stone-100 pb-2"><span x-text="row.channel"></span><span class="font-mono" x-text="fmt(row.units) + ' units • ' + money(row.revenue)"></span></div></template></div></section>
@@ -965,8 +973,6 @@
     </div>
   </div>
 </div>
-
-
 <script>
 function money(value) {
   const symbol = '{{ biz.currency_symbol|default:"₦"|escapejs }}';
@@ -1268,22 +1274,29 @@ function dashboardSearch() {
 
     summaryCards() {
       const s = this.detail?.summary || {};
-      const skip = new Set(['regions', 'groups', 'customers_sample', 'customers']);
+      const skip = new Set(['regions', 'groups', 'customers_sample', 'customers', 'stock_unit', 'reorder_unit']);
       const labels = {
-        category: 'Category', stock: 'Current stock', purchase_unit: 'Purchase unit', cost_per_purchase_unit: 'Cost / purchase unit',
-        reorder_level: 'Reorder level', last_purchase: 'Last purchase', supplier_count: 'Suppliers',
-        unit: 'Unit', total_produced: 'Total produced', delivered_to_customers: 'Delivered', selling_price: 'Selling price',
-        estimated_recipe_cost_per_unit: 'Recipe cost / unit', estimated_margin_per_unit: 'Est. margin / unit', margin_pct: 'Est. margin %', units_per_batch: 'Units / batch',
+        category: 'Category', cost_per_purchase_unit: 'Cost / purchase unit', last_purchase: 'Last purchase', supplier_count: 'Suppliers',
+        total_produced: 'Total produced', delivered_to_customers: 'Delivered', selling_price: 'Default selling price',
+        estimated_recipe_cost_per_unit: 'Current recipe cost / unit', estimated_margin_per_unit: 'Current est. margin / unit', margin_pct: 'Current est. margin %', units_per_batch: 'Units / batch',
         total_purchase: 'Total purchased', purchase_orders: 'Purchase orders', materials_bought: 'Materials bought', average_purchase: 'Average purchase',
         channel: 'Channel', orders: 'Orders', completed_orders: 'Completed', sales: 'Sales', revenue: 'Revenue', units: 'Units', last_order: 'Last order', last_sale: 'Last sale',
+        latest_historical_unit_cost: 'Latest historical cost / unit',
       };
-      return Object.entries(s).filter(([key]) => !skip.has(key)).slice(0, 8).map(([key, value]) => ({
-        label: labels[key] || key.replaceAll('_', ' '),
-        value: typeof value === 'number' && ['stock','cost_per_purchase_unit','selling_price','estimated_recipe_cost_per_unit','estimated_margin_per_unit','total_purchase','average_purchase','revenue'].includes(key) ? this.money(value) : (Array.isArray(value) ? value.join(', ') || '—' : String(value ?? '—'))
-      }));
+      const cards = [];
+      if (s.stock !== undefined && s.stock !== null && s.stock_unit) cards.push({ label: 'Current stock', value: this.fmt(s.stock) + ' ' + s.stock_unit });
+      if (s.reorder_level !== undefined && s.reorder_level !== null && s.reorder_unit) cards.push({ label: 'Reorder level', value: this.fmt(s.reorder_level) + ' ' + s.reorder_unit });
+      if (s.physical_store_reorder_level !== undefined && s.physical_store_reorder_level !== null && s.reorder_unit) cards.push({ label: 'Physical-store reorder', value: this.fmt(s.physical_store_reorder_level) + ' ' + s.reorder_unit });
+      for (const [key, value] of Object.entries(s)) {
+        if (skip.has(key) || key === 'stock' || key === 'reorder_level' || key === 'physical_store_reorder_level') continue;
+        cards.push({
+          label: labels[key] || key.replaceAll('_', ' '),
+          value: typeof value === 'number' && ['cost_per_purchase_unit','selling_price','estimated_recipe_cost_per_unit','estimated_margin_per_unit','total_purchase','average_purchase','revenue','latest_historical_unit_cost'].includes(key) ? this.money(value) : (Array.isArray(value) ? value.join(', ') || '—' : String(value ?? '—'))
+        });
+      }
+      return cards.slice(0, 8);
     }
   };
 }
 </script>
-
 {% endblock %}
