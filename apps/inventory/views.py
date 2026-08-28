@@ -74,12 +74,17 @@ def finished_good_form(request, pk=None):
         formset = RecipeItemFormSet(instance=obj, prefix="recipe_items")
         production_formset = ProductionMaterialFormSet(instance=obj, prefix="production_materials")
         channel_price_formset = FinishedGoodChannelPriceFormSet(instance=obj, prefix="channel_prices")
+    raw_material_units = {
+        str(material.pk): material.usage_unit
+        for material in RawMaterial.objects.all()
+    }
     return render(request, "inventory/finishedgood_form.html", {
         "form": form,
         "formset": formset,
         "production_formset": production_formset,
         "channel_price_formset": channel_price_formset,
         "obj": obj,
+        "raw_material_units": raw_material_units,
     })
 
 

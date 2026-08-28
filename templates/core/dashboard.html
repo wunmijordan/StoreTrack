@@ -922,7 +922,7 @@
       <div>
         <div class="text-[10px] uppercase tracking-[0.18em] font-bold text-[#8f172d]">Financial scope</div>
         <h3 class="text-lg font-display font-semibold text-[#8f172d]" x-text="scope === 'year' ? 'Year-to-date Financial Summary' : 'Month-to-date Financial Summary'"></h3>
-        <p class="text-[11px] text-stone-500">Cash inflows, cash outflows and production activity — without mixing internal production with cash spend.</p>
+        <p class="text-[11px] text-stone-500">Cash Inflows, Cash Outflows and Production Activity — without mixing Internal Production with Cash spend.</p>
       </div>
       <button @click="scope = null" class="text-stone-400 hover:text-stone-700 text-xl">&times;</button>
     </div>
@@ -935,13 +935,13 @@
       </div>
       <div class="grid lg:grid-cols-2 gap-5">
         <div class="rounded-xl bg-white border border-[#E7DFCC] p-4">
-          <div class="text-xs font-bold text-[#8f172d] mb-1">Cash inflow by sales channel</div>
-          <div class="text-[10px] text-stone-400 mb-3">Actual realised sales revenue.</div>
+          <div class="text-xs font-bold text-[#8f172d] mb-1">Cash Inflow by Sales Channel</div>
+          <div class="text-[10px] text-stone-400 mb-3">Actual realised Sales Revenue.</div>
           <div class="relative h-[290px]"><canvas id="financial-revenue-pie"></canvas></div>
         </div>
         <div class="rounded-xl bg-white border border-[#E7DFCC] p-4">
-          <div class="text-xs font-bold text-[#8f172d] mb-1">Cash outflow by scope</div>
-          <div class="text-[10px] text-stone-400 mb-3">Supplier procurement plus miscellaneous operating expenses.</div>
+          <div class="text-xs font-bold text-[#8f172d] mb-1">Cash Outflow by Scope</div>
+          <div class="text-[10px] text-stone-400 mb-3">Supplier Procurement plus miscellaneous operating expenses.</div>
           <div class="relative h-[290px]"><canvas id="financial-outflow-pie"></canvas></div>
         </div>
       </div>
@@ -950,23 +950,23 @@
           <div class="text-xs font-bold text-[#8f172d] mb-3">Procurement scopes</div>
           <div class="space-y-2 text-xs">
             <template x-for="row in [
-              ['Raw materials', data[scope]?.procurement?.raw_materials || 0],
-              ['Production materials', data[scope]?.procurement?.production_materials || 0],
-              ['Operational materials', data[scope]?.procurement?.operational_materials || 0],
-              ['Other procurement', data[scope]?.procurement?.other_procurement || 0]
+              ['Raw Materials', data[scope]?.procurement?.raw_materials || 0],
+              ['Production Materials', data[scope]?.procurement?.production_materials || 0],
+              ['Operational Materials', data[scope]?.procurement?.operational_materials || 0],
+              ['Other Procurement', data[scope]?.procurement?.other_procurement || 0]
             ]" :key="row[0]">
               <div class="flex justify-between border-b border-dashed border-[#E7DFCC] pb-1"><span x-text="row[0]"></span><span class="font-mono" x-text="money(row[1])"></span></div>
             </template>
           </div>
         </div>
         <div class="rounded-xl bg-white border border-[#E7DFCC] p-4">
-          <div class="text-xs font-bold text-[#8f172d] mb-3">How to read this summary</div>
+          <div class="text-xs font-bold text-[#8f172d] mb-3">How to read this Summary</div>
           <div class="text-[11px] leading-5 text-stone-500">
-            <p><strong>Raw materials</strong> = ingredient procurement.</p>
-            <p><strong>Production materials</strong> = packaging and production supplies such as gas.</p>
-            <p><strong>Operational materials</strong> = supplies not tied to a production recipe.</p>
-            <p><strong>Misc expenses</strong> = rent, utilities, labour, transport, marketing, bank fees and other recorded expenses.</p>
-            <p><strong>Production</strong> is an internal conversion and is therefore not subtracted as another cash outflow.</p>
+            <p><strong>Raw Materials</strong> = Ingredient procurement.</p>
+            <p><strong>Production Materials</strong> = Packaging and Production Supplies such as Gas.</p>
+            <p><strong>Operational Materials</strong> = Supplies not tied to a Production Recipe.</p>
+            <p><strong>Misc Expenses</strong> = Rent, Utilities, Labour, Transport, Marketing, Bank Fees and other recorded expenses.</p>
+            <!--<p><strong>Production</strong> is an internal conversion and is therefore not subtracted as another Cash Outflow.</p>-->
           </div>
         </div>
       </div>

@@ -11,50 +11,54 @@
       {% include "_field.html" with field=form.reorder_level %}
     </div>
     {% include "_field.html" with field=form.stock %}
-    <p class="text-[11px] text-stone-400 -mt-2 mb-3">Physical-store stock and reorder level are optional. Leave them blank for products made only for Distribution or Online orders.</p>
     {% include "_field.html" with field=form.units_per_batch %}
     {% if obj %}<p class="text-[11px] text-stone-400 -mt-2 mb-3">Total made all-time: <span class="font-mono">{{ obj.total_produced }}</span> {{ obj.unit }} (updates automatically as orders complete)</p>{% endif %}
 
     <span class="block text-xs font-medium text-stone-600 mb-1 mt-4">Channel Selling Prices</span>
     <p class="text-[11px] text-stone-400 mb-2">Optional channel-specific prices. If a channel is left blank, the default Selling Price above is used.</p>
     {{ channel_price_formset.management_form }}
-    <div class="border border-[#E7DFCC] rounded-md overflow-hidden mb-4">
-      <table class="w-full text-sm">
-        <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr><th class="text-left px-2 py-1.5">Channel</th><th class="text-right px-2 py-1.5">Price</th><th class="w-16"></th></tr></thead>
-        <tbody>
-          {% for f in channel_price_formset %}
-          <tr class="border-t border-[#E7DFCC]">
-            <td class="px-2 py-1.5">{{ f.id }}{{ f.channel }}</td>
-            <td class="px-2 py-1.5">{{ f.price }}</td>
-            <td class="px-2 py-1.5 text-center">{% if f.instance.pk %}{{ f.DELETE }}{% endif %}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <div class="border border-[#E7DFCC] rounded-md overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-[680px] text-sm">
+          <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr><th class="text-left px-2 py-1.5">Channel</th><th class="text-right px-2 py-1.5">Price</th><th class="w-16"></th></tr></thead>
+          <tbody>
+            {% for f in channel_price_formset %}
+            <tr class="border-t border-[#E7DFCC]">
+              <td class="px-2 py-1.5">{{ f.id }}{{ f.channel }}</td>
+              <td class="px-2 py-1.5">{{ f.price }}</td>
+              <td class="px-2 py-1.5 text-center">{% if f.instance.pk %}{{ f.DELETE }}{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <span class="block text-xs font-medium text-stone-600 mb-1 mt-2">Recipe (Raw Materials used per BATCH)</span>
     <p class="text-[11px] text-stone-400 mb-1">Qty here is per batch (see "units per batch" above), in each material's <strong>usage unit</strong> (e.g. kg, sachet) — check the Inventory page if you're not sure.</p>
     {{ formset.management_form }}
     <div class="border border-[#E7DFCC] rounded-md overflow-hidden">
-      <table class="w-full text-sm">
-        <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
-          <th class="text-left px-2 py-1.5">Raw Material</th><th class="text-right px-2 py-1.5 w-28">Qty/Batch</th><th class="w-16"></th>
-        </tr></thead>
-        <tbody id="recipe-rows">
-          {% for f in formset %}
-          <tr {% if forloop.first %}data-formset-row{% endif %} class="border-t border-[#E7DFCC]">
-            <td class="px-2 py-1.5">{{ f.id }}{{ f.raw_material }}</td>
-            <td class="px-2 py-1.5">{{ f.qty_per_batch }}</td>
-            <td class="px-2 py-1.5 text-center text-xs text-rose-600">
-              {% if f.instance.pk %}
-              <label>{{ f.DELETE }}</label>
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-[680px] text-sm">
+          <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
+            <th class="px-2 py-1.5">Raw Material</th><th class="px-2 py-1.5 w-28">Qty/Batch</th><th class="px-2 py-1.5 w-20">Usage Unit</th><th class="w-16"></th>
+          </tr></thead>
+          <tbody id="recipe-rows">
+            {% for f in formset %}
+            <tr {% if forloop.first %}data-formset-row{% endif %} class="border-t border-[#E7DFCC] data-row">
+              <td class="px-2 py-1.5">{{ f.id }}{{ f.raw_material }}</td>
+              <td class="px-2 py-1.5">{{ f.qty_per_batch }}</td>
+              <td class="px-2 py-1.5 text-left text-xs text-stone-500 font-mono unit-display"></td>
+              <td class="px-2 py-1.5 text-center text-xs text-rose-600">
+                {% if f.instance.pk %}
+                <label>{{ f.DELETE }}</label>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
       <button type="button" onclick="addFormsetRow('recipe_items','recipe-rows')" class="w-full text-xs text-[#8f172d] font-medium py-2 hover:bg-[#F0EAD9]">+ Add Ingredient</button>
     </div>
 
@@ -62,24 +66,27 @@
     <p class="text-[11px] text-stone-400 mb-1">These are consumed per batch but are not recipe ingredients — for example cake boxes, labels, baking gas or other per-production supplies. Quantities use each material's usage unit.</p>
     {{ production_formset.management_form }}
     <div class="border border-[#E7DFCC] rounded-md overflow-hidden">
-      <table class="w-full text-sm">
-        <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
-          <th class="text-left px-2 py-1.5">Production Material</th><th class="text-right px-2 py-1.5 w-28">Qty/Batch</th><th class="w-16"></th>
-        </tr></thead>
-        <tbody id="production-material-rows">
-          {% for f in production_formset %}
-          <tr {% if forloop.first %}data-formset-row{% endif %} class="border-t border-[#E7DFCC]">
-            <td class="px-2 py-1.5">{{ f.id }}{{ f.raw_material }}</td>
-            <td class="px-2 py-1.5">{{ f.qty_per_batch }}</td>
-            <td class="px-2 py-1.5 text-center text-xs text-rose-600">
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-[680px] text-sm">
+          <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
+            <th class="px-2 py-1.5">Production Material</th><th class="px-2 py-1.5 w-28">Qty/Batch</th><th class="px-2 py-1.5 w-20">Usage Unit</th><th class="w-16"></th>
+          </tr></thead>
+          <tbody id="production-material-rows">
+            {% for f in production_formset %}
+            <tr {% if forloop.first %}data-formset-row{% endif %} class="border-t border-[#E7DFCC]">
+              <td class="px-2 py-1.5">{{ f.id }}{{ f.raw_material }}</td>
+              <td class="px-2 py-1.5">{{ f.qty_per_batch }}</td>
+              <td class="px-2 py-1.5 text-left text-xs text-stone-500 font-mono unit-display"></td>
+              <td class="px-2 py-1.5 text-center text-xs text-rose-600">
               {% if f.instance.pk %}
               <label>{{ f.DELETE }}</label>
               {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
       <button type="button" onclick="addFormsetRow('production_materials','production-material-rows')" class="w-full text-xs text-[#8f172d] font-medium py-2 hover:bg-[#F0EAD9]">+ Add Production Input</button>
     </div>
 
@@ -89,4 +96,41 @@
     </div>
   </form>
 </div>
+
+{{ raw_material_units|json_script:"raw-material-usage-units" }}
+<script>
+  const rawMaterialUsageUnits = JSON.parse(
+    document.getElementById('raw-material-usage-units').textContent || '{}'
+  );
+
+  function refreshUsageUnits(containerId) {
+    document.querySelectorAll(`#${containerId} tr`).forEach((row) => {
+      const select = row.querySelector('select[name$="-raw_material"]');
+      const unitCell = row.querySelector('.unit-display');
+      if (!select || !unitCell) return;
+
+      unitCell.textContent = rawMaterialUsageUnits[String(select.value)] || '';
+    });
+  }
+
+  function refreshAllUsageUnits() {
+    refreshUsageUnits('recipe-rows');
+    refreshUsageUnits('production-material-rows');
+  }
+
+  document.addEventListener('change', (event) => {
+    if (event.target.matches(
+      '#recipe-rows select[name$="-raw_material"], #production-material-rows select[name$="-raw_material"]'
+    )) {
+      const row = event.target.closest('tr');
+      const unitCell = row?.querySelector('.unit-display');
+      if (unitCell) {
+        unitCell.textContent =
+          rawMaterialUsageUnits[String(event.target.value)] || '';
+      }
+    }
+  });
+
+  document.addEventListener('DOMContentLoaded', refreshAllUsageUnits);
+</script>
 {% endblock %}

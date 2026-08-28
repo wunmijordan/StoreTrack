@@ -84,6 +84,11 @@
         else if (el.tagName !== 'SELECT') { el.value = ''; }
         else { el.selectedIndex = 0; }
       });
+      // Clear any calculated/display-only values carried over from the
+      // template row (for example a raw material's usage unit).
+      newRow.querySelectorAll('.unit-display').forEach((el) => {
+        el.textContent = '—';
+      });
       container.appendChild(newRow);
       totalForms.value = formCount + 1;
     }

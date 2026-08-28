@@ -105,16 +105,16 @@ class FinishedGood(BusinessOwnedModel):
     units_per_batch = models.DecimalField(max_digits=12, decimal_places=2, default=1,
         help_text="How many individual units one production batch makes, e.g. 41 loaves per batch. "
                    "Recipe quantities are per BATCH, not per unit. Leave at 1 if you don't produce in batches.")
-    stock = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, default=None,
-        help_text="Physical store (shelf) stock. Leave blank when this product is not stocked in the physical store.")
+    stock = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, default=0,
+        help_text="Optional - Physical Store (shelf) Stock.")
     total_produced = models.DecimalField(max_digits=14, decimal_places=2, default=0,
         help_text="Cumulative all-time production (customer orders + physical store restocks). "
                    "Never decreases — a running total, not current stock.")
     total_delivered_to_customers = models.DecimalField(max_digits=14, decimal_places=2, default=0,
         help_text="Cumulative units delivered via completed customer orders. Only updates when an "
                    "order is completed — same timing as physical store stock, not when merely ordered.")
-    reorder_level = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, default=None,
-        help_text="Physical-store reorder threshold in individual units. Leave blank when this product is not stocked in the physical store.")
+    reorder_level = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, default=0,
+        help_text="For Physical Store ONLY.")
     # Legacy/default price used when no channel-specific price is configured.
     selling_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 
@@ -127,12 +127,23 @@ class FinishedGood(BusinessOwnedModel):
 
     @property
     def is_low(self):
-        return self.stock is not None and self.reorder_level is not None and self.stock <= self.reorder_level
+        """Low-stock status applies only to physical-store products."""
+        return (
+            self.stock is not None
+            and self.reorder_level is not None
+            and self.reorder_level > 0
+            and self.stock <= self.reorder_level
+        )
 
     @property
     def is_warning(self):
-        """Triggers amber warning only when physical-store stock is configured."""
-        if self.stock is None or self.reorder_level is None or self.is_low:
+        """Amber warning applies only when a positive physical-store reorder level is configured."""
+        if (
+            self.stock is None
+            or self.reorder_level is None
+            or self.reorder_level <= 0
+            or self.is_low
+        ):
             return False
         return self.stock <= (self.reorder_level * Decimal("1.5"))
 

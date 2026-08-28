@@ -15,7 +15,7 @@ from openpyxl import Workbook
 from .models import Business
 from .forms import BusinessForm
 from inventory.models import RawMaterial, FinishedGood, RecipeItem, ProductionMaterial, StockMovement
-from procurement.models import PurchaseOrder, PurchaseOrderItem
+from procurement.models import PurchaseOrder, PurchaseOrderItem, RawMaterialCostSnapshot
 from production.models import Order, OrderItem
 from sales.models import Sale, SaleItem
 from expenses.models import Expense
@@ -448,13 +448,29 @@ def _decimal(value):
     return float(value or 0)
 
 
-def _period_row(label, start, *, spend=0, revenue=0, units=0, events=0):
+def _period_row(
+    label,
+    start,
+    *,
+    spend=0,
+    revenue=0,
+    units=0,
+    events=0,
+    price_difference=None,
+    price_difference_pct=None,
+    latest_unit_cost=None,
+    previous_unit_cost=None,
+):
     return {
         "label": label,
         "spend": _money(spend),
         "revenue": _money(revenue),
         "units": _decimal(units),
         "events": int(events or 0),
+        "price_difference": _money(price_difference) if price_difference is not None else None,
+        "price_difference_pct": _money(price_difference_pct) if price_difference_pct is not None else None,
+        "latest_unit_cost": _money(latest_unit_cost) if latest_unit_cost is not None else None,
+        "previous_unit_cost": _money(previous_unit_cost) if previous_unit_cost is not None else None,
     }
 
 
@@ -608,7 +624,26 @@ def _raw_search_detail(material):
         ).aggregate(total=Sum("quantity"))["total"] or Decimal("0")
         spend = sum((line.line_total or Decimal("0") for line in lines), Decimal("0"))
         qty = sum((line.qty or Decimal("0") for line in lines), Decimal("0"))
+
+        # Procurement price Δ is a price change, not a spend change:
+        # latest purchase price in this window minus the immediately
+        # preceding purchase price for THIS SAME raw material. No averaging.
         latest = lines[-1] if lines else None
+        latest_unit_cost = latest.unit_cost if latest else None
+        previous_unit_cost = None
+        price_difference = None
+        price_difference_pct = None
+        if latest:
+            latest_index = purchase_lines.index(latest)
+            if latest_index > 0:
+                previous = purchase_lines[latest_index - 1]
+                previous_unit_cost = previous.unit_cost
+                price_difference = latest_unit_cost - previous_unit_cost
+                if previous_unit_cost:
+                    price_difference_pct = (
+                        price_difference / previous_unit_cost * Decimal("100")
+                    )
+
         rows.append({
             "label": label,
             "purchased_qty": _decimal(qty),
@@ -617,7 +652,10 @@ def _raw_search_detail(material):
             "consumed_qty": _decimal(abs(consumed)),
             "usage_unit": material.usage_unit,
             "purchase_count": len(lines),
-            "latest_unit_cost": _money(latest.unit_cost) if latest else None,
+            "latest_unit_cost": _money(latest_unit_cost) if latest_unit_cost is not None else None,
+            "previous_unit_cost": _money(previous_unit_cost) if previous_unit_cost is not None else None,
+            "price_difference": _money(price_difference) if price_difference is not None else None,
+            "price_difference_pct": _money(price_difference_pct) if price_difference_pct is not None else None,
         })
 
     price_history = [
@@ -676,6 +714,11 @@ def _finished_good_search_detail(good):
     periods = _search_periods()
     recipe_lines = list(good.recipe_items.select_related("raw_material"))
     production_lines = list(good.production_materials.select_related("raw_material"))
+    # Current recipe cost is retained for the summary card only. Historical
+    # production/sale calculations must use frozen production-cost snapshots,
+    # whose material lines were priced from the latest received procurement
+    # snapshot available on the production date. Never weighted-average
+    # historical procurement prices.
     recipe_cost_per_batch = sum(
         (line.raw_material.cost_per_unit * line.qty_per_batch for line in recipe_lines),
         Decimal("0"),
@@ -735,7 +778,17 @@ def _finished_good_search_detail(good):
             for item in matched:
                 sold_units += item.total_units
                 revenue += item.line_total
-        estimated_cost = sold_units * estimated_unit_cost
+        # SaleItem.unit_cost is already frozen at sale time. For linked
+        # customer orders it comes directly from that order's
+        # ProductionCostSnapshot; walk-in sales use the latest production
+        # snapshot available on the sale date. This keeps period margin
+        # historical rather than recalculating it from today's material cost.
+        historical_cost = Decimal("0")
+        for sale in sale_qs:
+            for sale_item in sale.items.all():
+                if sale_item.finished_good_id == good.id and sale_item.unit_cost is not None:
+                    historical_cost += sale_item.total_units * sale_item.unit_cost
+
         period_rows.append({
             "label": label,
             "produced_units": _decimal(produced),
@@ -743,8 +796,8 @@ def _finished_good_search_detail(good):
             "sold_units": _decimal(sold_units),
             "sale_events": sale_events,
             "revenue": _money(revenue),
-            "estimated_recipe_cost": _money(estimated_cost),
-            "estimated_gross_margin": _money(revenue - estimated_cost),
+            "estimated_recipe_cost": _money(historical_cost),
+            "estimated_gross_margin": _money(revenue - historical_cost),
         })
 
     sales_by_channel = []
@@ -789,7 +842,7 @@ def _finished_good_search_detail(good):
             {"name": line.raw_material.name, "qty_per_batch": _decimal(line.qty_per_batch), "unit": line.raw_material.usage_unit, "current_cost": _money(line.raw_material.cost_per_unit)}
             for line in recipe_lines + production_lines
         ],
-        "note": "Recipe cost and margin are estimates at the current raw-material costs; this system does not currently snapshot recipe input prices at the time of each sale.",
+        "note": "Current recipe cost uses current material costs. Historical production and sale margin use frozen production-cost snapshots based on the latest received procurement price available on each production date; procurement prices are never weighted-averaged.",
     }
 
 
@@ -798,18 +851,80 @@ def _supplier_search_detail(supplier):
         supplier__iexact=supplier, status="received"
     ).prefetch_related("items__raw_material")
     periods = _search_periods()
+    vendor_lines = []
+    for po in purchase_orders:
+        for line in po.items.all():
+            vendor_lines.append(line)
+    vendor_lines.sort(
+        key=lambda line: (
+            line.purchase_order.received_date or line.purchase_order.date,
+            line.pk,
+        )
+    )
+
     rows = []
     for label, start in periods:
         qs = purchase_orders.filter(
             Q(received_date__range=(start, today())) |
             Q(received_date__isnull=True, date__range=(start, today()))
         )
-        spend = Decimal("0")
-        lines = 0
-        for po in qs:
-            spend += po.total
-            lines += po.items.count()
-        rows.append(_period_row(label, start, spend=spend, events=qs.count()))
+        period_lines = [
+            line for line in vendor_lines
+            if start <= (line.purchase_order.received_date or line.purchase_order.date) <= today()
+        ]
+        spend = sum(
+            (line.line_total or Decimal("0") for line in period_lines),
+            Decimal("0"),
+        )
+
+        # A vendor can buy many different materials, so a single vendor-wide
+        # unit-price delta would be mathematically misleading. Compare prices
+        # only when the latest and preceding purchase are for the SAME material.
+        latest = period_lines[-1] if period_lines else None
+        price_difference = None
+        price_difference_pct = None
+        latest_unit_cost = None
+        previous_unit_cost = None
+        if latest:
+            latest_unit_cost = latest.unit_cost
+            prior_same_material = [
+                line for line in vendor_lines
+                if line.raw_material_id == latest.raw_material_id
+                and (
+                    line.purchase_order.received_date or line.purchase_order.date
+                ) < (latest.purchase_order.received_date or latest.purchase_order.date)
+            ]
+            # Include same-date earlier lines deterministically.
+            latest_date = latest.purchase_order.received_date or latest.purchase_order.date
+            prior_same_material = [
+                line for line in vendor_lines
+                if line.raw_material_id == latest.raw_material_id
+                and (
+                    (line.purchase_order.received_date or line.purchase_order.date) < latest_date
+                    or (
+                        (line.purchase_order.received_date or line.purchase_order.date) == latest_date
+                        and line.pk < latest.pk
+                    )
+                )
+            ]
+            if prior_same_material:
+                previous_unit_cost = prior_same_material[-1].unit_cost
+                price_difference = latest_unit_cost - previous_unit_cost
+                if previous_unit_cost:
+                    price_difference_pct = (
+                        price_difference / previous_unit_cost * Decimal("100")
+                    )
+
+        rows.append(_period_row(
+            label,
+            start,
+            spend=spend,
+            events=qs.count(),
+            price_difference=price_difference,
+            price_difference_pct=price_difference_pct,
+            latest_unit_cost=latest_unit_cost,
+            previous_unit_cost=previous_unit_cost,
+        ))
 
     all_spend = sum((po.total for po in purchase_orders), Decimal("0"))
     last = purchase_orders.order_by("-received_date", "-date", "-id").first()
