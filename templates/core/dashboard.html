@@ -171,7 +171,7 @@
 </div>
 
 <div class="flex flex-wrap gap-3 mb-4">
-  <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[-2px_-2px_8px_#000000d2] p-4 flex-1 min-w-[140px]">
+  <a href="{% url 'inventory' %}#raw" class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[-2px_-2px_8px_#000000d2] p-4 flex-1 min-w-[140px]">
     <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#8f172d] block mb-1 gap-2">
       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0897cf" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-grain">
         <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M3.5 9.5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M8.5 4.5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
@@ -181,16 +181,16 @@
       Raw materials
     </div>
     <div class="text-2xl font-semibold mt-1 font-mono text-[#8f172d]">{{ raw_count }}</div>
-  </div>
-  <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[-2px_-2px_8px_#000000d2] p-4 flex-1 min-w-[140px]">
+  </a>
+  <a href="{% url 'inventory' %}#finished" class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[-2px_-2px_8px_#000000d2] p-4 flex-1 min-w-[140px]">
     <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#8f172d] block mb-1 gap-2">
-      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fde403" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-burger">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fdcf03" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-burger">
         <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M4 15h16a4 4 0 0 1 -4 4h-8a4 4 0 0 1 -4 -4" /><path d="M12 4c3.783 0 6.953 2.133 7.786 5h-15.572c.833 -2.867 4.003 -5 7.786 -5" /><path d="M5 12h14" />
       </svg>
       Products
     </div>
     <div class="text-2xl font-semibold mt-1 font-mono text-[#8f172d]">{{ goods_count }}</div>
-  </div>
+  </a>
   <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] p-4 flex-1 min-w-[140px]">
     <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#8f172d] block mb-1 gap-2">
       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fa029b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-cash-register">
@@ -288,13 +288,14 @@
         </div>
 
         <div class="flex gap-2 mb-4 border-b border-[#E7DFCC]">
-          <input type="radio" name="inv-tab" id="tab-raw" class="hidden peer/raw" checked>
-          <input type="radio" name="inv-tab" id="tab-finished" class="hidden peer/finished">
-          <label for="tab-raw" class="cursor-pointer px-4 py-2 text-sm font-medium text-stone-500 border-b-2 border-transparent [.peer\/raw:checked~&]:text-[#8f172d] [.peer\/raw:checked~&]:border-[#8f172d]" id="raw-tab-label">Raw Materials</label>
-          <label for="tab-finished" class="cursor-pointer px-4 py-2 text-sm font-medium text-stone-500 border-b-2 border-transparent" id="finished-tab-label">Finished Goods</label>
+          <input type="radio" name="inv-tab" id="radio-raw" class="hidden" checked>
+          <input type="radio" name="inv-tab" id="radio-finished" class="hidden">
+          
+          <label for="radio-raw" class="cursor-pointer px-4 py-2 text-sm font-medium text-stone-500 border-b-2 border-transparent transition-colors duration-200" id="raw-tab-label">Raw Materials</label>
+          <label for="radio-finished" class="cursor-pointer px-4 py-2 text-sm font-medium text-stone-500 border-b-2 border-transparent transition-colors duration-200" id="finished-tab-label">Finished Goods</label>
         </div>
 
-        <div id="raw-panel">
+        <div id="raw-panel" class="transition-all duration-300 transform opacity-0 translate-y-2 pointer-events-none hidden">
 
         <!-- Scrollable Quick List Content (Raw Materials) -->
         <div class="p-4 overflow-y-auto max-h-[28rem] space-y-2 bg-stone-50/50">
@@ -344,7 +345,7 @@
         </div>
         </div>
 
-        <div id="finished-panel" class="hidden">
+        <div id="finished-panel" class="transition-all duration-300 transform opacity-0 translate-y-2 pointer-events-none hidden">
 
         <!-- Scrollable Quick List Content (Finished Goods) -->
         <div class="p-4 overflow-y-auto max-h-[28rem] space-y-2 bg-stone-50/50">
@@ -476,7 +477,13 @@
 <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-xl shadow-[0_2px_8px_#000000d2] p-5 mb-6">
   <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
     <div>
-      <h3 class="text-xs uppercase tracking-tight font-bold text-[#8f172d]">Financial Outlook</h3>
+      <h3 class="text-xs flex items-center uppercase tracking-tight font-bold text-[#8f172d] block mb-1 gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#05fa05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-chart-histogram">
+          <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M3 3v18h18" />
+          <path d="M20 18v3" /><path d="M16 16v5" /><path d="M12 13v8" /><path d="M8 16v5" /><path d="M3 11c6 0 5 -5 9 -5s3 5 9 5" />
+        </svg>
+        Financial Outlook
+      </h3>
       <p class="text-[11px] text-stone-400 mt-0.5">Sales minus all realised spend — procurement + miscellaneous expenses.</p>
     </div>
     <div class="flex gap-2">
@@ -498,8 +505,8 @@
     <div class="rounded-lg bg-white/70 border border-[#E7DFCC] p-3">
       <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
         <div>
-          <div class="text-[10px] uppercase tracking-wider font-bold text-stone-400">Financial outlook</div>
-          <div id="financial-chart-caption" class="text-xs text-stone-500 mt-0.5">Daily sales, spend and revenue</div>
+          <div class="text-[10px] uppercase tracking-wider font-bold text-stone-400">Outlook Chart</div>
+          <div id="financial-chart-caption" class="text-xs text-stone-500 mt-0.5">Daily Sales, Spend and Revenue</div>
         </div>
         <div class="flex items-center gap-1 rounded-lg bg-[#F5EFE0] border border-[#E7DFCC] p-1" role="group" aria-label="Financial chart period">
           <button type="button" class="financial-period-btn px-2.5 py-1 text-[10px] rounded-md bg-[#8f172d] hover:bg-[#4D1C25] hover:text-white text-white" data-period="week">Week</button>
@@ -531,7 +538,7 @@
           <span class="text-xs">
             Physical Store
             <span class="block text-[9px] text-stone-400">
-              View breakdown →
+              View Breakdown →
             </span>
           </span>
 
@@ -549,7 +556,7 @@
           <span class="text-xs">
             Distribution
             <span class="block text-[9px] text-stone-400">
-              View breakdown →
+              View Breakdown →
             </span>
           </span>
 
@@ -567,7 +574,7 @@
           <span class="text-xs">
             Online
             <span class="block text-[9px] text-stone-400">
-              View breakdown →
+              View Breakdown →
             </span>
           </span>
 
@@ -579,7 +586,7 @@
       </div>
 
       <p class="text-[10px] text-stone-400 mt-4">
-        Click a channel to view its monthly customer breakdown.
+        Click a Channel to view its Monthly Customer Breakdown.
       </p>
 
 
@@ -613,7 +620,7 @@
               ></h3>
 
               <p class="text-xs text-stone-400 mt-0.5">
-                This month's sales breakdown
+                This Month's Sales Breakdown
               </p>
             </div>
 
@@ -666,7 +673,7 @@
             {% else %}
 
             <p class="text-xs text-stone-400 italic py-6 text-center">
-              No distribution customer sales with region/group information this month.
+              No Distribution Customer Sales with Region/Group information this month.
             </p>
 
             {% endif %}
@@ -711,7 +718,7 @@
             {% else %}
 
             <p class="text-xs text-stone-400 italic py-6 text-center">
-              No online customer sales with region/group information this month.
+              No Online Customer Sales with Region/Group information this month.
             </p>
 
             {% endif %}
@@ -736,8 +743,8 @@
               </div>
 
               <p class="text-[10px] text-stone-400 mt-3">
-                Physical-store sales are recorded as direct sales and do not have
-                the distribution/online customer region and group structure.
+                Physical Store Sales are recorded as direct sales and do not have
+                the Distribution/Online Customer Region and Group structure.
               </p>
 
             </div>
@@ -1031,10 +1038,10 @@ function renderFinancialBreakdown(scope, data) {
   let chart = null;
 
   const captions = {
-    week: 'Daily sales, spend and revenue — last 7 days',
-    month: 'Daily sales, spend and revenue — current month',
-    quarter: 'Weekly sales, spend and revenue — current quarter',
-    year: 'Monthly sales, spend and revenue — current year'
+    week: 'Daily Sales, Spend and Revenue — Last 7 Days',
+    month: 'Daily Sales, Spend and Revenue — Current Month',
+    quarter: 'Weekly Sales, Spend and Revenue — Current Quarter',
+    year: 'Monthly Sales, Spend and Revenue — Current Year'
   };
 
   function money(value) {
@@ -1179,27 +1186,6 @@ function renderFinancialBreakdown(scope, data) {
 
   render('week');
 })();
-</script>
-<script>
-  const rawTab = document.getElementById('tab-raw');
-  const finishedTab = document.getElementById('tab-finished');
-  const rawPanel = document.getElementById('raw-panel');
-  const finishedPanel = document.getElementById('finished-panel');
-  const rawLabel = document.getElementById('raw-tab-label');
-  const finishedLabel = document.getElementById('finished-tab-label');
-
-  function updateTabs() {
-    const showRaw = rawTab.checked;
-    rawPanel.classList.toggle('hidden', !showRaw);
-    finishedPanel.classList.toggle('hidden', showRaw);
-    rawLabel.classList.toggle('text-[#8f172d]', showRaw);
-    rawLabel.classList.toggle('border-[#8f172d]', showRaw);
-    finishedLabel.classList.toggle('text-[#8f172d]', !showRaw);
-    finishedLabel.classList.toggle('border-[#8f172d]', !showRaw);
-  }
-  rawTab.addEventListener('change', updateTabs);
-  finishedTab.addEventListener('change', updateTabs);
-  updateTabs();
 </script>
 
 <script>

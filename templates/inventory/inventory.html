@@ -3,13 +3,14 @@
 {% block content %}
 
 <div class="flex gap-2 mb-4 border-b border-[#E7DFCC]">
-  <input type="radio" name="inv-tab" id="tab-raw" class="hidden peer/raw" checked>
-  <input type="radio" name="inv-tab" id="tab-finished" class="hidden peer/finished">
-  <label for="tab-raw" class="cursor-pointer px-4 py-2 text-sm font-medium text-stone-500 border-b-2 border-transparent [.peer\/raw:checked~&]:text-[#8f172d] [.peer\/raw:checked~&]:border-[#8f172d]" id="raw-tab-label">Raw Materials</label>
-  <label for="tab-finished" class="cursor-pointer px-4 py-2 text-sm font-medium text-stone-500 border-b-2 border-transparent" id="finished-tab-label">Finished Goods</label>
+  <input type="radio" name="inv-tab" id="radio-raw" class="hidden" checked>
+  <input type="radio" name="inv-tab" id="radio-finished" class="hidden">
+  
+  <label for="radio-raw" class="cursor-pointer px-4 py-2 text-sm font-medium text-stone-500 border-b-2 border-transparent transition-colors duration-200" id="raw-tab-label">Raw Materials</label>
+  <label for="radio-finished" class="cursor-pointer px-4 py-2 text-sm font-medium text-stone-500 border-b-2 border-transparent transition-colors duration-200" id="finished-tab-label">Finished Goods</label>
 </div>
 
-<div id="raw-panel">
+<div id="raw-panel" class="transition-all duration-300 transform opacity-0 translate-y-2 pointer-events-none hidden">
 
 
 <h2 class="text-xl font-semibold font-display text-[#8f172d]">Raw Materials</h2>
@@ -111,7 +112,7 @@
 {% endif %}
 </div>
 
-<div id="finished-panel" class="hidden">
+<div id="finished-panel" class="transition-all duration-300 transform opacity-0 translate-y-2 pointer-events-none hidden">
 
 <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
   <div>
@@ -294,26 +295,6 @@
   updateMaterialTabs(activeMaterialCategory);
 </script>
 <script>
-  const rawTab = document.getElementById('tab-raw');
-  const finishedTab = document.getElementById('tab-finished');
-  const rawPanel = document.getElementById('raw-panel');
-  const finishedPanel = document.getElementById('finished-panel');
-  const rawLabel = document.getElementById('raw-tab-label');
-  const finishedLabel = document.getElementById('finished-tab-label');
-
-  function updateTabs() {
-    const showRaw = rawTab.checked;
-    rawPanel.classList.toggle('hidden', !showRaw);
-    finishedPanel.classList.toggle('hidden', showRaw);
-    rawLabel.classList.toggle('text-[#8f172d]', showRaw);
-    rawLabel.classList.toggle('border-[#8f172d]', showRaw);
-    finishedLabel.classList.toggle('text-[#8f172d]', !showRaw);
-    finishedLabel.classList.toggle('border-[#8f172d]', !showRaw);
-  }
-  rawTab.addEventListener('change', updateTabs);
-  finishedTab.addEventListener('change', updateTabs);
-  updateTabs();
-
   const historyModal = document.getElementById('stock-history-modal');
   const historyTitle = document.getElementById('stock-history-title');
   const historySubtitle = document.getElementById('stock-history-subtitle');

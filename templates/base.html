@@ -67,6 +67,96 @@
   </main>
 
   <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      // 1. Get DOM references (only executable on the inventory page)
+      const rawRadio = document.getElementById('radio-raw');
+      const finishedRadio = document.getElementById('radio-finished');
+      const rawPanel = document.getElementById('raw-panel');
+      const finishedPanel = document.getElementById('finished-panel');
+      const rawLabel = document.getElementById('raw-tab-label');
+      const finishedLabel = document.getElementById('finished-tab-label');
+
+      // Guard script execution if the user is viewing a page without these tabs (e.g. Dashboard)
+      if (!rawRadio && !finishedRadio) return;
+
+      const activeClasses = ['opacity-100', 'translate-y-0'];
+      const hiddenClasses = ['opacity-0', 'translate-y-2', 'pointer-events-none'];
+
+      function animateIn(panel) {
+        if (!panel) return;
+        panel.classList.remove('hidden');
+        setTimeout(() => {
+          panel.classList.remove(...hiddenClasses);
+          panel.classList.add(...activeClasses);
+        }, 20);
+      }
+
+      function animateOut(panel) {
+        if (!panel) return;
+        panel.classList.remove(...activeClasses);
+        panel.classList.add(...hiddenClasses);
+        setTimeout(() => {
+          if (panel.classList.contains('opacity-0')) {
+            panel.classList.add('hidden');
+          }
+        }, 300);
+      }
+
+      function setActiveTab(tabKey) {
+        const isRaw = tabKey === 'raw';
+        
+        if (rawRadio) rawRadio.checked = isRaw;
+        if (finishedRadio) finishedRadio.checked = !isRaw;
+
+        if (isRaw) {
+          animateOut(finishedPanel);
+          animateIn(rawPanel);
+        } else {
+          animateOut(rawPanel);
+          animateIn(finishedPanel);
+        }
+
+        if (rawLabel) {
+          rawLabel.classList.toggle('text-[#8f172d]', isRaw);
+          rawLabel.classList.toggle('border-[#8f172d]', isRaw);
+        }
+        if (finishedLabel) {
+          finishedLabel.classList.toggle('text-[#8f172d]', !isRaw);
+          finishedLabel.classList.toggle('border-[#8f172d]', !isRaw);
+        }
+
+        // Persist choice so manual user reloads on inventory.html preserve state
+        localStorage.setItem('activeInventoryTab', tabKey);
+      }
+
+      function determineInitialState() {
+        // Priority 1: Check if a specific hash exists in the incoming URL string
+        const hash = window.location.hash;
+        if (hash === '#raw') return 'raw';
+        if (hash === '#finished') return 'finished';
+
+        // Priority 2: Fall back to memory persistence layer if reloading organically
+        const savedState = localStorage.getItem('activeInventoryTab');
+        if (savedState === 'raw' || savedState === 'finished') return savedState;
+
+        return 'raw';
+      }
+
+      // Execute rendering cycle on load
+      setActiveTab(determineInitialState());
+
+      // Listen to manual local radio tab adjustments on-screen
+      rawRadio.addEventListener('change', () => setActiveTab('raw'));
+      finishedRadio.addEventListener('change', () => setActiveTab('finished'));
+
+      // Watch for tab updates or card navigation changes within the same page
+      window.addEventListener('hashchange', () => {
+        const hash = window.location.hash;
+        if (hash === '#raw') setActiveTab('raw');
+        if (hash === '#finished') setActiveTab('finished');
+      });
+    });
+
     // Generic "add another row" for Django inline formsets.
     function addFormsetRow(prefix, containerId) {
       const totalForms = document.getElementById(`id_${prefix}-TOTAL_FORMS`);
