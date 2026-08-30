@@ -10,10 +10,11 @@
     {% elif order.status == 'completed' %}bg-emerald-50 text-emerald-800 border-emerald-300
     {% else %}bg-stone-100 text-stone-500 border-stone-300{% endif %}">{{ order.get_status_display }}</span>
 </div>
+<div class="flex flex-wrap gap-2 mb-3">{% if order.order_type == 'physical_store' %}<span class="px-2 py-1 rounded-full text-[11px] font-semibold {% if order.transaction_type == 'unpaid' %}bg-amber-50 text-amber-800 border border-amber-200{% else %}bg-emerald-50 text-emerald-800 border border-emerald-200{% endif %}">{% if order.transaction_type == 'unpaid' %}Non-cash product issue{% else %}Paid / shelf stock{% endif %}</span>{% if order.transaction_type == 'unpaid' %}<span class="text-xs text-stone-500 self-center">Reason: {{ order.unpaid_description }}</span>{% endif %}{% else %}<span class="px-2 py-1 rounded-full text-[11px] font-semibold {% if order.customer_payment_status == 'paid' %}bg-emerald-50 text-emerald-800 border border-emerald-200{% else %}bg-amber-50 text-amber-800 border border-amber-200{% endif %}">{% if order.customer_payment_status == 'paid' %}Received{% else %}Customer receivable{% endif %}</span>{% endif %}</div>
 <p class="text-sm text-stone-500 mb-4">
   {% if order.order_type == 'distribution' %}For {{ order.customer_name }} — Distribution sale will be recorded once completed.
   {% elif order.order_type == 'online' %}For {{ order.customer_name }} — Online sale will be recorded once completed.
-  {% else %}Physical Store restock — adds to Shelf Stock once completed, no Sale involved.{% endif %}
+  {% else %}Physical Store restock — paid orders add to Shelf Stock; unpaid orders are non-cash issues and never remain in Shelf Stock.{% endif %}
 </p>
 
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] mb-8 overflow-x-auto overflow-y-auto max-h-[28rem]">

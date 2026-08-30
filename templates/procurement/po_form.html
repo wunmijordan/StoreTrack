@@ -7,6 +7,10 @@
     <div class="grid grid-cols-2 gap-3">
       {% include "_field.html" with field=form.date %}
       {% include "_field.html" with field=form.supplier %}
+      {% include "_field.html" with field=form.payment_status %}
+      <div id="initial-payment-wrap">{% include "_field.html" with field=form.amount_paid %}</div>
+      {% include "_field.html" with field=form.payment_method %}
+      {% include "_field.html" with field=form.account %}
     </div>
 
     <span class="block text-xs font-medium text-stone-600 mb-1">Items</span>
@@ -61,5 +65,18 @@
     });
   }
   wireRows();
+
+  function toggleInitialPayment() {
+    const status = document.querySelector('[name="payment_status"]')?.value;
+    const wrap = document.getElementById('initial-payment-wrap');
+    const amount = document.querySelector('[name="amount_paid"]');
+    if (!wrap) return;
+    const show = status === 'partial';
+    wrap.style.display = show ? 'block' : 'none';
+    if (!show && amount && status === 'unpaid') amount.value = '';
+  }
+
+  document.querySelector('[name="payment_status"]')?.addEventListener('change', toggleInitialPayment);
+  toggleInitialPayment();
 </script>
 {% endblock %}

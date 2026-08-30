@@ -9,7 +9,7 @@
   <div class="flex gap-2">
     <a href="{% url 'export_procurement_xlsx' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] hover:bg-[#E7DFCC] border border-[#D9CFB4]">Export Excel</a>
     <a href="{% url 'export_procurement_csv' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] hover:bg-[#E7DFCC] border border-[#D9CFB4]">Export CSV</a>
-    <a href="{% url 'po_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">+ New Purchase Order</a>
+    {% if module_permissions.procurement.edit %}<a href="{% url 'po_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">+ New Purchase Order</a>{% endif %}
   </div>
 </div>
 
@@ -19,7 +19,7 @@
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] mb-8 overflow-x-auto overflow-y-auto max-h-[28rem]">
   <table class="min-w-max w-full text-sm">
     <thead class="bg-[#F0EAD9] text-stone-600 text-md text-middle"><tr>
-      <th class="px-3 py-2">Date</th><th class="px-3 py-2">Supplier</th><th class="px-3 py-2">Products</th><th class="px-3 py-2">Units</th><th class="px-3 py-2">Status</th><th class="w-24"></th>
+      <th class="px-3 py-2">Date</th><th class="px-3 py-2">Supplier</th><th class="px-3 py-2">Products</th><th class="px-3 py-2">Qty / Unit</th><th class="px-3 py-2">Total</th><th class="px-3 py-2">Status</th><th class="px-3 py-2">Payment</th><th class="px-3 py-2">Logged by</th><th class="w-28"></th>
     </tr></thead>
     <tbody>
       {% for p in orders %}
@@ -34,22 +34,21 @@
         </td>
         <td class="px-3 py-2 text-right text-xs font-mono">
           {% for i in p.items.all %}
-          <div class="{% if i.raw_material.cost_per_purchase_unit != i.unit_cost %}text-amber-700 font-medium{% else %}text-stone-500{% endif %}">
-            {{ i.raw_material.cost_per_purchase_unit|money:biz.currency_symbol }}
-            {% if i.raw_material.cost_per_purchase_unit != i.unit_cost %}<span class="block text-[10px] font-sans text-stone-400">(paid {{ i.unit_cost|money:biz.currency_symbol }})</span>{% endif %}
-          </div>
+          <div class="text-stone-600">{{ i.qty|num }} {{ i.raw_material.purchase_unit }}</div>
+          <div class="text-[10px] text-stone-400">{{ i.unit_cost|money:biz.currency_symbol }} / {{ i.raw_material.purchase_unit }}</div>
           {% empty %}—{% endfor %}
         </td>
         <td class="px-3 py-2 text-right font-mono">{{ p.total|money:biz.currency_symbol }}</td>
         <td class="px-3 py-2"><span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium border capitalize {% if p.status == 'received' %}bg-emerald-50 text-emerald-800 border-emerald-300{% else %}bg-amber-50 text-amber-800 border-amber-300{% endif %}">{{ p.get_status_display }}</span></td>
+        <td class="px-3 py-2 text-xs">{% if p.payment_status == 'paid' %}<span class="text-emerald-700">Paid</span>{% elif p.payment_status == 'partial' %}<span class="text-amber-700">Partially Paid</span>{% else %}<span class="text-rose-700">Unpaid</span>{% endif %}</td>
         <td class="px-3 py-2 text-xs text-stone-500">{{ p.created_by.username|default:"—" }}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap">
           {% if p.status != 'received' %}
-          <form action="{% url 'po_receive' p.pk %}" method="post" class="inline" onsubmit="return confirm('Mark received and add stock?');">{% csrf_token %}<button class="text-stone-400 hover:text-emerald-600 mr-2">Receive</button></form>
-          <a href="{% url 'po_edit' p.pk %}" class="text-stone-400 hover:text-[#8f172d] mr-2">Edit</a>
+          {% if module_permissions.procurement.edit %}<form action="{% url 'po_receive' p.pk %}" method="post" class="inline" onsubmit="return confirm('Mark received and add stock?');">{% csrf_token %}<button class="text-stone-400 hover:text-emerald-600 mr-2">Receive</button></form>{% endif %}
+          {% if module_permissions.procurement.edit %}<a href="{% url 'po_edit' p.pk %}" class="text-stone-400 hover:text-[#8f172d] mr-2">Edit</a>
           {% endif %}
-          <a href="{% url 'po_invoice' p.pk %}" class="text-stone-400 hover:text-[#8f172d] mr-2">Download PDF</a>
-          <form action="{% url 'po_delete' p.pk %}" method="post" class="inline" onsubmit="return confirm('Delete this purchase order?');">{% csrf_token %}<button class="text-stone-400 hover:text-rose-600">Delete</button></form>
+          <a href="{% url 'po_invoice' p.pk %}" class="text-stone-400 hover:text-[#8f172d] mr-2">Download PDF</a>{% endif %}
+          {% if module_permissions.procurement.edit %}<form action="{% url 'po_delete' p.pk %}" method="post" class="inline" onsubmit="return confirm('Delete this purchase order?');">{% csrf_token %}<button class="text-stone-400 hover:text-rose-600">Delete</button></form>{% endif %}
         </td>
       </tr>
       {% endfor %}

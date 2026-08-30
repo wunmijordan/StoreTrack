@@ -5,6 +5,7 @@ from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.utils.crypto import get_random_string
 
 from procurement.models import RawMaterialCostSnapshot
 
@@ -17,6 +18,8 @@ from inventory.services import (
 )
 from inventory.models import StockMovement
 from core.invoice import production_order_pdf
+from core.services import record_cash, audit
+from core.models import FinancialTransaction
 
 
 def today():
@@ -55,14 +58,22 @@ def order_form(request, pk=None):
         if form.is_valid() and formset.is_valid() and not has_items:
             messages.error(request, "Add at least one product.")
         elif form.is_valid() and has_items:
-            if form.cleaned_data.get("order_type") == "physical_store":
+            order_type = form.cleaned_data.get("order_type")
+            physical_transaction = form.cleaned_data.get("transaction_type")
+            if order_type == "physical_store" and physical_transaction == "paid":
                 unstocked = [
                     f.cleaned_data["finished_good"].name
                     for f in formset.forms
-                    if f.cleaned_data and not f.cleaned_data.get("DELETE") and f.cleaned_data.get("finished_good") and f.cleaned_data["finished_good"].stock is None
+                    if f.cleaned_data and not f.cleaned_data.get("DELETE")
+                    and f.cleaned_data.get("finished_good")
+                    and (
+                        f.cleaned_data["finished_good"].stock is None
+                        or f.cleaned_data["finished_good"].reorder_level is None
+                        or f.cleaned_data["finished_good"].reorder_level <= 0
+                    )
                 ]
                 if unstocked:
-                    messages.error(request, "These products are not configured for physical-store stock: " + ", ".join(unstocked) + ".")
+                    form.add_error("transaction_type", "Paid physical-store restocks can only use products configured for physical-store stock (positive reorder level).")
                     return render(request, "production/order_form.html", {"form": form, "formset": formset, "prices": _price_map(), "obj": obj})
             order = form.save(commit=False)
             order.business = request.business
@@ -76,6 +87,13 @@ def order_form(request, pk=None):
                 item.save()
             for deleted in formset.deleted_objects:
                 deleted.delete()
+            if obj is None and order.order_type in ("distribution", "online") and order.customer_payment_status == "paid":
+                record_cash(
+                    request.business, request.user, date=order.date, amount=order.total,
+                    transaction_type=FinancialTransaction.INCOME, category="Customer order payment",
+                    description=f"Payment received for order #{order.pk}", payment_method=order.customer_payment_method,
+                    reference=f"ORDER-{order.pk}", account=order.customer_payment_account,
+                )
             messages.success(request, "Order updated." if obj else "Order created — approve it from the Orders page when ready.")
             return redirect("order_detail", pk=order.pk)
     else:
@@ -106,15 +124,15 @@ def order_approve(request, pk):
         for mat, needed in order.material_requirements().values():
             materials[mat.id] = (mat, materials.get(mat.id, (mat, Decimal("0")))[1] + needed)
         for mat, needed in materials.values():
+            material_cost, _ = _latest_material_cost(mat, order.date)
             record_raw_material_movement(
-                mat,
-                -needed,
-                StockMovement.RAW_CONSUMPTION,
-                note=f"Materials released for order #{order.pk}",
+                mat, -needed, StockMovement.RAW_CONSUMPTION,
+                note=f"Materials released for order #{order.pk}", reference=f"PROD-{order.pk}", unit_value=material_cost,
             )
         order.status = "approved"
         order.approved_date = today()
         order.save()
+        audit(request.business, request.user, "approve", order, f"Order #{order.pk} approved")
     messages.success(request, "Order approved — raw materials released for production.")
     return redirect("order_detail", pk=pk)
 
@@ -125,6 +143,7 @@ def order_reject(request, pk):
     if request.method == "POST" and order.status == "pending":
         order.status = "rejected"
         order.save()
+        audit(request.business, request.user, "reject", order, f"Order #{order.pk} rejected")
         messages.success(request, "Order rejected.")
     return redirect("orders_list")
 
@@ -151,6 +170,7 @@ def _create_production_cost_snapshot(order, item):
     snapshot = ProductionCostSnapshot.objects.create(
         business=order.business, order=order, order_item=item, finished_good=good,
         production_date=production_date, produced_units=item.total_units,
+        batch_number=f"B{production_date.strftime('%Y%m%d')}-{order.pk}-{item.pk}",
     )
     for link in links:
         qty = link.qty_per_batch * total_batch_multiplier
@@ -181,19 +201,30 @@ def order_complete(request, pk):
             good = item.finished_good
 
             # Freeze the production cost before any later procurement can change it.
-            _create_production_cost_snapshot(order, item)
+            snapshot = _create_production_cost_snapshot(order, item)
 
             # Every completed order represents completed production.
             good.total_produced += item.total_units
 
             if order.order_type == "physical_store":
-                record_finished_good_movement(
-                    good,
-                    item.total_units,
-                    StockMovement.FG_PRODUCTION,
-                    note=f"Production completed for order #{order.pk}",
-                    affects_stock=True,
-                )
+                if order.transaction_type == "paid":
+                    # Paid physical-store orders are genuine shelf restocks and
+                    # therefore require physical-store stock configuration.
+                    record_finished_good_movement(
+                        good, item.total_units, StockMovement.FG_PRODUCTION,
+                        note=f"Production completed for order #{order.pk}", reference=f"PROD-{order.pk}",
+                        affects_stock=True, unit_value=snapshot.unit_cost if snapshot else good.est_cost,
+                    )
+                else:
+                    # Unpaid physical-store production is an intentional non-cash
+                    # issue (staff/charity/service). It may use a product that is
+                    # not configured for shelf stock, because the finished goods
+                    # never become shelf inventory.
+                    record_finished_good_movement(
+                        good, item.total_units, StockMovement.FG_UNPAID_ISSUE,
+                        note=f"Unpaid product issue: {order.unpaid_description}", reference=f"ISSUE-{order.pk}",
+                        affects_stock=False, unit_value=snapshot.unit_cost if snapshot else good.est_cost,
+                    )
                 good.save(update_fields=["total_produced"])
             else:
                 # Production happened, but the finished goods went directly to
@@ -220,6 +251,9 @@ def order_complete(request, pk):
                 date=order.completed_date,
                 customer=order.customer_name,
                 payment_method=order.payment_method,
+                transaction_type=(order.transaction_type if order.order_type == "physical_store" else ("paid" if order.customer_payment_status == "paid" else "unpaid")),
+                unpaid_description=(order.unpaid_description if order.order_type == "physical_store" else ("" if order.customer_payment_status == "paid" else "Customer receivable — payment to be recorded through Finance.")),
+                account=(order.account if order.order_type == "physical_store" else order.customer_payment_account),
                 source=f"{order.order_type}_order",
                 linked_order=order,
                 created_by=request.user,
@@ -236,6 +270,10 @@ def order_complete(request, pk):
                     price=item.price,
                     unit_cost=snapshot.unit_cost if snapshot else None,
                 )
+
+            if sale.transaction_type == "paid" and order.order_type == "physical_store":
+                record_cash(order.business, request.user, date=sale.date, amount=sale.total, transaction_type=FinancialTransaction.INCOME, category="Sales revenue", description=f"Sale #{sale.pk}", payment_method=sale.payment_method, reference=f"SALE-{sale.pk}", account=getattr(sale, "account", None))
+            audit(order.business, request.user, "complete", order, f"Order #{order.pk} completed", {"transaction_type": order.transaction_type, "unpaid_reason": order.unpaid_description})
 
     if order.order_type in ("distribution", "online"):
         messages.success(

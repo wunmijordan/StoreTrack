@@ -16,6 +16,8 @@ class Order(BusinessOwnedModel):
         ("completed", "Completed"), ("rejected", "Rejected"),
     ]
     PAYMENT_CHOICES = [("Cash", "Cash"), ("Card", "Card"), ("Transfer", "Transfer")]
+    TRANSACTION_CHOICES = [("paid", "Paid"), ("unpaid", "Unpaid")]
+    CUSTOMER_PAYMENT_CHOICES = [("paid", "Received"), ("unpaid", "Receivable")]
 
     date = models.DateField()
     order_type = models.CharField(max_length=15, choices=TYPE_CHOICES, default="physical_store")
@@ -25,8 +27,14 @@ class Order(BusinessOwnedModel):
         help_text="Optional reporting region/territory for distribution or online customer analytics.")
     customer_group = models.CharField(max_length=100, blank=True,
         help_text="Optional customer group/segment for distribution or online customer analytics.")
+    transaction_type = models.CharField(max_length=10, choices=TRANSACTION_CHOICES, default="paid", help_text="Physical Store purpose only: paid stock restock or non-cash product issue.")
+    customer_payment_status = models.CharField(max_length=10, choices=CUSTOMER_PAYMENT_CHOICES, default="paid", help_text="Distribution/Online only: whether the customer payment has been received or remains a receivable.")
+    customer_payment_method = models.CharField(max_length=10, choices=PAYMENT_CHOICES, default="Transfer")
+    customer_payment_account = models.ForeignKey("core.CashAccount", null=True, blank=True, on_delete=models.PROTECT, related_name="customer_order_payments")
+    unpaid_description = models.CharField(max_length=255, blank=True, default="", help_text="Required when this physical-store order is unpaid.")
     payment_method = models.CharField(max_length=10, choices=PAYMENT_CHOICES, default="Cash",
-        help_text="Relevant for distribution/online orders — recorded on the Sale created when this completes.")
+        help_text="Payment method to use if a customer payment is later recorded.")
+    account = models.ForeignKey("core.CashAccount", null=True, blank=True, on_delete=models.PROTECT, related_name="production_orders")
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="pending")
     notes = models.TextField(blank=True)
     approved_date = models.DateField(null=True, blank=True)
@@ -122,7 +130,9 @@ class ProductionCostSnapshot(BusinessOwnedModel):
     produced_units = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     total_cost = models.DecimalField(max_digits=16, decimal_places=4, default=0)
     unit_cost = models.DecimalField(max_digits=16, decimal_places=6, default=0)
-    cost_source = models.CharField(max_length=20, default="latest_procurement")
+    cost_source = models.CharField(max_length=40, default="latest_procurement")
+    batch_number = models.CharField(max_length=40, blank=True, default="")
+    expiry_date = models.DateField(null=True, blank=True)
 
     class Meta:
         ordering = ["-production_date", "-id"]

@@ -6,15 +6,44 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from .forms import PurchaseOrderForm, PurchaseOrderItemFormSet
-from .models import PurchaseOrder, RawMaterialCostSnapshot
+from .models import PurchaseOrder, RawMaterialCostSnapshot, SupplierPayment
 from inventory.models import RawMaterial
 from inventory.services import record_raw_material_movement
 from inventory.models import StockMovement
 from core.invoice import purchase_order_pdf
+from core.services import record_cash, audit
+from core.models import FinancialTransaction
 
 
 def today():
     return timezone.localdate()
+
+
+def _ensure_po_payment_recorded(po, user):
+    """Record only the remaining amount when a PO is marked Paid.
+
+    A partially paid PO may already have SupplierPayment rows. If the PO is
+    later marked Paid before it reaches Finance, only the outstanding balance
+    should be recorded here; never charge the supplier twice.
+    """
+    if po.payment_status != "paid" or not po.account:
+        return
+    if FinancialTransaction.objects.filter(
+        business=po.business, reference=f"PO-{po.pk}", category="Procurement"
+    ).exists():
+        return
+
+    paid = sum((p.amount for p in po.payments.all()), Decimal("0"))
+    outstanding = max(Decimal("0"), po.total - paid)
+    if not outstanding:
+        return
+
+    record_cash(
+        po.business, user, date=po.date, amount=outstanding,
+        transaction_type=FinancialTransaction.OUTFLOW, category="Procurement",
+        description=f"Payment for purchase order #{po.pk}", payment_method=po.payment_method,
+        reference=f"PO-{po.pk}", account=po.account,
+    )
 
 
 @login_required
@@ -40,19 +69,74 @@ def po_form(request, pk=None):
         return redirect("procurement_list")
     if request.method == "POST":
         form = PurchaseOrderForm(request.POST, instance=obj)
-        if form.is_valid():
-            po = form.save(commit=False)
-            po.business = request.business
-            if obj is None:
-                po.created_by = request.user
-            po.save()
-            formset = PurchaseOrderItemFormSet(request.POST, instance=po)
-            if formset.is_valid():
-                formset.save()
-                messages.success(request, "Purchase order saved.")
-                return redirect("procurement_list")
-        else:
-            formset = PurchaseOrderItemFormSet(request.POST, instance=obj if obj else PurchaseOrder())
+        formset = PurchaseOrderItemFormSet(request.POST, instance=obj if obj else PurchaseOrder())
+        if form.is_valid() and formset.is_valid():
+            active_items = [
+                f.cleaned_data for f in formset.forms
+                if f.cleaned_data and not f.cleaned_data.get("DELETE")
+            ]
+            if not active_items:
+                form.add_error(None, "Add at least one item.")
+            else:
+                po_total = sum(
+                    (data["qty"] * data["unit_cost"] for data in active_items),
+                    Decimal("0"),
+                )
+                amount_paid = form.cleaned_data.get("amount_paid") or Decimal("0")
+                payment_status = form.cleaned_data.get("payment_status")
+
+                if payment_status == "partial" and amount_paid >= po_total:
+                    # A payment covering the whole PO is no longer partial.
+                    form.cleaned_data["payment_status"] = "paid"
+                    payment_status = "paid"
+                if amount_paid > po_total:
+                    form.add_error("amount_paid", "The amount paid cannot exceed the purchase order total.")
+                elif payment_status == "paid" and amount_paid and amount_paid != po_total:
+                    form.add_error("amount_paid", "For a Paid order, the amount paid must equal the full purchase order total.")
+                else:
+                    with transaction.atomic():
+                        po = form.save(commit=False)
+                        po.business = request.business
+                        if obj is None:
+                            po.created_by = request.user
+                        po.save()
+                        formset.instance = po
+                        formset.save()
+
+                        # Paid orders keep the existing immediate-payment behavior.
+                        # Partially paid orders create the initial SupplierPayment here,
+                        # so Finance can show only the remaining payable balance and
+                        # later payments can settle it normally.
+                        if payment_status == "paid":
+                            _ensure_po_payment_recorded(po, request.user)
+                        elif payment_status == "partial" and obj is None:
+                            payment = SupplierPayment.objects.create(
+                                business=po.business,
+                                created_by=request.user,
+                                date=po.date,
+                                supplier=po.supplier or "Unnamed supplier",
+                                amount=amount_paid,
+                                payment_method=po.payment_method,
+                                reference=f"PO-{po.pk}-INITIAL",
+                                notes=f"Initial payment for purchase order #{po.pk}",
+                                purchase_order=po,
+                                account=po.account,
+                            )
+                            record_cash(
+                                po.business,
+                                request.user,
+                                date=payment.date,
+                                amount=payment.amount,
+                                transaction_type=FinancialTransaction.OUTFLOW,
+                                category="Supplier payment",
+                                description=f"Initial payment for purchase order #{po.pk}",
+                                payment_method=payment.payment_method,
+                                reference=payment.reference,
+                                account=payment.account,
+                            )
+
+                        messages.success(request, "Purchase order saved.")
+                        return redirect("procurement_list")
     else:
         form = PurchaseOrderForm(instance=obj, initial=None if obj else {"date": today()})
         formset = PurchaseOrderItemFormSet(instance=obj)
@@ -71,13 +155,13 @@ def po_receive(request, pk):
                 # item.qty / item.unit_cost are in the material's purchase
                 # unit (e.g. bags); stock and cost_per_unit are always in
                 # its usage unit (e.g. kg) — convert on the way in.
+                usage_cost = (item.unit_cost / factor).quantize(Decimal("0.000001"))
                 record_raw_material_movement(
                     mat,
                     item.qty * factor,
                     StockMovement.RAW_PURCHASE,
-                    note=f"Purchase order received",
+                    note=f"Purchase order received", reference=f"PO-{po.pk}", unit_value=usage_cost,
                 )
-                usage_cost = (item.unit_cost / factor).quantize(Decimal("0.000001"))
                 RawMaterialCostSnapshot.objects.create(
                     business=po.business,
                     raw_material=mat,
@@ -93,6 +177,9 @@ def po_receive(request, pk):
             po.status = "received"
             po.received_date = today()
             po.save()
+            if po.payment_status == "paid":
+                _ensure_po_payment_recorded(po, request.user)
+            audit(po.business, request.user, "receive", po, f"Purchase order #{po.pk} received", {"payment_status": po.payment_status})
         messages.success(request, "Stock received into inventory.")
     return redirect("procurement_list")
 

@@ -118,6 +118,10 @@
               </div>
             </section>
             <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden">
+              <div class="px-4 py-3 border-b border-[#E7DFCC] flex items-center justify-between"><div><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Operational supply dispensing</h4><p class="text-[10px] text-stone-400 mt-0.5">Manual consumption outside production recipes; every issue reduces stock.</p></div><span class="text-xs font-mono text-amber-700" x-text="fmt(detail.summary.operational_dispensed || 0) + ' ' + (detail.summary.stock_unit || '')"></span></div>
+              <div class="overflow-x-auto"><table class="w-full text-xs min-w-[650px]"><thead class="bg-stone-50 text-stone-500"><tr><th class="px-3 py-2 text-left">Date</th><th class="px-3 py-2 text-right">Quantity</th><th class="px-3 py-2 text-left">Reason</th><th class="px-3 py-2 text-left">Description</th><th class="px-3 py-2 text-left">Location</th></tr></thead><tbody><template x-for="d in detail.operational_dispenses" :key="d.date + d.quantity + d.description"><tr class="border-t border-stone-100"><td class="px-3 py-2" x-text="d.date"></td><td class="px-3 py-2 text-right font-mono" x-text="fmt(d.quantity) + ' ' + d.unit"></td><td class="px-3 py-2" x-text="d.reason"></td><td class="px-3 py-2" x-text="d.description"></td><td class="px-3 py-2" x-text="d.location"></td></tr></template><tr x-show="!detail.operational_dispenses?.length"><td colspan="5" class="p-5 text-center text-stone-400">No operational dispensing recorded.</td></tr></tbody></table></div>
+            </section>
+            <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden">
               <div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Usage / production links</h4></div>
               <div class="p-4 grid grid-cols-1 md:grid-cols-2 gap-2"><template x-for="row in detail.linked_goods" :key="row.name"><div class="border border-stone-100 rounded-lg p-3 flex justify-between gap-3"><span class="font-semibold text-sm text-stone-700" x-text="row.name"></span><span class="font-mono text-xs text-stone-500" x-text="fmt(row.qty_per_batch) + ' ' + row.usage_unit + ' / batch'"></span></div></template><div x-show="!detail.linked_goods.length" class="text-xs text-stone-400">Not currently linked to a finished-good recipe or production material.</div></div>
             </section>
@@ -495,7 +499,7 @@
     {% for f in financial %}
     <div class="rounded-lg bg-white/70 border border-[#E7DFCC] px-3 py-3">
       <div class="text-[10px] uppercase tracking-wider font-bold text-stone-400">{{ f.label }}</div>
-      <div class="text-lg font-mono font-bold text-[#8f172d] mt-1">{{ f.revenue|money:biz.currency_symbol }}</div>
+      <div class="text-lg font-mono font-bold text-[#8f172d] mt-1">{{ f.net_cash_flow|money:biz.currency_symbol }}</div>
       <div class="flex justify-between text-[10px] mt-2"><span class="text-stone-400">Sales</span><span class="font-mono">{{ f.sales|money:biz.currency_symbol }}</span></div>
       <div class="flex justify-between text-[10px]"><span class="text-stone-400">Spend</span><span class="font-mono text-rose-700">{{ f.spend|money:biz.currency_symbol }}</span></div>
     </div>
@@ -506,7 +510,7 @@
       <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
         <div>
           <div class="text-[10px] uppercase tracking-wider font-bold text-stone-400">Outlook Chart</div>
-          <div id="financial-chart-caption" class="text-xs text-stone-500 mt-0.5">Daily Sales, Spend and Revenue</div>
+          <div id="financial-chart-caption" class="text-xs text-stone-500 mt-0.5">Daily Sales, Cash Outflow and Net Cash Flow</div>
         </div>
         <div class="flex items-center gap-1 rounded-lg bg-[#F5EFE0] border border-[#E7DFCC] p-1" role="group" aria-label="Financial chart period">
           <button type="button" class="financial-period-btn px-2.5 py-1 text-[10px] rounded-md bg-[#8f172d] hover:bg-[#4D1C25] hover:text-white text-white" data-period="week">Week</button>
@@ -938,7 +942,10 @@
         <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Sales revenue</div><div class="font-mono font-bold text-[#8f172d] mt-1" x-text="money(scope ? data[scope].sales_total : 0)"></div></div>
         <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Cash outflow</div><div class="font-mono font-bold text-rose-700 mt-1" x-text="money(scope ? data[scope].total_cash_out : 0)"></div></div>
         <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Net cash flow</div><div class="font-mono font-bold mt-1" :class="(scope && data[scope].net_cash_flow) >= 0 ? 'text-emerald-700' : 'text-rose-700'" x-text="money(scope ? data[scope].net_cash_flow : 0)"></div></div>
+        <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Gross profit</div><div class="font-mono font-bold text-emerald-700 mt-1" x-text="money(scope ? data[scope].gross_profit : 0)"></div></div>
+        <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Unpaid product value</div><div class="font-mono font-bold text-amber-700 mt-1" x-text="money(scope ? data[scope].unpaid_product_retail_value : 0)"></div></div>
         <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Goods produced</div><div class="font-mono font-bold text-stone-700 mt-1" x-text="number(scope ? data[scope].produced_units : 0)"></div></div>
+        <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Operational supplies consumed</div><div class="font-mono font-bold text-amber-700 mt-1" x-text="money(scope ? data[scope].operational_dispensed_cost : 0)"></div><div class="text-[9px] text-stone-400">Inventory consumption; not an additional cash outflow</div></div>
       </div>
       <div class="grid lg:grid-cols-2 gap-5">
         <div class="rounded-xl bg-white border border-[#E7DFCC] p-4">
@@ -954,7 +961,7 @@
       </div>
       <div class="grid md:grid-cols-2 gap-5 mt-5">
         <div class="rounded-xl bg-white border border-[#E7DFCC] p-4">
-          <div class="text-xs font-bold text-[#8f172d] mb-3">Procurement scopes</div>
+          <div class="text-xs font-bold text-[#8f172d] mb-1">Procurement scopes</div><div class="text-[10px] text-stone-400 mb-3">Received inventory value, whether paid immediately or still payable.</div>
           <div class="space-y-2 text-xs">
             <template x-for="row in [
               ['Raw Materials', data[scope]?.procurement?.raw_materials || 0],
@@ -1038,8 +1045,8 @@ function renderFinancialBreakdown(scope, data) {
   let chart = null;
 
   const captions = {
-    week: 'Daily Sales, Spend and Revenue — Last 7 Days',
-    month: 'Daily Sales, Spend and Revenue — Current Month',
+    week: 'Daily Sales, Cash Outflow and Net Cash Flow — Last 7 Days',
+    month: 'Daily Sales, Cash Outflow and Net Cash Flow — Current Month',
     quarter: 'Weekly Sales, Spend and Revenue — Current Quarter',
     year: 'Monthly Sales, Spend and Revenue — Current Year'
   };
@@ -1267,7 +1274,7 @@ function dashboardSearch() {
         estimated_recipe_cost_per_unit: 'Current recipe cost / unit', estimated_margin_per_unit: 'Current est. margin / unit', margin_pct: 'Current est. margin %', units_per_batch: 'Units / batch',
         total_purchase: 'Total purchased', purchase_orders: 'Purchase orders', materials_bought: 'Materials bought', average_purchase: 'Average purchase',
         channel: 'Channel', orders: 'Orders', completed_orders: 'Completed', sales: 'Sales', revenue: 'Revenue', units: 'Units', last_order: 'Last order', last_sale: 'Last sale',
-        latest_historical_unit_cost: 'Latest historical cost / unit',
+        latest_historical_unit_cost: 'Latest historical cost / unit', unpaid_product_value: 'Unpaid product value', unpaid_product_retail_value: 'Unpaid product value', unpaid_product_cost_value: 'Unpaid product cost', gross_profit: 'Gross profit',
       };
       const cards = [];
       if (s.stock !== undefined && s.stock !== null && s.stock_unit) cards.push({ label: 'Current stock', value: this.fmt(s.stock) + ' ' + s.stock_unit });
@@ -1277,7 +1284,7 @@ function dashboardSearch() {
         if (skip.has(key) || key === 'stock' || key === 'reorder_level' || key === 'physical_store_reorder_level') continue;
         cards.push({
           label: labels[key] || key.replaceAll('_', ' '),
-          value: typeof value === 'number' && ['cost_per_purchase_unit','selling_price','estimated_recipe_cost_per_unit','estimated_margin_per_unit','total_purchase','average_purchase','revenue','latest_historical_unit_cost'].includes(key) ? this.money(value) : (Array.isArray(value) ? value.join(', ') || '—' : String(value ?? '—'))
+          value: typeof value === 'number' && ['cost_per_purchase_unit','selling_price','estimated_recipe_cost_per_unit','estimated_margin_per_unit','total_purchase','average_purchase','revenue','latest_historical_unit_cost','unpaid_product_value','unpaid_product_retail_value','unpaid_product_cost_value','gross_profit'].includes(key) ? this.money(value) : (Array.isArray(value) ? value.join(', ') || '—' : String(value ?? '—'))
         });
       }
       return cards.slice(0, 8);

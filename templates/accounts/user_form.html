@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="text-xl font-semibold font-display text-[#8f172d] mb-4">{% if obj %}Edit user{% else %}Add user{% endif %}</h2>
+<div class="max-w-2xl bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg p-5">
+<form method="post">{% csrf_token %}
+<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+{% for field in form %}<label class="block"><span class="block text-xs font-medium text-stone-600 mb-1">{{ field.label }}</span>{{ field }}{% if field.errors %}<span class="text-xs text-rose-600">{{ field.errors|striptags }}</span>{% endif %}{% if field.help_text %}<span class="text-[10px] text-stone-400">{{ field.help_text }}</span>{% endif %}</label>{% endfor %}
+</div>
+<div class="flex justify-end gap-2 mt-5"><a href="{% url 'users_list' %}" class="px-3 py-2 text-sm text-stone-500">Cancel</a><button class="px-4 py-2 rounded-md bg-[#8f172d] text-white text-sm">Save user</button></div>
+</form></div>
+{% endblock %}

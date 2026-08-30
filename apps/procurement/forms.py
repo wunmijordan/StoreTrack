@@ -2,6 +2,7 @@ from django import forms
 from django.forms import inlineformset_factory
 from .models import PurchaseOrder, PurchaseOrderItem
 from inventory.models import RawMaterial
+from core.models import CashAccount
 
 INPUT_CLS = "w-full rounded-md border border-[#D9CFB4] bg-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#8f172d]/30 focus:border-[#8f172d]"
 
@@ -14,10 +15,39 @@ class StyledModelForm(forms.ModelForm):
 
 
 class PurchaseOrderForm(StyledModelForm):
+    amount_paid = forms.DecimalField(
+        max_digits=16,
+        decimal_places=2,
+        required=False,
+        min_value=0,
+        label="Amount paid now",
+        help_text="For Partially Paid orders only. The remaining balance stays payable in Finance.",
+    )
+
     class Meta:
         model = PurchaseOrder
-        fields = ["date", "supplier"]
+        fields = ["date", "supplier", "payment_status", "payment_method", "account"]
         widgets = {"date": forms.DateInput(attrs={"type": "date"})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["account"].queryset = CashAccount.objects.filter(active=True).order_by("name")
+        self.fields["account"].required = False
+
+    def clean(self):
+        cleaned = super().clean()
+        status = cleaned.get("payment_status")
+        amount_paid = cleaned.get("amount_paid") or 0
+
+        if status in ("paid", "partial") and not cleaned.get("account"):
+            self.add_error("account", "Select the cash/bank account used for this payment.")
+
+        if status == "partial" and not self.instance.pk and amount_paid <= 0:
+            self.add_error("amount_paid", "Enter the amount paid now for a partially paid order.")
+        elif status == "unpaid" and amount_paid > 0:
+            self.add_error("amount_paid", "An unpaid order cannot have an initial payment. Choose Partially Paid instead.")
+
+        return cleaned
 
 
 class PurchaseOrderItemForm(StyledModelForm):

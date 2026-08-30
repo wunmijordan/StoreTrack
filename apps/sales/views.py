@@ -13,6 +13,8 @@ from production.models import ProductionCostSnapshot
 from inventory.services import record_finished_good_movement
 from inventory.models import StockMovement
 from core.invoice import sale_invoice_pdf
+from core.services import record_cash, audit
+from core.models import FinancialTransaction
 
 
 def today():
@@ -22,8 +24,9 @@ def today():
 @login_required
 def sales_list(request):
     sales = list(Sale.objects.prefetch_related("items__finished_good"))
-    total_revenue = sum((s.total for s in sales), Decimal("0"))
-    return render(request, "sales/sales_list.html", {"sales": sales, "total_revenue": total_revenue})
+    total_revenue = sum((s.total for s in sales if s.transaction_type == "paid"), Decimal("0"))
+    unpaid_value = sum((s.total for s in sales if s.transaction_type == "unpaid"), Decimal("0"))
+    return render(request, "sales/sales_list.html", {"sales": sales, "total_revenue": total_revenue, "unpaid_value": unpaid_value})
 
 
 @login_required
@@ -77,6 +80,10 @@ def sale_form(request):
                         note="Walk-in sale",
                         affects_stock=True,
                     )
+
+                if sale.transaction_type == "paid":
+                    record_cash(request.business, request.user, date=sale.date, amount=sale.total, transaction_type=FinancialTransaction.INCOME, category="Sales revenue", description=f"Sale #{sale.pk}", payment_method=sale.payment_method, reference=f"SALE-{sale.pk}", account=sale.account)
+                audit(request.business, request.user, "create", sale, f"Sale #{sale.pk} recorded", {"transaction_type": sale.transaction_type, "unpaid_reason": sale.unpaid_description})
             messages.success(request, "Sale recorded.")
             return redirect("sales_list")
     else:

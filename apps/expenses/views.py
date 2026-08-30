@@ -8,6 +8,8 @@ from django.utils import timezone
 from .forms import ExpenseForm
 from .models import Expense
 from .invoice import build_expense_invoice
+from core.services import record_cash, audit
+from core.models import FinancialTransaction
 from django.http import HttpResponse
 
 
@@ -33,6 +35,9 @@ def expense_form(request, pk=None):
             if obj is None:
                 expense.created_by = request.user
             expense.save()
+            if obj is None and expense.payment_status == "paid":
+                record_cash(expense.business, request.user, date=expense.date, amount=expense.amount, transaction_type=FinancialTransaction.OUTFLOW, category=expense.get_category_display(), description=expense.description, payment_method=expense.payment_method, reference=f"EXP-{expense.pk}", account=expense.account)
+            audit(expense.business, request.user, "create" if obj is None else "update", expense, f"Expense {expense.pk} saved", {"payment_status": expense.payment_status})
             messages.success(request, "Expense saved.")
             return redirect("expenses_list")
     else:
@@ -56,3 +61,32 @@ def expense_invoice(request, pk):
     response = HttpResponse(pdf, content_type="application/pdf")
     response["Content-Disposition"] = f'attachment; filename="expense-{expense.pk}.pdf"'
     return response
+
+
+@login_required
+def expense_payment_form(request):
+    from .forms import ExpensePaymentForm
+    form = ExpensePaymentForm(request.POST or None, initial={"date": today()})
+    if request.method == "POST" and form.is_valid():
+        from django.db import transaction
+        with transaction.atomic():
+            x = form.save(commit=False)
+            x.business = request.business
+            x.created_by = request.user
+            x.save()
+            expense = x.expense
+            paid_before = sum((p.amount for p in expense.payments.exclude(pk=x.pk)), Decimal("0"))
+            new_paid = paid_before + x.amount
+            expense.payment_status = "paid" if new_paid >= expense.amount else "unpaid"
+            expense.save(update_fields=["payment_status", "updated_at"])
+            record_cash(request.business, request.user, date=x.date, amount=x.amount,
+                        transaction_type=FinancialTransaction.OUTFLOW, category="Expense payment",
+                        description=f"Payment for Expense #{expense.pk} — {expense.description}",
+                        payment_method=x.payment_method, reference=x.reference or f"EXPPAY-{x.pk}",
+                        account=x.account)
+            audit(request.business, request.user, "create", x, "Expense payment recorded",
+                  {"amount": str(x.amount), "expense": expense.pk})
+        messages.success(request, "Expense payment recorded and payable updated.")
+        return redirect("finance_dashboard")
+    return render(request, "core/payment_form.html", {"form": form, "title": "Expense Payment",
+        "help_text": "Settle an unpaid expense. The expense was already recorded; this payment only moves actual money out of the selected cash/bank account."})

@@ -16,7 +16,7 @@
 <h2 class="text-xl font-semibold font-display text-[#8f172d]">Raw Materials</h2>
 <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
   <p class="text-sm text-stone-500 mt-0.5 flex-1 min-w-[240px]">Ingredients, production inputs and operational supplies — all procured through the same material form and procurement chain.</p>
-  <a href="{% url 'raw_material_add' %}" class="shrink-0 px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">+ Add Material</a>
+  {% if module_permissions.inventory.edit %}<a href="{% url 'raw_material_add' %}" class="shrink-0 px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">+ Add Material</a>{% endif %}
 </div>
 <div id="material-category-tabs" class="flex flex-wrap gap-1.5 mb-4">
   <button type="button" data-material-tab="ingredient" class="material-tab px-3 py-1.5 rounded-md text-xs font-medium border">Ingredients <span data-material-count="ingredient" class="ml-1 text-[10px] opacity-70"></span></button>
@@ -101,8 +101,8 @@
           {% endif %}
         </td>
         <td class="px-3 py-2 text-right">
-          <a href="{% url 'raw_material_edit' m.pk %}" class="text-stone-400 hover:text-[#8f172d] mr-2">Edit</a>
-          <form action="{% url 'raw_material_delete' m.pk %}" method="post" class="inline" onsubmit="return confirm('Remove {{ m.name }}?');">{% csrf_token %}<button class="text-stone-400 hover:text-rose-600">Delete</button></form>
+          {% if module_permissions.inventory.edit %}<a href="{% url 'raw_material_edit' m.pk %}" class="text-stone-400 hover:text-[#8f172d] mr-2">Edit</a>{% endif %}
+          {% if module_permissions.inventory.edit %}<form action="{% url 'raw_material_delete' m.pk %}" method="post" class="inline" onsubmit="return confirm('Remove {{ m.name }}?');">{% csrf_token %}<button class="text-stone-400 hover:text-rose-600">Delete</button></form>{% endif %}
         </td>
       </tr>
       {% endfor %}
@@ -119,7 +119,7 @@
     <h2 class="text-xl font-semibold font-display text-[#8f172d]">Products (Finished Goods)</h2>
     <p class="text-sm text-stone-500 mt-0.5">Items you sell, with their recipe and batch size</p>
   </div>
-  <a href="{% url 'finished_good_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">+ Add Product</a>
+  <div class="flex gap-2">{% if module_permissions.inventory.edit %}<a href="{% url 'operational_supply_dispense' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100">Dispense Operational Supply</a><a href="{% url 'finished_good_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">+ Add Product</a>{% endif %}</div>
 </div>
 
 {% if not finished_goods %}
@@ -177,8 +177,8 @@
         <td class="px-3 py-2 text-right font-mono">{{ g.selling_price|money:biz.currency_symbol }}</td>
         <td class="px-3 py-2 text-xs text-stone-500">{{ g.recipe_items.count }} Ingredient{{ g.recipe_items.count|pluralize }}{% if g.production_materials.count %}, {{ g.production_materials.count }} production input{{ g.production_materials.count|pluralize }}{% endif %}</td>
         <td class="px-3 py-2 text-right">
-          <a href="{% url 'finished_good_edit' g.pk %}" class="text-stone-400 hover:text-[#8f172d] mr-2">Edit</a>
-          <form action="{% url 'finished_good_delete' g.pk %}" method="post" class="inline" onsubmit="return confirm('Remove {{ g.name }}?');">{% csrf_token %}<button class="text-stone-400 hover:text-rose-600">Delete</button></form>
+          {% if module_permissions.inventory.edit %}<a href="{% url 'finished_good_edit' g.pk %}" class="text-stone-400 hover:text-[#8f172d] mr-2">Edit</a>{% endif %}
+          {% if module_permissions.inventory.edit %}<form action="{% url 'finished_good_delete' g.pk %}" method="post" class="inline" onsubmit="return confirm('Remove {{ g.name }}?');">{% csrf_token %}<button class="text-stone-400 hover:text-rose-600">Delete</button></form>{% endif %}
         </td>
       </tr>
       {% endfor %}

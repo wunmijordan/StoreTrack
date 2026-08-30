@@ -24,9 +24,21 @@
     <p id="order-type-hint" class="text-[11px] text-stone-400 mb-3"></p>
 
     {% include "_field.html" with field=form.date %}
-    <div id="customer-fields" class="grid grid-cols-2 gap-3">
+    <div id="customer-fields" class="grid grid-cols-1 md:grid-cols-3 gap-3">
       {% include "_field.html" with field=form.customer_name %}
+      {% include "_field.html" with field=form.customer_region %}
+      {% include "_field.html" with field=form.customer_group %}
+    </div>
+    <div id="physical-payment-fields" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
+      {% include "_field.html" with field=form.transaction_type %}
+      <div id="unpaid-reason-wrap">{% include "_field.html" with field=form.unpaid_description %}</div>
       {% include "_field.html" with field=form.payment_method %}
+      {% include "_field.html" with field=form.account %}
+    </div>
+    <div id="customer-payment-fields" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-3 hidden">
+      {% include "_field.html" with field=form.customer_payment_status %}
+      {% include "_field.html" with field=form.customer_payment_method %}
+      {% include "_field.html" with field=form.customer_payment_account %}
     </div>
 
     <span class="block text-xs font-medium text-stone-600 mb-1">Products</span>
@@ -75,15 +87,26 @@
 {{ prices|json_script:"fg-prices" }}
 <script>
   const PRICES = JSON.parse(document.getElementById('fg-prices').textContent);
+  function toggleUnpaidReason() {
+    const type = document.querySelector('select[name="transaction_type"]')?.value || document.querySelector('input[name="transaction_type"]:checked')?.value;
+    const wrap = document.getElementById('unpaid-reason-wrap');
+    if (wrap) wrap.style.display = type === 'unpaid' ? 'block' : 'none';
+  }
   function toggleOrderType() {
     const type = document.querySelector('input[name="order_type"]:checked').value;
     const custFields = document.getElementById('customer-fields');
+    const paymentFields = document.getElementById('physical-payment-fields');
+    const customerPaymentFields = document.getElementById('customer-payment-fields');
     const hint = document.getElementById('order-type-hint');
     if (type === 'distribution' || type === 'online') {
       custFields.style.display = 'grid';
-      hint.textContent = type === 'online' ? 'Online customer order — made for the named customer and recorded in Sales as Online once completed.' : 'Distribution order — made for the named customer and recorded in Sales as Distribution once completed.';
+      paymentFields.style.display = 'none';
+      customerPaymentFields.style.display = 'grid';
+      hint.textContent = type === 'online' ? 'Online customer order — payment may be recorded now or later. A later payment is matched to the customer and sale in Finance.' : 'Distribution order — payment may be recorded now or later. A later payment is matched to the customer and sale in Finance.';
     } else {
       custFields.style.display = 'none';
+      paymentFields.style.display = 'grid';
+      customerPaymentFields.style.display = 'none';
       hint.textContent = 'A restock request — no customer, adds straight to physical store shelf stock once completed. Does not appear on the Sales list.';
     }
   }
@@ -120,5 +143,7 @@
   document.querySelectorAll('input[name="order_type"]').forEach(el => el.addEventListener('change', () => { toggleOrderType(); refreshPrices(); }));
   toggleOrderType();
   wireRows();
+  document.querySelector('[name="transaction_type"]')?.addEventListener('change', toggleUnpaidReason);
+  toggleUnpaidReason();
 </script>
 {% endblock %}

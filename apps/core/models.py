@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from decimal import Decimal
 from .context import get_current_business_id
 
 
@@ -24,6 +25,12 @@ class Business(models.Model):
         resolve 'which business' from the request (subdomain, path, session —
         see ChurchForce's TenantMiddleware for the fuller pattern)."""
         obj, _ = cls.objects.get_or_create(slug="main", defaults={"name": "My Business"})
+        try:
+            from accounts.services import seed_business_roles
+            seed_business_roles(obj)
+        except Exception:
+            # Keep model import/bootstrap safe before migrations are complete.
+            pass
         return obj
 
 
@@ -71,3 +78,50 @@ class BusinessOwnedModel(TimestampedModel):
 
     class Meta:
         abstract = True
+
+class CashAccount(BusinessOwnedModel):
+    """A cash/bank/card ledger account used for actual money movement."""
+    ACCOUNT_CHOICES = [("cash", "Cash"), ("bank", "Bank / Transfer"), ("card", "Card / POS"), ("other", "Other")]
+    name = models.CharField(max_length=80)
+    account_type = models.CharField(max_length=10, choices=ACCOUNT_CHOICES, default="cash")
+    opening_balance = models.DecimalField(max_digits=16, decimal_places=2, default=0)
+    active = models.BooleanField(default=True)
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["business", "name"], name="unique_cash_account_per_business")]
+        ordering = ["name"]
+    def __str__(self): return self.name
+    @property
+    def balance(self):
+        return self.opening_balance + sum((t.signed_amount for t in self.transactions.all()), Decimal("0"))
+
+
+class FinancialTransaction(BusinessOwnedModel):
+    """Immutable-style cash ledger entry. Positive income, negative outflow."""
+    INCOME = "income"
+    OUTFLOW = "outflow"
+    TYPE_CHOICES = [(INCOME, "Money In"), (OUTFLOW, "Money Out")]
+    date = models.DateField()
+    transaction_type = models.CharField(max_length=10, choices=TYPE_CHOICES)
+    amount = models.DecimalField(max_digits=16, decimal_places=2)
+    category = models.CharField(max_length=80)
+    description = models.CharField(max_length=255)
+    payment_method = models.CharField(max_length=20, blank=True, default="")
+    reference = models.CharField(max_length=80, blank=True, default="")
+    account = models.ForeignKey(CashAccount, null=True, blank=True, on_delete=models.PROTECT, related_name="transactions")
+    reversed = models.BooleanField(default=False)
+    reversal_of = models.ForeignKey("self", null=True, blank=True, on_delete=models.PROTECT, related_name="reversal_entries")
+    class Meta:
+        ordering = ["-date", "-id"]
+    @property
+    def signed_amount(self): return self.amount if self.transaction_type == self.INCOME else -self.amount
+
+
+class AuditLog(BusinessOwnedModel):
+    """Human-readable audit trail for important business mutations."""
+    action = models.CharField(max_length=30)
+    model_name = models.CharField(max_length=80)
+    object_id = models.CharField(max_length=80, blank=True, default="")
+    description = models.CharField(max_length=255)
+    metadata = models.JSONField(default=dict, blank=True)
+    class Meta:
+        ordering = ["-created_at", "-id"]

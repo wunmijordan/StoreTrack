@@ -10,6 +10,7 @@
       {% include "_field.html" with field=form.customer %}
     </div>
     {% include "_field.html" with field=form.payment_method %}
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">{% include "_field.html" with field=form.transaction_type %}<div id="unpaid-reason-wrap">{% include "_field.html" with field=form.unpaid_description %}</div>{% include "_field.html" with field=form.account %}</div>
 
     <span class="block text-xs font-medium text-stone-600 mb-1">Products</span>
     <p class="text-[11px] text-stone-400 mb-1">Batches and/or loose Pieces. Price fills in from the Product's current selling price.</p>
@@ -89,5 +90,7 @@
     });
   }
   wireRows();
+  function toggleUnpaidReason(){ const type=document.querySelector('[name="transaction_type"]')?.value; const wrap=document.getElementById('unpaid-reason-wrap'); if(wrap) wrap.style.display=type==='unpaid'?'block':'none'; }
+  document.querySelector('[name="transaction_type"]')?.addEventListener('change',toggleUnpaidReason); toggleUnpaidReason();
 </script>
 {% endblock %}

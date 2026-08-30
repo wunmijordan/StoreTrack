@@ -12,10 +12,10 @@ from django.shortcuts import render
 from django.utils import timezone
 from openpyxl import Workbook
 
-from .models import Business
+from .models import Business, FinancialTransaction
 from .forms import BusinessForm
-from inventory.models import RawMaterial, FinishedGood, RecipeItem, ProductionMaterial, StockMovement
-from procurement.models import PurchaseOrder, PurchaseOrderItem, RawMaterialCostSnapshot
+from inventory.models import RawMaterial, FinishedGood, RecipeItem, ProductionMaterial, StockMovement, StockAdjustment, OperationalSupplyDispense
+from procurement.models import PurchaseOrder, PurchaseOrderItem, RawMaterialCostSnapshot, SupplierPayment
 from production.models import Order, OrderItem
 from sales.models import Sale, SaleItem
 from expenses.models import Expense
@@ -33,10 +33,35 @@ def _production_units(queryset):
 
 
 def _sales_revenue(queryset):
+    """Recognised revenue: only paid sales count as revenue/cash receipts.
+    Unpaid sales remain visible as receivables/non-cash activity."""
     total = Decimal("0")
-    for s in queryset.prefetch_related("items__finished_good"):
-        total += s.total
+    for sale in queryset.filter(transaction_type="paid").prefetch_related("items__finished_good"):
+        total += sale.total
     return total
+
+
+def _sales_cogs(queryset):
+    total = Decimal("0")
+    for sale in queryset.prefetch_related("items"):
+        if sale.transaction_type != "paid":
+            continue
+        for item in sale.items.all():
+            total += (item.unit_cost or Decimal("0")) * item.total_units
+    return total
+
+
+def _unpaid_product_value(start, end):
+    """Retail-value and cost-value of non-cash product issues.
+    This includes unpaid sales and unpaid physical-store production issues."""
+    retail = Decimal("0"); cost = Decimal("0")
+    for sale in Sale.objects.filter(source="walkin", transaction_type="unpaid", date__range=(start, end)).prefetch_related("items"):
+        retail += sale.total
+        for item in sale.items.all(): cost += (item.unit_cost or Decimal("0")) * item.total_units
+    for order in Order.objects.filter(order_type="physical_store", transaction_type="unpaid", status="completed", completed_date__range=(start, end)).prefetch_related("cost_snapshots"):
+        for snap in order.cost_snapshots.all(): cost += snap.total_cost
+        retail += order.total
+    return retail, cost
 
 
 def _procurement_spend(start, end):
@@ -56,8 +81,49 @@ def _procurement_spend(start, end):
 
 
 def _expense_spend(start, end):
-    return Expense.objects.filter(date__range=(start, end)).aggregate(total=Sum("amount"))["total"] or Decimal("0")
+    return Expense.objects.filter(date__range=(start, end), payment_status="paid").aggregate(total=Sum("amount"))["total"] or Decimal("0")
 
+
+def _cash_procurement(start, end):
+    """Actual procurement cash leaving accounts, including later supplier payments."""
+    return FinancialTransaction.objects.filter(
+        date__range=(start, end), transaction_type=FinancialTransaction.OUTFLOW,
+        category__in=("Procurement", "Supplier payment"),
+    ).aggregate(total=Sum("amount"))["total"] or Decimal("0")
+
+
+def _cash_outflow_breakdown(start, end):
+    """Cash outflow categories without counting unpaid inventory as cash."""
+    buckets = {"raw_materials": Decimal("0"), "production_materials": Decimal("0"), "operational_materials": Decimal("0"), "other_procurement": Decimal("0")}
+
+    def category_key(category):
+        if category == RawMaterial.CATEGORY_INGREDIENT: return "raw_materials"
+        if category in (RawMaterial.CATEGORY_PACKAGING, RawMaterial.CATEGORY_PRODUCTION_SUPPLY): return "production_materials"
+        if category == RawMaterial.CATEGORY_OPERATIONAL_SUPPLY: return "operational_materials"
+        return "other_procurement"
+
+    # Immediate payments made when a received PO was paid.
+    po_cache = {}
+    for tx in FinancialTransaction.objects.filter(date__range=(start,end), transaction_type=FinancialTransaction.OUTFLOW, category="Procurement"):
+        try: po_id=int((tx.reference or "").split("-")[-1])
+        except (TypeError,ValueError): po_id=None
+        if not po_id: buckets["other_procurement"] += tx.amount; continue
+        po=po_cache.get(po_id)
+        if po is None:
+            po=PurchaseOrder.objects.filter(pk=po_id).prefetch_related("items__raw_material").first(); po_cache[po_id]=po
+        if not po or not po.total:
+            buckets["other_procurement"] += tx.amount; continue
+        for line in po.items.all():
+            buckets[category_key(line.raw_material.category)] += tx.amount * ((line.line_total or Decimal("0"))/po.total)
+
+    # Later payments are tied directly to their PO.
+    for payment in SupplierPayment.objects.filter(date__range=(start,end)).select_related("purchase_order").prefetch_related("purchase_order__items__raw_material"):
+        po=payment.purchase_order
+        if not po or not po.total:
+            buckets["other_procurement"] += payment.amount; continue
+        for line in po.items.all():
+            buckets[category_key(line.raw_material.category)] += payment.amount * ((line.line_total or Decimal("0"))/po.total)
+    return buckets
 
 def _spend(start, end):
     return _procurement_spend(start, end) + _expense_spend(start, end)
@@ -111,7 +177,7 @@ def _financial_breakdown(start, end):
                 key = "other_procurement"
             procurement[key] += line.line_total or Decimal("0")
 
-    expense_qs = Expense.objects.filter(date__range=(start, end))
+    expense_qs = Expense.objects.filter(date__range=(start, end), payment_status="paid")
     misc_by_category = {}
     for expense in expense_qs:
         label = expense.get_category_display()
@@ -123,28 +189,36 @@ def _financial_breakdown(start, end):
         "online_order": "Online",
     }
     sales_by_channel = {label: Decimal("0") for label in channel_map.values()}
-    for sale in Sale.objects.filter(date__range=(start, end)).prefetch_related("items__finished_good"):
-        sales_by_channel[channel_map.get(sale.source, sale.source.replace("_", " ").title())] = \
-            sales_by_channel.get(channel_map.get(sale.source, sale.source.replace("_", " ").title()), Decimal("0")) + sale.total
+    for sale in Sale.objects.filter(date__range=(start, end), transaction_type="paid").prefetch_related("items__finished_good"):
+        label = channel_map.get(sale.source, sale.source.replace("_", " ").title())
+        sales_by_channel[label] = sales_by_channel.get(label, Decimal("0")) + sale.total
 
     production_orders = Order.objects.filter(
         status="completed", completed_date__range=(start, end)
     ).prefetch_related("items__finished_good")
     produced_units = _production_units(production_orders)
+    operational_dispensed_cost = Decimal("0")
+    for movement in StockMovement.objects.filter(movement_type=StockMovement.OPERATIONAL_DISPENSE, occurred_at__date__range=(start,end)):
+        operational_dispensed_cost += abs(movement.quantity or Decimal("0")) * (movement.unit_value or Decimal("0"))
 
     procurement_total = sum(procurement.values(), Decimal("0"))
     misc_total = sum(misc_by_category.values(), Decimal("0"))
     sales_total = sum(sales_by_channel.values(), Decimal("0"))
-    total_cash_out = procurement_total + misc_total
+    paid_sales_qs = Sale.objects.filter(date__range=(start, end), transaction_type="paid")
+    cogs = _sales_cogs(paid_sales_qs)
+    unpaid_retail, unpaid_cost = _unpaid_product_value(start, end)
+    cash_procurement = _cash_procurement(start, end)
+    total_cash_out = cash_procurement + misc_total
 
+    cash_procurement_breakdown = _cash_outflow_breakdown(start, end)
     outflows = [
-        ("Raw materials", procurement["raw_materials"]),
-        ("Production materials", procurement["production_materials"]),
-        ("Operational materials", procurement["operational_materials"]),
+        ("Raw materials", cash_procurement_breakdown["raw_materials"]),
+        ("Production materials", cash_procurement_breakdown["production_materials"]),
+        ("Operational materials", cash_procurement_breakdown["operational_materials"]),
     ]
     outflows.extend((label, amount) for label, amount in sorted(misc_by_category.items()) if amount)
-    if procurement["other_procurement"]:
-        outflows.append(("Other procurement", procurement["other_procurement"]))
+    if cash_procurement_breakdown["other_procurement"]:
+        outflows.append(("Other procurement / supplier payments", cash_procurement_breakdown["other_procurement"]))
 
     return {
         "start": start.isoformat(),
@@ -154,9 +228,16 @@ def _financial_breakdown(start, end):
         "outflows": [{"label": k, "value": float(v)} for k, v in outflows if v],
         "procurement": {k: float(v) for k, v in procurement.items()},
         "misc_total": float(misc_total),
+        "cash_procurement": float(cash_procurement),
+        "cash_procurement_breakdown": {k: float(v) for k,v in cash_procurement_breakdown.items()},
         "total_cash_out": float(total_cash_out),
         "net_cash_flow": float(sales_total - total_cash_out),
+        "cogs": float(cogs),
+        "gross_profit": float(sales_total - cogs),
+        "unpaid_product_retail_value": float(unpaid_retail),
+        "unpaid_product_cost_value": float(unpaid_cost),
         "produced_units": float(produced_units),
+        "operational_dispensed_cost": float(operational_dispensed_cost),
     }
 
 
@@ -175,15 +256,21 @@ def _financial_snapshot():
     for label, start, end in _financial_periods():
         sales = _sales_revenue(Sale.objects.filter(date__range=(start, end)))
         procurement = _procurement_spend(start, end)
+        cash_procurement = _cash_procurement(start, end)
         misc = _expense_spend(start, end)
-        spend = procurement + misc
+        spend = cash_procurement + misc
+        cogs = _sales_cogs(Sale.objects.filter(date__range=(start, end)))
         rows.append({
             "label": label,
             "sales": sales,
             "procurement": procurement,
+            "cash_procurement": cash_procurement,
             "misc": misc,
             "spend": spend,
-            "revenue": sales - spend,
+            "gross_profit": sales - cogs,
+            "cogs": cogs,
+            "net_cash_flow": sales - spend,
+            "revenue": sales - spend,  # backward-compatible export/dashboard key
         })
     return rows
 
@@ -206,7 +293,7 @@ def _financial_chart_series():
             Sale.objects.filter(date__gte=start, date__lte=end)
         )
 
-        procurement = _procurement_spend(start, end)
+        procurement = _cash_procurement(start, end)
         misc = _expense_spend(start, end)
 
         spend = procurement + misc
@@ -268,7 +355,7 @@ def _channel_breakdown(channel, start, end):
     source = {"distribution": "distribution_order", "online": "online_order"}.get(channel)
     if not source:
         return []
-    sales = Sale.objects.filter(source=source, date__range=(start, end)).select_related("linked_order").prefetch_related("items__finished_good")
+    sales = Sale.objects.filter(source=source, date__range=(start, end), transaction_type="paid").select_related("linked_order").prefetch_related("items__finished_good")
     buckets = {}
     for sale in sales:
         order = sale.linked_order
@@ -622,6 +709,9 @@ def _raw_search_detail(material):
         consumed = movements.filter(
             movement_type=StockMovement.RAW_CONSUMPTION
         ).aggregate(total=Sum("quantity"))["total"] or Decimal("0")
+        operational_dispensed = movements.filter(
+            movement_type=StockMovement.OPERATIONAL_DISPENSE
+        ).aggregate(total=Sum("quantity"))["total"] or Decimal("0")
         spend = sum((line.line_total or Decimal("0") for line in lines), Decimal("0"))
         qty = sum((line.qty or Decimal("0") for line in lines), Decimal("0"))
 
@@ -650,6 +740,7 @@ def _raw_search_detail(material):
             "purchase_unit": material.purchase_unit,
             "spend": _money(spend),
             "consumed_qty": _decimal(abs(consumed)),
+            "operational_dispensed_qty": _decimal(abs(operational_dispensed)),
             "usage_unit": material.usage_unit,
             "purchase_count": len(lines),
             "latest_unit_cost": _money(latest_unit_cost) if latest_unit_cost is not None else None,
@@ -657,6 +748,8 @@ def _raw_search_detail(material):
             "price_difference": _money(price_difference) if price_difference is not None else None,
             "price_difference_pct": _money(price_difference_pct) if price_difference_pct is not None else None,
         })
+
+    operational_dispenses = OperationalSupplyDispense.objects.filter(raw_material=material).select_related("location","created_by").order_by("-date","-id")[:50]
 
     price_history = [
         {
@@ -702,6 +795,7 @@ def _raw_search_detail(material):
             "reorder_unit": material.purchase_unit,
             "last_purchase": purchases[-1]["date"] if purchases else None,
             "supplier_count": len({p["supplier"] for p in purchases}),
+            "operational_dispensed": _decimal(sum((d.quantity for d in OperationalSupplyDispense.objects.filter(raw_material=material)), Decimal("0"))),
         },
         "periods": rows,
         "price_history": price_history,
@@ -770,6 +864,7 @@ def _finished_good_search_detail(good):
                     production_events += 1
         sold_units = Decimal("0")
         revenue = Decimal("0")
+        unpaid_value = Decimal("0")
         sale_events = 0
         for sale in sale_qs:
             matched = [item for item in sale.items.all() if item.finished_good_id == good.id]
@@ -777,7 +872,10 @@ def _finished_good_search_detail(good):
                 sale_events += 1
             for item in matched:
                 sold_units += item.total_units
-                revenue += item.line_total
+                if sale.transaction_type == "paid":
+                    revenue += item.line_total
+                else:
+                    unpaid_value += item.line_total
         # SaleItem.unit_cost is already frozen at sale time. For linked
         # customer orders it comes directly from that order's
         # ProductionCostSnapshot; walk-in sales use the latest production
@@ -786,7 +884,7 @@ def _finished_good_search_detail(good):
         historical_cost = Decimal("0")
         for sale in sale_qs:
             for sale_item in sale.items.all():
-                if sale_item.finished_good_id == good.id and sale_item.unit_cost is not None:
+                if sale.transaction_type == "paid" and sale_item.finished_good_id == good.id and sale_item.unit_cost is not None:
                     historical_cost += sale_item.total_units * sale_item.unit_cost
 
         period_rows.append({
@@ -796,8 +894,10 @@ def _finished_good_search_detail(good):
             "sold_units": _decimal(sold_units),
             "sale_events": sale_events,
             "revenue": _money(revenue),
+            "unpaid_product_value": _money(unpaid_value),
             "estimated_recipe_cost": _money(historical_cost),
-            "estimated_gross_margin": _money(revenue - historical_cost),
+            "gross_profit": _money(revenue - historical_cost),
+            "gross_margin_pct": _money((revenue - historical_cost) / revenue * Decimal("100")) if revenue else 0,
         })
 
     sales_by_channel = []
@@ -813,7 +913,8 @@ def _finished_good_search_detail(good):
             for item in sale.items.all():
                 if item.finished_good_id == good.id:
                     units += item.total_units
-                    revenue += item.line_total
+                    if sale.transaction_type == "paid":
+                        revenue += item.line_total
         sales_by_channel.append({
             "channel": label,
             "units": _decimal(units),
@@ -980,7 +1081,8 @@ def _customer_search_detail(name, channel):
         units = Decimal("0")
         revenue = Decimal("0")
         for sale in sales:
-            revenue += sale.total
+            if sale.transaction_type == "paid":
+                revenue += sale.total
             for item in sale.items.all():
                 units += item.total_units
         rows.append(_period_row(label, start, revenue=revenue, units=units, events=orders.count()))
@@ -988,7 +1090,8 @@ def _customer_search_detail(name, channel):
     total_revenue = Decimal("0")
     units = Decimal("0")
     for sale in sale_qs:
-        total_revenue += sale.total
+        if sale.transaction_type == "paid":
+            total_revenue += sale.total
         for item in sale.items.all():
             units += item.total_units
     last_order = order_qs.order_by("-date", "-id").first()
@@ -1025,7 +1128,7 @@ def _customer_search_detail(name, channel):
             for o in order_qs[:50]
         ],
         "sales": [
-            {"date": s.date.isoformat(), "total": _money(s.total), "payment": s.payment_method}
+            {"date": s.date.isoformat(), "total": _money(s.total), "payment": (s.payment_method if s.transaction_type == "paid" else s.get_transaction_type_display())}
             for s in sale_qs[:50]
         ],
     }
@@ -1044,7 +1147,7 @@ def _segment_search_detail(kind, value):
     for label, start in _search_periods():
         os = orders.filter(date__range=(start, today()))
         ss = sales.filter(date__range=(start, today()))
-        revenue = sum((s.total for s in ss), Decimal("0"))
+        revenue = sum((s.total for s in ss if s.transaction_type == "paid"), Decimal("0"))
         periods.append(_period_row(label, start, revenue=revenue, events=os.count()))
     customers = sorted({o.customer_name for o in orders if o.customer_name})
     return {
@@ -1247,7 +1350,7 @@ def _procurement_rows():
     rows = []
     for p in PurchaseOrder.objects.prefetch_related("items__raw_material"):
         for i in p.items.all():
-            rows.append([p.date, p.received_date, p.supplier, p.status, i.raw_material.name, i.raw_material.get_category_display(), i.qty, i.raw_material.purchase_unit, i.unit_cost, i.line_total])
+            rows.append([p.date, p.received_date, p.supplier, p.status, p.payment_status, p.payment_method, i.raw_material.name, i.raw_material.get_category_display(), i.qty, i.raw_material.purchase_unit, i.unit_cost, i.line_total])
     return rows
 
 
@@ -1255,7 +1358,7 @@ def _production_rows():
     rows = []
     for o in Order.objects.filter(status="completed").prefetch_related("items__finished_good"):
         for item in o.items.all():
-            rows.append([o.completed_date, o.get_order_type_display(), o.customer_name, item.finished_good.name, item.total_units, item.line_total])
+            rows.append([o.completed_date, o.get_order_type_display(), o.transaction_type, o.unpaid_description, o.customer_name, item.finished_good.name, item.total_units, item.line_total])
     return rows
 
 
@@ -1264,14 +1367,22 @@ def _sales_rows(qs=None):
     rows = []
     for s in qs.prefetch_related("items__finished_good"):
         items = ", ".join(f"{i.finished_good.name} x{i.total_units}" for i in s.items.all())
-        rows.append([s.date, s.customer, items, s.total, s.payment_method, s.get_source_display()])
+        rows.append([s.date, s.customer, items, s.total, s.transaction_type, s.unpaid_description, s.payment_method, s.get_source_display()])
     return rows
+
+
+
+def _adjustment_rows():
+    return [[a.date, a.raw_material.name if a.raw_material else a.finished_good.name, "Raw material" if a.raw_material else "Finished good", a.get_reason_display(), a.quantity, a.unit_value, a.value, a.description, a.location.name if a.location else ""] for a in StockAdjustment.objects.select_related("raw_material","finished_good","location")]
+
+def _operational_dispense_rows():
+    return [[d.date, d.raw_material.name, d.raw_material.usage_unit, d.quantity, d.get_reason_display(), d.description, d.location.name if d.location else "", d.created_by.username if d.created_by else ""] for d in OperationalSupplyDispense.objects.select_related("raw_material","location","created_by")]
 
 
 def _expense_rows():
     rows = []
     for e in Expense.objects.all():
-        rows.append([e.date, e.get_category_display(), e.description, e.vendor, e.amount, e.notes])
+        rows.append([e.date, e.get_category_display(), e.description, e.vendor, e.amount, e.payment_status, e.payment_method, e.notes])
     return rows
 
 
@@ -1287,22 +1398,22 @@ def export_stock_xlsx(request):
 
 @login_required
 def export_procurement_csv(request):
-    return _csv_response("procurement-report.csv", ["Date", "Received Date", "Supplier", "Status", "Item", "Category", "Qty", "Purchase Unit", "Unit Cost", "Line Total"], _procurement_rows())
+    return _csv_response("procurement-report.csv", ["Date", "Received Date", "Supplier", "Status", "Payment Status", "Payment Method", "Item", "Category", "Qty", "Purchase Unit", "Unit Cost", "Line Total"], _procurement_rows())
 
 
 @login_required
 def export_procurement_xlsx(request):
-    return _xlsx_response("procurement-report.xlsx", "Procurement", ["Date", "Received Date", "Supplier", "Status", "Item", "Category", "Qty", "Purchase Unit", "Unit Cost", "Line Total"], _procurement_rows())
+    return _xlsx_response("procurement-report.xlsx", "Procurement", ["Date", "Received Date", "Supplier", "Status", "Payment Status", "Payment Method", "Item", "Category", "Qty", "Purchase Unit", "Unit Cost", "Line Total"], _procurement_rows())
 
 
 @login_required
 def export_production_csv(request):
-    return _csv_response("production-report.csv", ["Date", "Type", "Customer", "Product", "Qty produced", "Order Value"], _production_rows())
+    return _csv_response("production-report.csv", ["Date", "Type", "Transaction", "Unpaid Reason", "Customer", "Product", "Qty produced", "Order Value"], _production_rows())
 
 
 @login_required
 def export_production_xlsx(request):
-    return _xlsx_response("production-report.xlsx", "Production", ["Date", "Type", "Customer", "Product", "Qty produced", "Order Value"], _production_rows())
+    return _xlsx_response("production-report.xlsx", "Production", ["Date", "Type", "Transaction", "Unpaid Reason", "Customer", "Product", "Qty produced", "Order Value"], _production_rows())
 
 
 @login_required
@@ -1314,7 +1425,7 @@ def export_sales_csv(request):
         qs = qs.filter(date__gte=date_from)
     if date_to:
         qs = qs.filter(date__lte=date_to)
-    return _csv_response("sales-report.csv", ["Date", "Customer", "Items", "Total", "Payment", "Source"], _sales_rows(qs))
+    return _csv_response("sales-report.csv", ["Date", "Customer", "Items", "Total", "Transaction", "Unpaid Reason", "Payment", "Source"], _sales_rows(qs))
 
 
 @login_required
@@ -1326,35 +1437,56 @@ def export_sales_xlsx(request):
         qs = qs.filter(date__gte=date_from)
     if date_to:
         qs = qs.filter(date__lte=date_to)
-    return _xlsx_response("sales-report.xlsx", "Sales", ["Date", "Customer", "Items", "Total", "Payment", "Source"], _sales_rows(qs))
+    return _xlsx_response("sales-report.xlsx", "Sales", ["Date", "Customer", "Items", "Total", "Transaction", "Unpaid Reason", "Payment", "Source"], _sales_rows(qs))
 
 
 @login_required
 def export_expenses_csv(request):
-    return _csv_response("expenses-report.csv", ["Date", "Category", "Description", "Vendor", "Amount", "Notes"], _expense_rows())
+    return _csv_response("expenses-report.csv", ["Date", "Category", "Description", "Vendor", "Amount", "Payment Status", "Payment Method", "Notes"], _expense_rows())
 
 
 @login_required
 def export_expenses_xlsx(request):
-    return _xlsx_response("expenses-report.xlsx", "Expenses", ["Date", "Category", "Description", "Vendor", "Amount", "Notes"], _expense_rows())
+    return _xlsx_response("expenses-report.xlsx", "Expenses", ["Date", "Category", "Description", "Vendor", "Amount", "Payment Status", "Payment Method", "Notes"], _expense_rows())
+
+
+@login_required
+def export_adjustments_csv(request):
+    return _csv_response("stock-adjustments.csv", ["Date", "Item", "Type", "Reason", "Quantity", "Unit Value", "Value", "Description", "Location"], _adjustment_rows())
+
+@login_required
+def export_adjustments_xlsx(request):
+    return _xlsx_response("stock-adjustments.xlsx", "Adjustments", ["Date", "Item", "Type", "Reason", "Quantity", "Unit Value", "Value", "Description", "Location"], _adjustment_rows())
+
+@login_required
+def export_operational_dispenses_csv(request):
+    return _csv_response("operational-supply-dispenses.csv", ["Date","Operational supply","Usage unit","Quantity","Reason","Description","Location","Logged by"], _operational_dispense_rows())
+
+
+@login_required
+def export_operational_dispenses_xlsx(request):
+    return _xlsx_response("operational-supply-dispenses.xlsx", "Operational Dispenses", ["Date","Operational supply","Usage unit","Quantity","Reason","Description","Location","Logged by"], _operational_dispense_rows())
 
 
 @login_required
 def export_financial_csv(request):
-    rows = [[r["label"], r["sales"], r["procurement"], r["misc"], r["spend"], r["revenue"]] for r in _financial_snapshot()]
-    return _csv_response("financial-summary.csv", ["Period", "Sales", "Procurement Spend", "Misc Spend", "Total Spend", "Revenue"], rows)
+    rows = [[r["label"], r["sales"], r["cogs"], r["gross_profit"], r["procurement"], r["cash_procurement"], r["misc"], r["spend"], r["net_cash_flow"]] for r in _financial_snapshot()]
+    return _csv_response("financial-summary.csv", ["Period", "Paid Sales", "COGS", "Gross Profit", "Procurement Received", "Procurement Cash Paid", "Expenses Paid", "Cash Outflow", "Net Cash Flow"], rows)
 
 
 @login_required
 def export_financial_xlsx(request):
-    rows = [[r["label"], r["sales"], r["procurement"], r["misc"], r["spend"], r["revenue"]] for r in _financial_snapshot()]
-    return _xlsx_response("financial-summary.xlsx", "Financial Summary", ["Period", "Sales", "Procurement Spend", "Misc Spend", "Total Spend", "Revenue"], rows)
+    rows = [[r["label"], r["sales"], r["cogs"], r["gross_profit"], r["procurement"], r["cash_procurement"], r["misc"], r["spend"], r["net_cash_flow"]] for r in _financial_snapshot()]
+    return _xlsx_response("financial-summary.xlsx", "Financial Summary", ["Period", "Paid Sales", "COGS", "Gross Profit", "Procurement Received", "Procurement Cash Paid", "Expenses Paid", "Cash Outflow", "Net Cash Flow"], rows)
 
 
 @login_required
 def backup_json(request):
-    models_to_dump = [Business, RawMaterial, FinishedGood, RecipeItem, ProductionMaterial, StockMovement,
-                      PurchaseOrder, PurchaseOrderItem, Order, OrderItem, Sale, SaleItem, Expense]
+    from .models import CashAccount, AuditLog
+    from procurement.models import SupplierPayment
+    from sales.models import CustomerPayment
+    models_to_dump = [Business, CashAccount, FinancialTransaction, AuditLog, RawMaterial, FinishedGood, RecipeItem, ProductionMaterial, StockMovement, OperationalSupplyDispense,
+                      PurchaseOrder, PurchaseOrderItem, SupplierPayment, Order, OrderItem, Sale, SaleItem, CustomerPayment, Expense]
     objects = []
     for model in models_to_dump:
         objects.extend(model.objects.all())

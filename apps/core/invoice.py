@@ -136,6 +136,9 @@ def purchase_order_pdf(order):
     styles = _styles()
     story.append(Spacer(1, 5 * mm))
     story.append(Paragraph(f"Status: {order.get_status_display()}", styles["body"]))
+    story.append(Paragraph(f"Payment status: <b>{order.get_payment_status_display()}</b> · Method: {order.payment_method}", styles["body"]))
+    if order.account:
+        story.append(Paragraph(f"Payment account: {order.account.name}", styles["body"]))
     if order.received_date:
         story.append(Paragraph(f"Received: {_date(order.received_date)}", styles["body"]))
     return _build(story, f"purchase-order-{order.pk}.pdf")
@@ -171,8 +174,13 @@ def production_order_pdf(order):
         story.append(Paragraph(f"Region: {order.customer_region}", styles["body"]))
     if order.customer_group:
         story.append(Paragraph(f"Customer group: {order.customer_group}", styles["body"]))
-    if order.payment_method and order.order_type != "physical_store":
-        story.append(Paragraph(f"Payment method: {order.payment_method}", styles["body"]))
+    if is_customer_order:
+        payment_label = "Received" if order.customer_payment_status == "paid" else "Receivable"
+        story.append(Paragraph(f"Payment status: <b>{payment_label}</b>", styles["body"]))
+        if order.customer_payment_status == "paid":
+            story.append(Paragraph(f"Payment method: <b>{order.customer_payment_method}</b>", styles["body"]))
+    else:
+        story.append(Paragraph(f"Payment status: <b>{'Paid / shelf stock' if order.transaction_type == 'paid' else 'Non-cash product issue'}</b>", styles["body"]))
     if order.notes:
         story.append(Spacer(1, 2 * mm))
         story.append(Paragraph(f"Notes: {order.notes}", styles["small"]))
@@ -193,6 +201,8 @@ def expense_invoice_pdf(expense):
         ["Category", expense.get_category_display()],
         ["Description", expense.description or "—"],
         ["Notes", expense.notes or "—"],
+        ["Payment status", expense.get_payment_status_display()],
+        ["Payment method", expense.payment_method or "—"],
     ]
     data = [[Paragraph(f"<b>Field</b>", styles["body"]), Paragraph(f"<b>Details</b>", styles["body"])]]
     for label, value in rows:
@@ -232,6 +242,9 @@ def sale_invoice_pdf(sale):
     styles = _styles()
     story.append(Spacer(1, 5 * mm))
     story.append(Paragraph(f"Source: {sale.get_source_display()}", styles["body"]))
+    story.append(Paragraph(f"Transaction: <b>{sale.get_transaction_type_display()}</b>", styles["body"]))
+    if sale.transaction_type == "unpaid" and sale.unpaid_description:
+        story.append(Paragraph(f"Unpaid reason: {sale.unpaid_description}", styles["small"]))
     story.append(Paragraph(f"Payment method: {sale.payment_method}", styles["body"]))
     if sale.linked_order_id:
         story.append(Paragraph(f"Linked production order: #{sale.linked_order_id}", styles["body"]))

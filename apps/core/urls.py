@@ -1,5 +1,7 @@
 from django.urls import path
 from . import views
+from . import finance_views as finance
+from expenses import views as expense_views
 
 urlpatterns = [
     path("", views.dashboard, name="dashboard"),
@@ -17,6 +19,17 @@ urlpatterns = [
     path("reports/export/sales.xlsx", views.export_sales_xlsx, name="export_sales_xlsx"),
     path("reports/export/expenses.csv", views.export_expenses_csv, name="export_expenses_csv"),
     path("reports/export/expenses.xlsx", views.export_expenses_xlsx, name="export_expenses_xlsx"),
+    path("reports/export/adjustments.csv", views.export_adjustments_csv, name="export_adjustments_csv"),
+    path("reports/export/adjustments.xlsx", views.export_adjustments_xlsx, name="export_adjustments_xlsx"),
+    path("reports/export/operational-dispenses.csv", views.export_operational_dispenses_csv, name="export_operational_dispenses_csv"),
+    path("reports/export/operational-dispenses.xlsx", views.export_operational_dispenses_xlsx, name="export_operational_dispenses_xlsx"),
     path("reports/export/financial.csv", views.export_financial_csv, name="export_financial_csv"),
     path("reports/export/financial.xlsx", views.export_financial_xlsx, name="export_financial_xlsx"),
+    path("finance/", finance.finance_dashboard, name="finance_dashboard"),
+    path("finance/accounts/add/", finance.cash_account_form, name="cash_account_add"),
+    path("finance/accounts/<int:pk>/edit/", finance.cash_account_form, name="cash_account_edit"),
+    path("finance/supplier-payment/add/", finance.supplier_payment_form, name="supplier_payment_add"),
+    path("finance/customer-payment/add/", finance.customer_payment_form, name="customer_payment_add"),
+    path("finance/stock-adjustment/add/", finance.stock_adjustment_form, name="stock_adjustment_add"),
+    path("finance/expense-payment/add/", expense_views.expense_payment_form, name="expense_payment_add"),
 ]

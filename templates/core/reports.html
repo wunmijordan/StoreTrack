@@ -44,6 +44,19 @@
     <a href="{% url 'export_expenses_xlsx' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] border border-[#D9CFB4] inline-block ml-1">Excel</a>
   </div>
   <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[2px_2px_8px_#000000d2] p-4">
+    <h3 class="font-medium text-sm mb-1">Inventory Adjustments</h3>
+    <p class="text-xs text-stone-500 mb-3">Count corrections, wastage, damage, returns, staff and charity issues.</p>
+    <a href="{% url 'stock_adjustment_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white inline-block">Record adjustment</a>
+    <a href="{% url 'export_adjustments_xlsx' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] border border-[#D9CFB4] inline-block ml-1">Excel</a>
+  </div>
+  <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[2px_2px_8px_#000000d2] p-4">
+    <h3 class="font-medium text-sm mb-1">Operational Supply Dispenses</h3>
+    <p class="text-xs text-stone-500 mb-3">Manual issues of procured operational supplies, with quantity, reason and location.</p>
+    <a href="{% url 'operational_supply_dispense' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white inline-block">Record dispense</a>
+    <a href="{% url 'export_operational_dispenses_xlsx' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] border border-[#D9CFB4] inline-block ml-1">Excel</a>
+    <a href="{% url 'export_operational_dispenses_csv' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] border border-[#D9CFB4] inline-block ml-1">CSV</a>
+  </div>
+  <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[2px_2px_8px_#000000d2] p-4">
     <h3 class="font-medium text-sm mb-1">Financial Summary</h3>
     <p class="text-xs text-stone-500 mb-3">Sales, procurement spend, miscellaneous spend and net revenue by period.</p>
     <a href="{% url 'export_financial_csv' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] border border-[#D9CFB4] inline-block">CSV</a>

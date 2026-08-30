@@ -2,14 +2,71 @@ from decimal import Decimal
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db import transaction
+from django.utils import timezone
 from django.shortcuts import get_object_or_404, redirect, render
 from django.http import JsonResponse
 from django.db.models import Q, Sum
 from django.db.models.functions import TruncDate
 
 from .forms import RawMaterialForm, FinishedGoodForm, FinishedGoodChannelPriceFormSet, RecipeItemFormSet, ProductionMaterialFormSet
-from .models import RawMaterial, FinishedGood, StockMovement
+from .models import RawMaterial, FinishedGood, StockMovement, OperationalSupplyDispense, InventoryLocation
+from core.services import audit
+from .services import default_location, record_raw_material_movement
 
+
+
+@login_required
+def operational_supply_dispense(request):
+    from django import forms
+    class DispenseForm(forms.ModelForm):
+        class Meta:
+            model = OperationalSupplyDispense
+            fields = ["date", "raw_material", "quantity", "reason", "description", "location"]
+            widgets = {"date": forms.DateInput(attrs={"type": "date"})}
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            for field in self.fields.values():
+                field.widget.attrs["class"] = "w-full rounded-md border border-[#D9CFB4] bg-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#8f172d]/30 focus:border-[#8f172d]"
+            self.fields["raw_material"].queryset = RawMaterial.objects.filter(
+                category=RawMaterial.CATEGORY_OPERATIONAL_SUPPLY
+            ).order_by("name")
+            self.fields["location"].queryset = InventoryLocation.objects.filter(active=True).order_by("name")
+        def clean_quantity(self):
+            q = self.cleaned_data["quantity"]
+            if q <= 0: raise forms.ValidationError("Quantity must be greater than zero.")
+            return q
+        def clean_description(self):
+            value = self.cleaned_data["description"].strip()
+            if not value: raise forms.ValidationError("Describe how or why the supply was dispensed.")
+            return value
+        def clean_raw_material(self):
+            m = self.cleaned_data["raw_material"]
+            if m.category != RawMaterial.CATEGORY_OPERATIONAL_SUPPLY:
+                raise forms.ValidationError("Only operational supplies can be dispensed here.")
+            return m
+
+    form = DispenseForm(request.POST or None, initial={"date": timezone.localdate()})
+    if request.method == "POST" and form.is_valid():
+        with transaction.atomic():
+            obj = form.save(commit=False)
+            obj.business = request.business
+            obj.created_by = request.user
+            if obj.location_id is None:
+                obj.location = default_location(request.business)
+            if obj.quantity > obj.raw_material.stock:
+                form.add_error("quantity", f"Only {obj.raw_material.stock} {obj.raw_material.usage_unit} is available.")
+            else:
+                obj.save()
+                record_raw_material_movement(
+                    obj.raw_material, -obj.quantity, StockMovement.OPERATIONAL_DISPENSE,
+                    note=obj.description, reference=f"DISP-{obj.pk}",
+                    location=obj.location,
+                )
+                audit(request.business, request.user, "create", obj, f"Operational supply {obj.raw_material.name} dispensed", {"quantity": str(obj.quantity), "reason": obj.reason})
+                messages.success(request, "Operational supply dispensed and stock updated.")
+                return redirect("inventory")
+    return render(request, "inventory/operational_supply_dispense.html", {"form": form, "raw_material_units": {str(m.pk): m.usage_unit for m in RawMaterial.objects.filter(category=RawMaterial.CATEGORY_OPERATIONAL_SUPPLY)}})
 
 
 @login_required
@@ -31,6 +88,7 @@ def raw_material_form(request, pk=None):
             if obj is None:
                 m.created_by = request.user
             m.save()
+            audit(request.business, request.user, "create" if obj is None else "update", m, f"Raw material {m.name} saved")
             messages.success(request, "Raw material saved.")
             return redirect("inventory")
     else:
@@ -67,6 +125,7 @@ def finished_good_form(request, pk=None):
             formset.save()
             production_formset.save()
             channel_price_formset.save()
+            audit(request.business, request.user, "create" if obj is None else "update", good, f"Finished good {good.name} saved")
             messages.success(request, "Product saved.")
             return redirect("inventory")
     else:

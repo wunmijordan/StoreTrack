@@ -4,18 +4,19 @@ from core.models import BusinessOwnedModel, TimestampedModel
 
 
 class Sale(BusinessOwnedModel):
-    """Every row here represents a completed transaction — money already
-    changed hands. Created two ways: directly via 'New Sale' (physical
-    store stock, immediate), or automatically when a linked customer Order
-    completes (see production.Order.complete). There's no pending state
-    here — a customer order's pending/approved/completed lifecycle lives
-    entirely on the Order; this only exists once that's already done."""
+    """A completed stock/sales event. Physical-store rows may be paid or
+    unpaid product issues; Distribution/Online rows may remain receivables
+    until Finance records one or more CustomerPayment entries."""
 
     PAYMENT_CHOICES = [("Cash", "Cash"), ("Card", "Card"), ("Transfer", "Transfer")]
+    TRANSACTION_CHOICES = [("paid", "Paid"), ("partial", "Partially Paid"), ("unpaid", "Unpaid")]
     SOURCE_CHOICES = [("walkin", "Physical Store"), ("distribution_order", "Distribution Order"), ("online_order", "Online Order")]
 
     date = models.DateField()
     customer = models.CharField(max_length=120, blank=True, default="Walk-in")
+    transaction_type = models.CharField(max_length=10, choices=TRANSACTION_CHOICES, default="paid", help_text="Payment state. Physical-store unpaid sales are non-cash issues; customer-order sales are receivables until Finance records payment.")
+    unpaid_description = models.CharField(max_length=255, blank=True, default="", help_text="Reason for physical-store unpaid issue, or receivable note for customer orders.")
+    account = models.ForeignKey("core.CashAccount", null=True, blank=True, on_delete=models.PROTECT, related_name="sales")
     payment_method = models.CharField(max_length=10, choices=PAYMENT_CHOICES, default="Cash")
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default="walkin")
     linked_order = models.ForeignKey(
@@ -59,3 +60,14 @@ class SaleItem(TimestampedModel):
         50 units at 1500 with a 200 discount is (1500-200)*50 = 65,000,
         not 1500*50-200."""
         return self.total_units * ((self.price or Decimal("0")) - (self.discount or Decimal("0")))
+
+class CustomerPayment(BusinessOwnedModel):
+    date = models.DateField()
+    customer = models.CharField(max_length=120)
+    amount = models.DecimalField(max_digits=16, decimal_places=2)
+    payment_method = models.CharField(max_length=10, choices=Sale.PAYMENT_CHOICES, default="Cash")
+    reference = models.CharField(max_length=80, blank=True, default="")
+    notes = models.CharField(max_length=255, blank=True, default="")
+    sale = models.ForeignKey(Sale, null=True, blank=True, on_delete=models.PROTECT, related_name="payments")
+    account = models.ForeignKey("core.CashAccount", null=True, blank=True, on_delete=models.PROTECT, related_name="customer_payments")
+    class Meta: ordering = ["-date", "-id"]

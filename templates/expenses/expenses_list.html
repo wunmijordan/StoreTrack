@@ -9,13 +9,13 @@
   <div class="flex gap-2">
     <a href="{% url 'export_expenses_csv' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] hover:bg-[#E7DFCC] border border-[#D9CFB4]">Export CSV</a>
     <a href="{% url 'export_expenses_xlsx' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] hover:bg-[#E7DFCC] border border-[#D9CFB4]">Export Excel</a>
-    <a href="{% url 'expense_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">+ Record Expense</a>
+    {% if module_permissions.expenses.edit %}<a href="{% url 'expense_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">+ Record Expense</a>{% endif %}
   </div>
 </div>
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] overflow-x-auto overflow-y-auto max-h-[34rem]">
   <table class="min-w-max w-full text-sm">
     <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
-      <th class="px-3 py-2 text-left">Date</th><th class="px-3 py-2 text-left">Category</th><th class="px-3 py-2 text-left">Description</th><th class="px-3 py-2 text-left">Vendor</th><th class="px-3 py-2 text-right">Amount</th><th class="px-3 py-2 text-left">Logged by</th><th></th>
+      <th class="px-3 py-2 text-left">Date</th><th class="px-3 py-2 text-left">Category</th><th class="px-3 py-2 text-left">Description</th><th class="px-3 py-2 text-left">Vendor</th><th class="px-3 py-2 text-left">Payment</th><th class="px-3 py-2 text-right">Amount</th><th class="px-3 py-2 text-left">Logged by</th><th></th>
     </tr></thead>
     <tbody>
       {% for e in expenses %}
@@ -25,10 +25,11 @@
         <td class="px-3 py-2">{{ e.description }}</td>
         <td class="px-3 py-2 text-xs text-stone-500">{{ e.vendor|default:"—" }}</td>
         
+        <td class="px-3 py-2 text-xs">{% if e.payment_status == 'unpaid' %}<span class="text-amber-700">Unpaid</span>{% else %}<span class="text-emerald-700">Paid</span>{% endif %}</td>
         <td class="px-3 py-2 text-right font-mono">{{ e.amount|money:biz.currency_symbol }}</td>
         <td class="px-3 py-2 text-xs text-stone-500">{{ e.created_by.username|default:"—" }}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap">
-          <a href="{% url 'expense_invoice' e.pk %}" class="text-[#8f172d] hover:text-[#4D1C25] mr-2">PDF</a><a href="{% url 'expense_edit' e.pk %}" class="text-stone-400 hover:text-[#8f172d] mr-2">Edit</a>
+          <a href="{% url 'expense_invoice' e.pk %}" class="text-[#8f172d] hover:text-[#4D1C25] mr-2">PDF</a>{% if module_permissions.expenses.edit %}<a href="{% url 'expense_edit' e.pk %}" class="text-stone-400 hover:text-[#8f172d] mr-2">Edit</a>{% endif %}
           <form action="{% url 'expense_delete' e.pk %}" method="post" class="inline" onsubmit="return confirm('Delete this expense?');">{% csrf_token %}<button class="text-stone-400 hover:text-rose-600">Delete</button></form>
         </td>
       </tr>

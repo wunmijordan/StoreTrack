@@ -235,11 +235,77 @@ class ProductionMaterial(TimestampedModel):
         return f"{self.qty_per_batch} {self.raw_material.usage_unit} {self.raw_material.name} / batch of {self.finished_good.name}"
 
 
+class InventoryLocation(BusinessOwnedModel):
+    name = models.CharField(max_length=80)
+    location_type = models.CharField(max_length=30, default="store")
+    active = models.BooleanField(default=True)
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["business", "name"], name="unique_inventory_location_per_business")]
+        ordering = ["name"]
+    def __str__(self): return self.name
+
+
+class StockAdjustment(BusinessOwnedModel):
+    REASON_CHOICES = [
+        ("count", "Physical count correction"), ("wastage", "Wastage / spoilage"),
+        ("damage", "Damage"), ("return_customer", "Customer return"),
+        ("return_supplier", "Supplier return"), ("internal", "Internal use"),
+        ("charity", "Charity / donation"), ("staff", "Staff issue"), ("other", "Other"),
+    ]
+    date = models.DateField()
+    raw_material = models.ForeignKey(RawMaterial, null=True, blank=True, on_delete=models.PROTECT, related_name="adjustments")
+    finished_good = models.ForeignKey(FinishedGood, null=True, blank=True, on_delete=models.PROTECT, related_name="adjustments")
+    quantity = models.DecimalField(max_digits=14, decimal_places=2)
+    reason = models.CharField(max_length=30, choices=REASON_CHOICES, default="count")
+    description = models.CharField(max_length=255)
+    unit_value = models.DecimalField(max_digits=16, decimal_places=6, default=0)
+    location = models.ForeignKey(InventoryLocation, null=True, blank=True, on_delete=models.PROTECT)
+    reversed = models.BooleanField(default=False)
+    class Meta: ordering = ["-date", "-id"]
+    @property
+    def value(self): return self.quantity * self.unit_value
+
+
+class OperationalSupplyDispense(BusinessOwnedModel):
+    """Records operational supplies consumed outside production recipes.
+
+    Quantities are entered in the material's usage unit and create a stock
+    movement, so operational supplies participate in the same inventory
+    ledger and reorder monitoring as production materials.
+    """
+    REASON_CHOICES = [
+        ("cleaning", "Cleaning / sanitation"),
+        ("staff", "Staff use"),
+        ("office", "Office / administrative use"),
+        ("maintenance", "Maintenance"),
+        ("charity", "Charity / service"),
+        ("other", "Other"),
+    ]
+    date = models.DateField()
+    raw_material = models.ForeignKey(
+        RawMaterial, on_delete=models.PROTECT, related_name="operational_dispenses"
+    )
+    quantity = models.DecimalField(max_digits=14, decimal_places=2)
+    reason = models.CharField(max_length=20, choices=REASON_CHOICES, default="other")
+    description = models.CharField(max_length=255)
+    location = models.ForeignKey(
+        "InventoryLocation", null=True, blank=True, on_delete=models.PROTECT, related_name="operational_dispenses"
+    )
+
+    class Meta:
+        ordering = ["-date", "-id"]
+
+    def __str__(self):
+        return f"{self.raw_material.name} — {self.quantity} {self.raw_material.usage_unit}"
+
+
 class StockMovement(BusinessOwnedModel):
     RAW_PURCHASE = "raw_purchase"
     RAW_CONSUMPTION = "raw_consumption"
     FG_PRODUCTION = "fg_production"
     FG_SALE = "fg_sale"
+    FG_UNPAID_ISSUE = "fg_unpaid_issue"
+    OPERATIONAL_DISPENSE = "operational_dispense"
     ADJUSTMENT = "adjustment"
 
     MOVEMENT_TYPES = [
@@ -247,6 +313,8 @@ class StockMovement(BusinessOwnedModel):
         (RAW_CONSUMPTION, "Raw material consumption"),
         (FG_PRODUCTION, "Finished goods production"),
         (FG_SALE, "Finished goods sale"),
+        (FG_UNPAID_ISSUE, "Unpaid product issue"),
+        (OPERATIONAL_DISPENSE, "Operational supply dispense"),
         (ADJUSTMENT, "Adjustment"),
     ]
 
@@ -288,16 +356,17 @@ class StockMovement(BusinessOwnedModel):
     balance_after = models.DecimalField(
         max_digits=14,
         decimal_places=2,
-        help_text="Stock balance immediately after this movement.",
+        null=True,
+        blank=True,
+        help_text="Stock balance immediately after this movement. Null for non-stock events.",
     )
 
     occurred_at = models.DateTimeField(auto_now_add=True)
 
-    note = models.CharField(
-        max_length=255,
-        blank=True,
-        default="",
-    )
+    note = models.CharField(max_length=255, blank=True, default="")
+    reference = models.CharField(max_length=80, blank=True, default="")
+    unit_value = models.DecimalField(max_digits=16, decimal_places=6, default=0)
+    location = models.ForeignKey(InventoryLocation, null=True, blank=True, on_delete=models.PROTECT, related_name="stock_movements")
 
     class Meta:
         ordering = ["-occurred_at"]

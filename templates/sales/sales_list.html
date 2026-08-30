@@ -4,12 +4,12 @@
 <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
   <div>
     <h2 class="text-xl font-semibold font-display text-[#8f172d]">Sales</h2>
-    <p class="text-sm text-stone-500 mt-0.5">All-time Revenue: {{ total_revenue|default:0|money:biz.currency_symbol }}</p>
+    <p class="text-sm text-stone-500 mt-0.5">All-time Revenue: {{ total_revenue|default:0|money:biz.currency_symbol }} <span class="ml-2 text-amber-700">Unpaid product value: {{ unpaid_value|default:0|money:biz.currency_symbol }}</span></p>
   </div>
   <div class="flex gap-2">
     <a href="{% url 'export_sales_xlsx' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] hover:bg-[#E7DFCC] border border-[#D9CFB4]">Export Excel</a>
     <a href="{% url 'export_sales_csv' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] hover:bg-[#E7DFCC] border border-[#D9CFB4]">Export CSV</a>
-    <a href="{% url 'sale_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">+ New Sale</a>
+    {% if module_permissions.sales.edit %}<a href="{% url 'sale_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">+ New Sale</a>{% endif %}
   </div>
 </div>
 
@@ -19,7 +19,7 @@
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] mb-8 overflow-x-auto overflow-y-auto max-h-[28rem]">
   <table class="min-w-max w-full text-sm">
     <thead class="bg-[#F0EAD9] text-stone-600 text-md text-middle"><tr>
-      <th class="px-3 py-2">Date</th><th class="px-3 py-2">Customer</th><th class="px-3 py-2">Items</th><th class="px-3 py-2">Total</th><th class="px-3 py-2">Source</th><th class="px-3 py-2">Payment</th><th class="px-3 py-2">Logged by</th><th class="w-24"></th>
+      <th class="px-3 py-2">Date</th><th class="px-3 py-2">Customer</th><th class="px-3 py-2">Items</th><th class="px-3 py-2">Total</th><th class="px-3 py-2">Source</th><th class="px-3 py-2">Transaction</th><th class="px-3 py-2">Payment</th><th class="px-3 py-2">Logged by</th><th class="w-24"></th>
     </tr></thead>
     <tbody>
       {% for s in sales %}
@@ -32,11 +32,22 @@
           <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium border {% if s.source == 'online_order' %}bg-fuchsia-50 text-fuchsia-800 border-fuchsia-300{% elif s.source == 'distribution_order' %}bg-sky-50 text-sky-800 border-sky-300{% else %}bg-violet-50 text-violet-800 border-violet-300{% endif %}">{{ s.get_source_display }}</span>
           {% if s.linked_order %}<a href="{% url 'order_detail' s.linked_order_id %}" class="block text-[10px] text-stone-400 hover:underline mt-0.5">Order #{{ s.linked_order_id }}</a>{% endif %}
         </td>
-        <td class="px-3 py-2 text-xs">{{ s.payment_method }}</td>
+        <td class="px-3 py-2 text-xs">
+          {% if s.source == 'distribution_order' or s.source == 'online_order' %}
+            {% if s.transaction_type == 'paid' %}<span class="text-emerald-700">Received</span>
+            {% elif s.transaction_type == 'partial' %}<span class="text-amber-700">Partially received</span>
+            {% else %}<span class="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">Receivable</span>{% endif %}
+          {% else %}
+            {% if s.transaction_type == 'unpaid' %}<span class="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">Unpaid</span><div class="text-[10px] text-stone-400 mt-1">{{ s.unpaid_description }}</div>
+            {% elif s.transaction_type == 'partial' %}<span class="text-amber-700">Partially Paid</span>
+            {% else %}<span class="text-emerald-700">Paid</span>{% endif %}
+          {% endif %}
+        </td>
+        <td class="px-3 py-2 text-xs">{% if s.transaction_type == 'paid' %}{{ s.payment_method }}{% else %}—{% endif %}</td>
         <td class="px-3 py-2 text-xs text-stone-500">{{ s.created_by.username|default:"—" }}</td>
         <td class="px-3 py-2 text-right">
           <a href="{% url 'sale_invoice' s.pk %}" class="text-stone-400 hover:text-[#8f172d] mr-2">Invoice PDF</a>
-          <form action="{% url 'sale_delete' s.pk %}" method="post" class="inline" onsubmit="return confirm('Delete this sale?');">{% csrf_token %}<button class="text-stone-400 hover:text-rose-600">Delete</button></form>
+          {% if module_permissions.sales.edit %}<form action="{% url 'sale_delete' s.pk %}" method="post" class="inline" onsubmit="return confirm('Delete this sale?');">{% csrf_token %}<button class="text-stone-400 hover:text-rose-600">Delete</button></form>{% endif %}
         </td>
       </tr>
       {% endfor %}

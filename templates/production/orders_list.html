@@ -6,7 +6,7 @@
     <h2 class="text-xl font-semibold font-display text-[#8f172d]">Orders</h2>
     <p class="text-sm text-stone-500 mt-0.5">Distribution, Online and Physical Store orders — approve to release Raw Materials, complete to finish production</p>
   </div>
-  <a href="{% url 'order_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">+ New Order</a>
+  {% if module_permissions.production.edit %}<a href="{% url 'order_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">+ New Order</a>{% endif %}
 </div>
 
 {% if not orders %}
@@ -15,7 +15,7 @@
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] mb-8 overflow-x-auto overflow-y-auto max-h-[28rem]">
   <table class="min-w-max w-full text-sm">
     <thead class="bg-[#F0EAD9] text-stone-600 text-md text-middle"><tr>
-      <th class="px-3 py-2">Date</th><th class="px-3 py-2">Type</th><th class="px-3 py-2">For</th><th class="px-3 py-2">Products</th><th class="px-3 py-2">Units</th><th class="px-3 py-2">Status</th><th class="w-24"></th>
+      <th class="px-3 py-2">Date</th><th class="px-3 py-2">Type</th><th class="px-3 py-2">Payment</th><th class="px-3 py-2">For</th><th class="px-3 py-2">Products</th><th class="px-3 py-2">Units</th><th class="px-3 py-2">Status</th><th class="w-24"></th>
     </tr></thead>
     <tbody>
       {% for o in orders %}
@@ -24,6 +24,7 @@
         <td class="px-3 py-2">
           <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium border {% if o.order_type == 'online' %}bg-fuchsia-50 text-fuchsia-800 border-fuchsia-300{% elif o.order_type == 'distribution' %}bg-sky-50 text-sky-800 border-sky-300{% else %}bg-violet-50 text-violet-800 border-violet-300{% endif %}">{{ o.get_order_type_display }}</span>
         </td>
+        <td class="px-3 py-2 text-xs">{% if o.order_type == 'physical_store' %}{% if o.transaction_type == 'unpaid' %}<span class="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">Non-cash issue</span>{% else %}<span class="text-emerald-700">Paid / shelf stock</span>{% endif %}{% else %}{% if o.customer_payment_status == 'paid' %}<span class="text-emerald-700">Received</span>{% else %}<span class="text-amber-700">Receivable</span>{% endif %}{% endif %}</td>
         <td class="px-3 py-2 text-xs">{% if o.order_type == 'distribution' or o.order_type == 'online' %}{{ o.customer_name }}{% else %}Physical store{% endif %}</td>
         <td class="px-3 py-2 text-xs text-stone-500">{% for i in o.items.all %}{{ i.finished_good.name }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
         <td class="px-3 py-2 text-right font-mono">{{ o.total_units|num }}</td>

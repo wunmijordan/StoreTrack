@@ -35,7 +35,7 @@
     </nav>
     <form action="{% url 'logout' %}" method="post" class="px-5 py-3 border-t border-white/10">
       {% csrf_token %}
-      <button class="text-[11px] text-[#9DB5A6] hover:text-white">Log Out ({{ user.username }})</button>
+      <button class="text-[11px] text-[#9DB5A6] hover:text-white">Log Out ({{ user.fullname|default:user.username }})</button>
     </form>
   </aside>
 
@@ -49,7 +49,7 @@
       {% include "_nav_links.html" with row_class="block px-5 py-3 border-t border-white/10" %}
       <form action="{% url 'logout' %}" method="post" class="px-5 py-3 border-t border-white/10">
         {% csrf_token %}
-        <button class="text-[11px] text-[#9DB5A6]">Log Out ({{ user.username }})</button>
+        <button class="text-[11px] text-[#9DB5A6]">Log Out ({{ user.fullname|default:user.username }})</button>
       </form>
     </nav>
   </div>
