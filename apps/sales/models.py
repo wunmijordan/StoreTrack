@@ -1,6 +1,81 @@
 from decimal import Decimal
+from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from core.models import BusinessOwnedModel, TimestampedModel
+
+
+class Customer(BusinessOwnedModel):
+    """Master record for a business customer.
+
+    Orders and sales retain their historical customer-name snapshot so old
+    documents remain readable even if the master record is later edited.
+    """
+    name = models.CharField(max_length=160)
+    phone = models.CharField(max_length=40, blank=True, default="")
+    email = models.EmailField(blank=True, default="")
+    address = models.TextField(blank=True, default="")
+    region = models.CharField(max_length=100, blank=True, default="")
+    customer_group = models.CharField(max_length=100, blank=True, default="")
+    credit_limit = models.DecimalField(max_digits=16, decimal_places=2, default=0)
+    payment_terms_days = models.PositiveIntegerField(default=0, help_text="Expected payment period in days for credit sales.")
+    active = models.BooleanField(default=True)
+    notes = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(fields=["business", "name"], name="unique_customer_per_business")
+        ]
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def outstanding_balance(self):
+        total = Decimal("0")
+        for sale in self.sales_records.filter(source__in=("distribution_order", "online_order"), transaction_type__in=("unpaid", "partial")).prefetch_related("items", "payments"):
+            total += max(Decimal("0"), sale.total - sum((p.amount for p in sale.payments.all()), Decimal("0")))
+        return total
+
+
+class CustomerProductPrice(BusinessOwnedModel):
+    """Customer-specific selling price for a finished good and sales channel.
+
+    This is an override layer above FinishedGood channel pricing. Orders snapshot
+    the resolved price into OrderItem/SaleItem so later price changes do not alter
+    historical documents or analytics.
+    """
+    CHANNEL_CHOICES = [
+        ("distribution", "Distribution"),
+        ("online", "Online"),
+    ]
+
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="product_prices")
+    finished_good = models.ForeignKey("inventory.FinishedGood", on_delete=models.PROTECT, related_name="customer_prices")
+    channel = models.CharField(max_length=20, choices=CHANNEL_CHOICES)
+    price = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        ordering = ["finished_good__name", "channel"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["business", "customer", "finished_good", "channel"],
+                name="unique_customer_product_price",
+            )
+        ]
+
+    def clean(self):
+        if self.customer_id and self.finished_good_id:
+            if self.customer.business_id != self.finished_good.business_id:
+                raise ValidationError("Customer and finished good must belong to the same business.")
+        if self.channel not in {"distribution", "online"}:
+            raise ValidationError("Customer-specific prices are only available for Distribution and Online channels.")
+        if self.price is not None and self.price < 0:
+            raise ValidationError("Agreed price cannot be negative.")
+
+    def __str__(self):
+        return f"{self.customer.name} — {self.finished_good.name} — {self.get_channel_display()} — {self.price}"
 
 
 class Sale(BusinessOwnedModel):
@@ -14,6 +89,7 @@ class Sale(BusinessOwnedModel):
 
     date = models.DateField()
     customer = models.CharField(max_length=120, blank=True, default="Walk-in")
+    customer_master = models.ForeignKey(Customer, null=True, blank=True, on_delete=models.SET_NULL, related_name="sales_records")
     transaction_type = models.CharField(max_length=10, choices=TRANSACTION_CHOICES, default="paid", help_text="Payment state. Physical-store unpaid sales are non-cash issues; customer-order sales are receivables until Finance records payment.")
     unpaid_description = models.CharField(max_length=255, blank=True, default="", help_text="Reason for physical-store unpaid issue, or receivable note for customer orders.")
     account = models.ForeignKey("core.CashAccount", null=True, blank=True, on_delete=models.PROTECT, related_name="sales")
@@ -45,6 +121,7 @@ class SaleItem(TimestampedModel):
         help_text="Snapshot of the product's selling price at sale time — set automatically.")
     unit_cost = models.DecimalField(max_digits=16, decimal_places=6, null=True, blank=True,
         help_text="Historical finished-good cost per unit at the time of sale.")
+    production_batch = models.ForeignKey("production.ProductionBatch", null=True, blank=True, on_delete=models.SET_NULL, related_name="sale_items")
 
     def __str__(self):
         return f"{self.sale.customer} — {self.finished_good.name} x{self.total_units}"
@@ -56,14 +133,13 @@ class SaleItem(TimestampedModel):
 
     @property
     def line_total(self):
-        """Discount is applied PER UNIT, not once on the line total — e.g.
-        50 units at 1500 with a 200 discount is (1500-200)*50 = 65,000,
-        not 1500*50-200."""
         return self.total_units * ((self.price or Decimal("0")) - (self.discount or Decimal("0")))
+
 
 class CustomerPayment(BusinessOwnedModel):
     date = models.DateField()
     customer = models.CharField(max_length=120)
+    customer_master = models.ForeignKey(Customer, null=True, blank=True, on_delete=models.SET_NULL, related_name="payments")
     amount = models.DecimalField(max_digits=16, decimal_places=2)
     payment_method = models.CharField(max_length=10, choices=Sale.PAYMENT_CHOICES, default="Cash")
     reference = models.CharField(max_length=80, blank=True, default="")

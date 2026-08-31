@@ -4,6 +4,7 @@
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] p-5 max-w-lg">
   <form method="post">
     {% csrf_token %}
+    {% if form.non_field_errors %}<div class="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-md p-3 mb-3">{{ form.non_field_errors }}</div>{% endif %}
     {% include "_field.html" with field=form.name %}
     {% include "_field.html" with field=form.category %}
 

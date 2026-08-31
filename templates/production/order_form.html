@@ -23,26 +23,29 @@
     </div>
     <p id="order-type-hint" class="text-[11px] text-stone-400 mb-3"></p>
 
-    {% include "_field.html" with field=form.date %}
-    <div id="customer-fields" class="grid grid-cols-1 md:grid-cols-3 gap-3">
-      {% include "_field.html" with field=form.customer_name %}
-      {% include "_field.html" with field=form.customer_region %}
-      {% include "_field.html" with field=form.customer_group %}
+    <div id="physical-destination-wrap" class="mb-3 hidden">
+      <div class="text-xs font-medium text-stone-600 mb-1">Production destination</div>
+      <p class="text-[11px] text-stone-400 mb-2">Choose where completed production goes. Store replenishment enters Shelf Stock. Non-stock production is for an internal/non-sale purpose and does not enter Shelf Stock.</p>
+      {% include "_field.html" with field=form.production_destination %}
+      <div id="non-stock-purpose-wrap" class="mt-3 hidden">
+        {% include "_field.html" with field=form.non_stock_purpose %}
+        <p class="text-[11px] text-stone-400 mt-1">Enter the specific purpose, such as Staff Welfare, Gift, Charity, Event Use, or another internal purpose.</p>
+      </div>
     </div>
-    <div id="physical-payment-fields" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
-      {% include "_field.html" with field=form.transaction_type %}
-      <div id="unpaid-reason-wrap">{% include "_field.html" with field=form.unpaid_description %}</div>
-      {% include "_field.html" with field=form.payment_method %}
-      {% include "_field.html" with field=form.account %}
+
+    {% include "_field.html" with field=form.date %}
+    <div id="customer-fields" class="grid grid-cols-1 gap-3">
+      {% include "_field.html" with field=form.customer %}
+      <p class="text-[11px] text-stone-400">Customer contact, region, group, credit terms and history are maintained in the Customer master. The order keeps a snapshot of the customer's name/region/group for historical documents.</p>
     </div>
     <div id="customer-payment-fields" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-3 hidden">
       {% include "_field.html" with field=form.customer_payment_status %}
-      {% include "_field.html" with field=form.customer_payment_method %}
-      {% include "_field.html" with field=form.customer_payment_account %}
+      <div id="customer-payment-method-wrap">{% include "_field.html" with field=form.customer_payment_method %}</div>
+      <div id="customer-payment-account-wrap">{% include "_field.html" with field=form.customer_payment_account %}</div>
     </div>
 
     <span class="block text-xs font-medium text-stone-600 mb-1">Products</span>
-    <p class="text-[11px] text-stone-400 mb-1">Enter exact batches and/or loose pieces — production makes exactly this, no rounding up. Price fills in from the product's current selling price.</p>
+    <p class="text-[11px] text-stone-400 mb-1">Enter exact batches and/or loose pieces — production makes exactly this, no rounding up. Price fills in from the applicable customer price, channel price, or product default price.</p>
     {{ formset.management_form }}
     <div class="border border-[#E7DFCC] rounded-md overflow-hidden">
       <div class="overflow-x-auto">
@@ -58,10 +61,10 @@
           <tbody id="order-rows">
             {% for f in formset %}
             <tr {% if forloop.first %}data-formset-row{% endif %} class="border-t border-[#E7DFCC]" data-row>
-              <td class="px-2 py-1.5">{{ f.id }}{{ f.finished_good }}</td>
-              <td class="px-2 py-1.5">{{ f.batch_qty }}</td>
-              <td class="px-2 py-1.5">{{ f.piece_qty }}</td>
-              <td class="px-2 py-1.5">{{ f.discount }}</td>
+              <td class="px-2 py-1.5">{{ f.id }}{{ f.finished_good }}{% for error in f.finished_good.errors %}<div class="text-[11px] text-rose-600 mt-0.5">{{ error }}</div>{% endfor %}</td>
+              <td class="px-2 py-1.5">{{ f.batch_qty }}{% for error in f.batch_qty.errors %}<div class="text-[11px] text-rose-600 mt-0.5">{{ error }}</div>{% endfor %}</td>
+              <td class="px-2 py-1.5">{{ f.piece_qty }}{% for error in f.piece_qty.errors %}<div class="text-[11px] text-rose-600 mt-0.5">{{ error }}</div>{% endfor %}</td>
+              <td class="px-2 py-1.5">{{ f.discount }}{% for error in f.discount.errors %}<div class="text-[11px] text-rose-600 mt-0.5">{{ error }}</div>{% endfor %}</td>
               <td class="px-2 py-1.5 text-right text-xs text-stone-500 font-mono price-display">—</td>
               <td class="px-2 py-1.5 text-center">
                 {% if f.instance.pk %}
@@ -86,7 +89,9 @@
 </div>
 {{ prices|json_script:"fg-prices" }}
 <script>
-  const PRICES = JSON.parse(document.getElementById('fg-prices').textContent);
+  const PRICE_DATA = JSON.parse(document.getElementById('fg-prices').textContent);
+  const PRICES = PRICE_DATA.products || {};
+  const CUSTOMER_OVERRIDES = PRICE_DATA.customer_overrides || {};
   function toggleUnpaidReason() {
     const type = document.querySelector('select[name="transaction_type"]')?.value || document.querySelector('input[name="transaction_type"]:checked')?.value;
     const wrap = document.getElementById('unpaid-reason-wrap');
@@ -95,20 +100,46 @@
   function toggleOrderType() {
     const type = document.querySelector('input[name="order_type"]:checked').value;
     const custFields = document.getElementById('customer-fields');
-    const paymentFields = document.getElementById('physical-payment-fields');
     const customerPaymentFields = document.getElementById('customer-payment-fields');
+    const methodWrap = document.getElementById('customer-payment-method-wrap');
+    const accountWrap = document.getElementById('customer-payment-account-wrap');
+    const status = document.querySelector('[name="customer_payment_status"]');
     const hint = document.getElementById('order-type-hint');
+    const destinationWrap = document.getElementById('physical-destination-wrap');
+    const destination = document.querySelector('[name="production_destination"]');
+    const purposeWrap = document.getElementById('non-stock-purpose-wrap');
+    const purpose = document.querySelector('[name="non_stock_purpose"]');
     if (type === 'distribution' || type === 'online') {
       custFields.style.display = 'grid';
-      paymentFields.style.display = 'none';
+      destinationWrap.style.display = 'none';
       customerPaymentFields.style.display = 'grid';
-      hint.textContent = type === 'online' ? 'Online customer order — payment may be recorded now or later. A later payment is matched to the customer and sale in Finance.' : 'Distribution order — payment may be recorded now or later. A later payment is matched to the customer and sale in Finance.';
+      hint.textContent = type === 'online'
+        ? 'Online customer order — a Received payment can be recorded now; a Receivable has no payment method/account until Finance records the payment.'
+        : 'Distribution order — a Received payment can be recorded now; a Receivable has no payment method/account until Finance records the payment.';
+      toggleCustomerPaymentFields();
     } else {
       custFields.style.display = 'none';
-      paymentFields.style.display = 'grid';
       customerPaymentFields.style.display = 'none';
-      hint.textContent = 'A restock request — no customer, adds straight to physical store shelf stock once completed. Does not appear on the Sales list.';
+      destinationWrap.style.display = 'block';
+      if (destination && purposeWrap) {
+        const nonStock = destination.value === 'non_stock';
+        purposeWrap.style.display = nonStock ? 'block' : 'none';
+        if (purpose) purpose.required = nonStock;
+      }
+      hint.textContent = 'Physical Store Order — not a direct sale. Store replenishment enters Shelf Stock. A non-stock purpose does not enter Shelf Stock and requires a specific purpose. Any paid sale is recorded only in the Sales form.';
     }
+    syncProductChoices();
+  }
+
+  document.querySelector('[name="production_destination"]')?.addEventListener('change', toggleOrderType);
+
+  function toggleCustomerPaymentFields() {
+    const status = document.querySelector('[name="customer_payment_status"]')?.value;
+    const showPayment = status === 'paid';
+    const methodWrap = document.getElementById('customer-payment-method-wrap');
+    const accountWrap = document.getElementById('customer-payment-account-wrap');
+    if (methodWrap) methodWrap.style.display = showPayment ? 'block' : 'none';
+    if (accountWrap) accountWrap.style.display = showPayment ? 'block' : 'none';
   }
   function removeRow(btn) {
     const row = btn.closest('tr');
@@ -117,18 +148,85 @@
   function currentChannel() {
     return document.querySelector('input[name="order_type"]:checked')?.value || 'distribution';
   }
-  function priceFor(goodId) {
-    const row = PRICES[goodId];
-    if (!row) return null;
-    return row[currentChannel()] || row.distribution || row.online || row.physical_store || null;
+  function storeReplenishmentSelected() {
+    return document.querySelector('[name="production_destination"]')?.value === 'store'
+      && document.querySelector('input[name="order_type"]:checked')?.value === 'physical_store';
   }
+
+  function syncProductChoices() {
+    const storeOnly = storeReplenishmentSelected();
+    document.querySelectorAll('#order-rows select[name$="-finished_good"]').forEach((select) => {
+      const selected = select.value;
+      const currentOptions = Array.from(select.options);
+      const ids = Object.keys(PRICES);
+      select.innerHTML = '';
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = 'Select product…';
+      select.appendChild(placeholder);
+      ids.forEach((id) => {
+        const row = PRICES[id];
+        if (storeOnly && !row.physical_store_valid) return;
+        const option = document.createElement('option');
+        option.value = id;
+        option.textContent = row.name;
+        if (id === selected) option.selected = true;
+        select.appendChild(option);
+      });
+      if (selected && !Array.from(select.options).some((o) => o.value === selected)) {
+        select.value = '';
+      }
+    });
+    refreshPrices();
+  }
+
+  function priceFor(goodId) {
+    const product = PRICES[goodId];
+    if (!product) return null;
+
+    const channel = currentChannel();
+    const customerId = document.querySelector('[name="customer"]')?.value || '';
+
+    // Resolution order is deliberately exact and channel-specific:
+    // 1. customer/product/channel agreement
+    // 2. product/channel price
+    // 3. product default selling price
+    const customerPrice = CUSTOMER_OVERRIDES?.[customerId]?.[goodId]?.[channel];
+    if (customerPrice !== undefined && customerPrice !== null && customerPrice !== '') {
+      return { price: customerPrice, source: 'customer' };
+    }
+
+    const channelPrice = product.channel_prices?.[channel];
+    if (channelPrice !== undefined && channelPrice !== null && channelPrice !== '') {
+      return { price: channelPrice, source: 'channel' };
+    }
+
+    const defaultPrice = product.default;
+    if (defaultPrice !== undefined && defaultPrice !== null && defaultPrice !== '') {
+      return { price: defaultPrice, source: 'default' };
+    }
+
+    return null;
+  }
+
   function refreshPrices() {
     document.querySelectorAll('#order-rows tr[data-row]').forEach((row) => {
-      const select = row.querySelector('select');
+      const select = row.querySelector('select[name$="-finished_good"]');
       const priceCell = row.querySelector('.price-display');
       if (!select || !priceCell) return;
-      const price = priceFor(select.value);
-      priceCell.textContent = price ? '≈ ' + price : '—';
+
+      const resolved = priceFor(select.value);
+      if (!resolved) {
+        priceCell.textContent = '—';
+        return;
+      }
+
+      const labels = {
+        customer: 'customer',
+        channel: 'channel',
+        default: 'default',
+      };
+      priceCell.textContent = '≈ ' + resolved.price + ' (' + labels[resolved.source] + ')';
     });
   }
   function wireRows() {
@@ -141,6 +239,8 @@
     refreshPrices();
   }
   document.querySelectorAll('input[name="order_type"]').forEach(el => el.addEventListener('change', () => { toggleOrderType(); refreshPrices(); }));
+  document.querySelector('[name="customer"]')?.addEventListener('change', refreshPrices);
+  document.querySelector('[name="customer_payment_status"]')?.addEventListener('change', toggleCustomerPaymentFields);
   toggleOrderType();
   wireRows();
   document.querySelector('[name="transaction_type"]')?.addEventListener('change', toggleUnpaidReason);

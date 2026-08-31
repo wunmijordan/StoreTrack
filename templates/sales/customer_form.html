@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="text-xl font-semibold font-display text-[#8f172d] mb-4">{% if obj %}Edit Customer{% else %}New Customer{% endif %}</h2>
+<div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] p-5 max-w-5xl">
+<form method="post" id="customer-form">{% csrf_token %}
+<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+{% include "_field.html" with field=form.name %}{% include "_field.html" with field=form.phone %}{% include "_field.html" with field=form.email %}{% include "_field.html" with field=form.region %}{% include "_field.html" with field=form.customer_group %}{% include "_field.html" with field=form.credit_limit %}{% include "_field.html" with field=form.payment_terms_days %}{% include "_field.html" with field=form.active %}
+</div>
+{% include "_field.html" with field=form.address %}{% include "_field.html" with field=form.notes %}
+
+<div class="mt-5">
+  <div class="flex items-center justify-between gap-3 mb-1">
+    <div>
+      <h3 class="text-sm font-semibold text-[#1E4536]">Customer-specific prices</h3>
+      <p class="text-[11px] text-stone-400">Optional agreed prices for Distribution or Online. These override the product's channel price for this customer only.</p>
+    </div>
+  </div>
+  {{ price_formset.management_form }}
+  {% if price_formset.non_form_errors %}<div class="mt-2 text-xs text-rose-700">{{ price_formset.non_form_errors }}</div>{% endif %}
+  <div class="border border-[#E7DFCC] rounded-md overflow-hidden mt-2">
+    <div class="overflow-x-auto">
+      <table class="w-full min-w-[620px] text-sm">
+        <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
+          <th class="text-left px-2 py-1.5">Product</th>
+          <th class="text-left px-2 py-1.5 w-40">Channel</th>
+          <th class="text-right px-2 py-1.5 w-36">Agreed price</th>
+          <th class="w-12"></th>
+        </tr></thead>
+        <tbody id="customer-price-rows">
+          {% for f in price_formset %}
+          <tr {% if forloop.first %}data-formset-row{% endif %} class="border-t border-[#E7DFCC]" data-row>
+            <td class="px-2 py-1.5">{{ f.id }}{{ f.finished_good }}{% if f.finished_good.errors %}<div class="text-[11px] text-rose-600">{{ f.finished_good.errors|striptags }}</div>{% endif %}</td>
+            <td class="px-2 py-1.5">{{ f.channel }}{% if f.channel.errors %}<div class="text-[11px] text-rose-600">{{ f.channel.errors|striptags }}</div>{% endif %}</td>
+            <td class="px-2 py-1.5">{{ f.price }}{% if f.price.errors %}<div class="text-[11px] text-rose-600">{{ f.price.errors|striptags }}</div>{% endif %}</td>
+            <td class="px-2 py-1.5 text-center">{% if f.instance.pk %}<label class="cursor-pointer text-rose-500 hover:text-rose-700" title="Remove">{{ f.DELETE }}</label>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <button type="button" onclick="addFormsetRow('prices','customer-price-rows')" class="w-full text-xs text-[#8f172d] font-medium py-2 hover:bg-[#F0EAD9]">+ Add Customer Price</button>
+  </div>
+</div>
+
+<div class="flex justify-end gap-2 mt-4"><a href="{% url 'customer_list' %}" class="px-3.5 py-2 text-sm rounded-md text-stone-500 hover:bg-stone-100">Cancel</a><button class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white">Save Customer</button></div>
+</form></div>
+{% endblock %}

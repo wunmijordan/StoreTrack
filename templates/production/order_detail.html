@@ -10,11 +10,13 @@
     {% elif order.status == 'completed' %}bg-emerald-50 text-emerald-800 border-emerald-300
     {% else %}bg-stone-100 text-stone-500 border-stone-300{% endif %}">{{ order.get_status_display }}</span>
 </div>
-<div class="flex flex-wrap gap-2 mb-3">{% if order.order_type == 'physical_store' %}<span class="px-2 py-1 rounded-full text-[11px] font-semibold {% if order.transaction_type == 'unpaid' %}bg-amber-50 text-amber-800 border border-amber-200{% else %}bg-emerald-50 text-emerald-800 border border-emerald-200{% endif %}">{% if order.transaction_type == 'unpaid' %}Non-cash product issue{% else %}Paid / shelf stock{% endif %}</span>{% if order.transaction_type == 'unpaid' %}<span class="text-xs text-stone-500 self-center">Reason: {{ order.unpaid_description }}</span>{% endif %}{% else %}<span class="px-2 py-1 rounded-full text-[11px] font-semibold {% if order.customer_payment_status == 'paid' %}bg-emerald-50 text-emerald-800 border border-emerald-200{% else %}bg-amber-50 text-amber-800 border border-amber-200{% endif %}">{% if order.customer_payment_status == 'paid' %}Received{% else %}Customer receivable{% endif %}</span>{% endif %}</div>
+{% if order.order_type == 'distribution' or order.order_type == 'online' %}
+<div class="flex flex-wrap gap-2 mb-3"><span class="px-2 py-1 rounded-full text-[11px] font-semibold {% if order.customer_payment_status == 'paid' %}bg-emerald-50 text-emerald-800 border border-emerald-200{% else %}bg-amber-50 text-amber-800 border border-amber-200{% endif %}">{% if order.customer_payment_status == 'paid' %}Received{% else %}Customer receivable{% endif %}</span></div>
+{% endif %}
 <p class="text-sm text-stone-500 mb-4">
   {% if order.order_type == 'distribution' %}For {{ order.customer_name }} — Distribution sale will be recorded once completed.
   {% elif order.order_type == 'online' %}For {{ order.customer_name }} — Online sale will be recorded once completed.
-  {% else %}Physical Store restock — paid orders add to Shelf Stock; unpaid orders are non-cash issues and never remain in Shelf Stock.{% endif %}
+  {% else %}Physical Store production — <b>{{ order.get_production_destination_display }}</b>. {% if order.production_destination == "store" %}Completed production adds to Shelf Stock.{% else %}Completed production does not enter Shelf Stock. Purpose: <b>{{ order.non_stock_purpose }}</b>.{% endif %} Direct sales and all payment details are handled in the Sales form.{% endif %}
 </p>
 
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] mb-8 overflow-x-auto overflow-y-auto max-h-[28rem]">
@@ -41,6 +43,10 @@
   {% endif %}
   {% if order.notes %}<p class="text-xs text-stone-500 mt-2">Notes: {{ order.notes }}</p>{% endif %}
 </div>
+
+{% if batches %}
+<div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg p-4 mb-4 max-w-4xl"><div class="flex items-center justify-between mb-2"><h3 class="font-semibold text-stone-700">Production batches</h3><a href="{% url 'production_batches' %}" class="text-xs text-[#8f172d] hover:underline">All batches</a></div><div class="space-y-2">{% for b in batches %}<div class="flex flex-wrap items-center justify-between gap-2 text-xs border-t border-[#E7DFCC] pt-2"><span><a href="{% url 'production_batch_detail' b.pk %}" class="font-mono text-[#8f172d] hover:underline">{{ b.batch_number }}</a> · {{ b.finished_good.name }}</span><span>Saleable {{ b.saleable_units|num }} · Yield {{ b.yield_percent|num }}% · {% if b.shortage_flag %}Shortage {{ b.outstanding_shortage_units|num }} outstanding · {% endif %}{{ b.quality_check.get_status_display }}</span></div>{% endfor %}</div></div>
+{% endif %}
 
 {% if shortages %}
 <div class="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-md p-3 mb-4 max-w-2xl">
@@ -77,9 +83,7 @@
   </form>
   {% endif %}
   {% if order.status == 'approved' %}
-  <form method="post" action="{% url 'order_complete' order.pk %}">{% csrf_token %}
-    <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#16332A]">Complete — add Finished Goods</button>
-  </form>
+  <a href="{% url 'order_complete' order.pk %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#16332A]">Complete Production</a>
   {% endif %}
   {% if order.status == 'pending' or order.status == 'rejected' %}
   <form method="post" action="{% url 'order_delete' order.pk %}" onsubmit="return confirm('Delete this order?');">{% csrf_token %}

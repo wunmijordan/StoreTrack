@@ -9,8 +9,9 @@ from django.utils.crypto import get_random_string
 
 from procurement.models import RawMaterialCostSnapshot
 
-from .forms import OrderForm, OrderItemFormSet
-from .models import Order, OrderItem, ProductionCostSnapshot, ProductionCostLine
+from .forms import OrderForm, OrderItemFormSet, ProductionCompletionForm, ProductionQualityCheckForm, ProductionReconciliationForm
+from .models import Order, OrderItem, ProductionBatch, ProductionBatchReconciliation, ProductionQualityCheck, ProductionCostSnapshot, ProductionCostLine
+from sales.models import CustomerProductPrice
 from inventory.models import FinishedGood
 from inventory.services import (
     record_raw_material_movement,
@@ -33,14 +34,30 @@ def orders_list(request):
 
 
 def _price_map():
-    return {
-        str(g.pk): {
-            "physical_store": f"{g.selling_price_for('physical_store')}",
-            "distribution": f"{g.selling_price_for('distribution')}",
-            "online": f"{g.selling_price_for('online')}",
+    """Return base channel prices and all customer overrides for the current business.
+
+    The customer override map is display-only. The authoritative price snapshot
+    is resolved server-side when each OrderItem is saved.
+    """
+    goods = list(FinishedGood.objects.all().prefetch_related("channel_prices"))
+    products = {}
+    for g in goods:
+        channel_prices = {
+            str(row.channel): f"{row.price}"
+            for row in g.channel_prices.all()
         }
-        for g in FinishedGood.objects.all().prefetch_related("channel_prices")
-    }
+        products[str(g.pk)] = {
+            "name": g.name,
+            # Keep the three layers separate for the form's display resolver:
+            # customer agreement -> exact channel price -> product default.
+            "default": f"{g.selling_price}",
+            "channel_prices": channel_prices,
+            "physical_store_valid": g.stock is not None and g.reorder_level is not None and g.reorder_level > 0,
+        }
+    customer_overrides = {}
+    for row in CustomerProductPrice.objects.select_related("customer").all():
+        customer_overrides.setdefault(str(row.customer_id), {}).setdefault(str(row.finished_good_id), {})[row.channel] = f"{row.price}"
+    return {"products": products, "customer_overrides": customer_overrides}
 
 
 @login_required
@@ -51,7 +68,14 @@ def order_form(request, pk=None):
         return redirect("order_detail", pk=obj.pk)
     if request.method == "POST":
         form = OrderForm(request.POST, instance=obj)
-        formset = OrderItemFormSet(request.POST, instance=obj if obj else Order())
+        store_replenishment = (
+            request.POST.get("order_type") == "physical_store"
+            and request.POST.get("production_destination", "store") == "store"
+        )
+        formset = OrderItemFormSet(
+            request.POST, instance=obj if obj else Order(),
+            store_replenishment=store_replenishment,
+        )
         has_items = formset.is_valid() and any(
             f.cleaned_data and not f.cleaned_data.get("DELETE") for f in formset.forms
         )
@@ -59,55 +83,66 @@ def order_form(request, pk=None):
             messages.error(request, "Add at least one product.")
         elif form.is_valid() and has_items:
             order_type = form.cleaned_data.get("order_type")
-            physical_transaction = form.cleaned_data.get("transaction_type")
-            if order_type == "physical_store" and physical_transaction == "paid":
-                unstocked = [
-                    f.cleaned_data["finished_good"].name
-                    for f in formset.forms
-                    if f.cleaned_data and not f.cleaned_data.get("DELETE")
-                    and f.cleaned_data.get("finished_good")
-                    and (
-                        f.cleaned_data["finished_good"].stock is None
-                        or f.cleaned_data["finished_good"].reorder_level is None
-                        or f.cleaned_data["finished_good"].reorder_level <= 0
-                    )
-                ]
-                if unstocked:
-                    form.add_error("transaction_type", "Paid physical-store restocks can only use products configured for physical-store stock (positive reorder level).")
-                    return render(request, "production/order_form.html", {"form": form, "formset": formset, "prices": _price_map(), "obj": obj})
             order = form.save(commit=False)
             order.business = request.business
             if obj is None:
                 order.created_by = request.user
+            if order.customer:
+                order.customer_name = order.customer.name
+                order.customer_region = order.customer.region
+                order.customer_group = order.customer.customer_group
+            else:
+                order.customer_name = ""
+                order.customer_region = ""
+                order.customer_group = ""
+            if order.order_type == "physical_store":
+                # Physical Store Orders are production/restock requests only.
+                # Direct sales, payment method and cash account belong to the
+                # Sales form, not this order workflow.
+                order.transaction_type = "paid"
+                order.unpaid_description = ""
+                order.customer_payment_status = "paid"
+                order.customer_payment_method = ""
+                order.customer_payment_account = None
+                order.payment_method = ""
+                order.account = None
+            elif order.customer_payment_status == "unpaid":
+                # A receivable has no payment method/account yet.
+                order.customer_payment_method = ""
+                order.customer_payment_account = None
+                order.payment_method = ""
+                order.account = None
+                order.transaction_type = "unpaid"
+                order.unpaid_description = "Customer receivable — payment to be recorded through Finance."
             order.save()
             formset.instance = order
             items = formset.save(commit=False)
             for item in items:
-                item.price = item.finished_good.selling_price_for(order.order_type)
+                item.price = item.finished_good.selling_price_for(order.order_type, order.customer)
                 item.save()
             for deleted in formset.deleted_objects:
                 deleted.delete()
-            if obj is None and order.order_type in ("distribution", "online") and order.customer_payment_status == "paid":
-                record_cash(
-                    request.business, request.user, date=order.date, amount=order.total,
-                    transaction_type=FinancialTransaction.INCOME, category="Customer order payment",
-                    description=f"Payment received for order #{order.pk}", payment_method=order.customer_payment_method,
-                    reference=f"ORDER-{order.pk}", account=order.customer_payment_account,
-                )
+            # Cash is recorded only when the completed customer order creates
+            # its Sale record. This prevents an order from counting the same
+            # payment twice (once at order creation and again at completion).
             messages.success(request, "Order updated." if obj else "Order created — approve it from the Orders page when ready.")
             return redirect("order_detail", pk=order.pk)
     else:
         form = OrderForm(instance=obj, initial=None if obj else {"date": today(), "order_type": "distribution"})
-        formset = OrderItemFormSet(instance=obj)
+        store_replenishment = bool(
+            obj and obj.order_type == "physical_store" and obj.production_destination == "store"
+        )
+        formset = OrderItemFormSet(instance=obj, store_replenishment=store_replenishment)
     prices = _price_map()
     return render(request, "production/order_form.html", {"form": form, "formset": formset, "prices": prices, "obj": obj})
 
 
 @login_required
 def order_detail(request, pk):
-    order = get_object_or_404(Order, pk=pk)
+    order = get_object_or_404(Order.objects.select_related("customer"), pk=pk)
     shortages = order.shortages() if order.status == "pending" else []
-    return render(request, "production/order_detail.html", {"order": order, "shortages": shortages})
+    batches = order.production_batches.select_related("finished_good").prefetch_related("quality_check")
+    return render(request, "production/order_detail.html", {"order": order, "shortages": shortages, "batches": batches})
 
 
 @login_required
@@ -158,9 +193,9 @@ def _latest_material_cost(material, production_date):
     return material.cost_per_unit, "legacy_current_cost"
 
 
-def _create_production_cost_snapshot(order, item):
+def _create_production_cost_snapshot(order, item, batch):
     good = item.finished_good
-    production_date = order.completed_date or today()
+    production_date = batch.production_date
     upb = good.units_per_batch or Decimal("1")
     links = list(good.recipe_items.select_related("raw_material")) + list(good.production_materials.select_related("raw_material"))
     piece_factor = item.piece_qty / upb
@@ -168,9 +203,9 @@ def _create_production_cost_snapshot(order, item):
     total_cost = Decimal("0")
     sources = set()
     snapshot = ProductionCostSnapshot.objects.create(
-        business=order.business, order=order, order_item=item, finished_good=good,
-        production_date=production_date, produced_units=item.total_units,
-        batch_number=f"B{production_date.strftime('%Y%m%d')}-{order.pk}-{item.pk}",
+        business=order.business, order=order, order_item=item, production_batch=batch, finished_good=good,
+        production_date=production_date, produced_units=batch.saleable_units,
+        batch_number=batch.batch_number, expiry_date=batch.expiry_date,
     )
     for link in links:
         qty = link.qty_per_batch * total_batch_multiplier
@@ -183,111 +218,290 @@ def _create_production_cost_snapshot(order, item):
             usage_unit_cost=unit_cost, total_cost=line_total, source=source,
         )
     snapshot.total_cost = total_cost
-    snapshot.unit_cost = total_cost / item.total_units if item.total_units else Decimal("0")
+    snapshot.unit_cost = total_cost / batch.saleable_units if batch.saleable_units else Decimal("0")
     snapshot.cost_source = "latest_procurement" if sources == {"latest_procurement"} else "latest_procurement_with_legacy_fallback"
     snapshot.save(update_fields=["total_cost", "unit_cost", "cost_source"])
+    batch.total_cost = total_cost
+    batch.unit_cost = snapshot.unit_cost
+    batch.save(update_fields=["total_cost", "unit_cost", "updated_at"])
     return snapshot
 
 
 @login_required
 def order_complete(request, pk):
-    order = get_object_or_404(Order, pk=pk)
-
-    if request.method != "POST" or order.status != "approved":
+    order = get_object_or_404(Order.objects.select_related("customer"), pk=pk)
+    if order.status != "approved":
         return redirect("orders_list")
 
-    with transaction.atomic():
-        for item in order.items.select_related("finished_good"):
-            good = item.finished_good
+    items = list(order.items.select_related("finished_good"))
+    completion_forms = []
+    channel_code = {
+        "physical_store": "P",
+        "distribution": "D",
+        "online": "O",
+    }.get(order.order_type, "P")
+    date_code = today().strftime("%y%m%d")
+    for item_index, item in enumerate(items, start=1):
+        # Channel + short date + order number + product position in that
+        # order. The final segment is the product identifier within the order,
+        # so a multi-product order remains traceable without duplicated suffixes.
+        default_batch = f"{channel_code}{date_code}-{order.pk}-{item_index}"
+        completion_forms.append(
+            (item, ProductionCompletionForm(
+                request.POST or None,
+                prefix=f"item-{item.pk}",
+                planned_units=item.total_units,
+                customer_order=order.order_type in ("distribution", "online"),
+                initial={"produced_units": item.total_units, "batch_number": default_batch},
+            ))
+        )
 
-            # Freeze the production cost before any later procurement can change it.
-            snapshot = _create_production_cost_snapshot(order, item)
-
-            # Every completed order represents completed production.
-            good.total_produced += item.total_units
-
-            if order.order_type == "physical_store":
-                if order.transaction_type == "paid":
-                    # Paid physical-store orders are genuine shelf restocks and
-                    # therefore require physical-store stock configuration.
-                    record_finished_good_movement(
-                        good, item.total_units, StockMovement.FG_PRODUCTION,
-                        note=f"Production completed for order #{order.pk}", reference=f"PROD-{order.pk}",
-                        affects_stock=True, unit_value=snapshot.unit_cost if snapshot else good.est_cost,
+    if request.method == "POST":
+        valid = all(form.is_valid() for _, form in completion_forms)
+        if valid:
+            with transaction.atomic():
+                order.completed_date = today()
+                for item, form in completion_forms:
+                    produced = form.cleaned_data["produced_units"]
+                    wastage = form.cleaned_data["wastage_units"]
+                    saleable = form.cleaned_data["saleable_units"]
+                    batch = ProductionBatch.objects.create(
+                        business=order.business,
+                        created_by=request.user,
+                        order=order,
+                        order_item=item,
+                        finished_good=item.finished_good,
+                        production_date=order.completed_date,
+                        batch_number=form.cleaned_data["batch_number"],
+                        expiry_date=form.cleaned_data.get("expiry_date"),
+                        planned_units=item.total_units,
+                        produced_units=produced,
+                        wastage_units=wastage,
+                        wastage_reason=form.cleaned_data.get("wastage_reason", ""),
+                        shortage_flag=(
+                            order.order_type in ("distribution", "online")
+                            and form.cleaned_data.get("flag_shortage", False)
+                        ),
+                        shortage_reason=(
+                            form.cleaned_data.get("shortage_reason", "")
+                            if order.order_type in ("distribution", "online")
+                            else ""
+                        ),
                     )
-                else:
-                    # Unpaid physical-store production is an intentional non-cash
-                    # issue (staff/charity/service). It may use a product that is
-                    # not configured for shelf stock, because the finished goods
-                    # never become shelf inventory.
-                    record_finished_good_movement(
-                        good, item.total_units, StockMovement.FG_UNPAID_ISSUE,
-                        note=f"Unpaid product issue: {order.unpaid_description}", reference=f"ISSUE-{order.pk}",
-                        affects_stock=False, unit_value=snapshot.unit_cost if snapshot else good.est_cost,
+                    ProductionQualityCheck.objects.create(
+                        business=order.business,
+                        created_by=request.user,
+                        batch=batch,
+                        status=form.cleaned_data["qc_status"],
+                        checked_by=request.user if form.cleaned_data["qc_status"] != "pending" else None,
+                        checked_at=timezone.now() if form.cleaned_data["qc_status"] != "pending" else None,
+                        notes=form.cleaned_data.get("qc_notes", ""),
                     )
-                good.save(update_fields=["total_produced"])
+                    snapshot = _create_production_cost_snapshot(order, item, batch)
+                    good = item.finished_good
+                    good.total_produced += saleable
+
+                    if wastage:
+                        record_finished_good_movement(
+                            good, -wastage, StockMovement.FG_WASTAGE,
+                            note=form.cleaned_data.get("wastage_reason") or f"Production wastage for batch {batch.batch_number}",
+                            reference=batch.batch_number, affects_stock=False, unit_value=snapshot.unit_cost,
+                        )
+
+                    if order.order_type == "physical_store" and order.production_destination == "store":
+                        # Only Physical Store orders explicitly destined for
+                        # Store replenishment enter Shelf Stock. Non-stock
+                        # physical-store production remains out of inventory.
+                        record_finished_good_movement(
+                            good, saleable, StockMovement.FG_PRODUCTION,
+                            note=f"Production batch {batch.batch_number}", reference=batch.batch_number,
+                            affects_stock=True, unit_value=snapshot.unit_cost,
+                        )
+                        good.save(update_fields=["total_produced"])
+                    else:
+                        # Non-stock Physical Store production is neither shelf stock
+                        # nor a customer delivery. Distribution/Online production is
+                        # delivered to the customer and is reflected in delivery
+                        # analytics; non-stock internal production remains separate.
+                        record_finished_good_movement(
+                            good, saleable, StockMovement.FG_PRODUCTION,
+                            note=(
+                                f"Non-stock production ({order.non_stock_purpose}) — batch {batch.batch_number}"
+                                if order.order_type == "physical_store" and order.production_destination == "non_stock"
+                                else f"Customer-order production batch {batch.batch_number}"
+                            ),
+                            reference=batch.batch_number, affects_stock=False, unit_value=snapshot.unit_cost,
+                        )
+                        if order.order_type in ("distribution", "online"):
+                            good.total_delivered_to_customers += saleable
+                            good.save(update_fields=["total_produced", "total_delivered_to_customers"])
+                        else:
+                            good.save(update_fields=["total_produced"])
+
+                order.status = "completed"
+                order.save(update_fields=["status", "completed_date", "updated_at"])
+
+                if order.order_type in ("distribution", "online"):
+                    from sales.models import Sale, SaleItem
+                    sale = Sale.objects.create(
+                        business=order.business,
+                        date=order.completed_date,
+                        customer=order.customer.name if order.customer else order.customer_name,
+                        customer_master=order.customer,
+                        payment_method=order.payment_method,
+                        transaction_type=("paid" if order.customer_payment_status == "paid" else "unpaid"),
+                        unpaid_description=("" if order.customer_payment_status == "paid" else "Customer receivable — payment to be recorded through Finance."),
+                        account=order.customer_payment_account if order.customer_payment_status == "paid" else None,
+                        source=f"{order.order_type}_order",
+                        linked_order=order,
+                        created_by=request.user,
+                    )
+                    for item, form in completion_forms:
+                        snapshot = item.cost_snapshots.order_by("-id").first()
+                        batch = item.production_batches.order_by("-id").first()
+                        SaleItem.objects.create(
+                            sale=sale, finished_good=item.finished_good,
+                            batch_qty=item.batch_qty, piece_qty=item.piece_qty,
+                            discount=item.discount, price=item.price,
+                            unit_cost=snapshot.unit_cost if snapshot else None,
+                            production_batch=batch,
+                        )
+                    if sale.transaction_type == "paid":
+                        record_cash(
+                            request.business, request.user, date=sale.date, amount=sale.total,
+                            transaction_type=FinancialTransaction.INCOME, category="Customer order payment",
+                            description=f"Payment received for order #{order.pk}", payment_method=sale.payment_method,
+                            reference=f"ORDER-{order.pk}", account=order.customer_payment_account,
+                        )
+                    audit(order.business, request.user, "complete", order, f"Order #{order.pk} completed", {"customer_payment_status": order.customer_payment_status, "customer": order.customer.name if order.customer else order.customer_name})
+
+            messages.success(request, "Production completed and batch records created.")
+            return redirect("order_detail", pk=pk)
+
+    return render(request, "production/order_complete.html", {
+        "order": order,
+        "completion_forms": completion_forms,
+    })
+
+
+@login_required
+def production_batches(request):
+    # One row per production order. Products/batches are nested under the
+    # order so multi-product orders are not fragmented into separate rows.
+    from django.db.models import Prefetch
+    batches_qs = ProductionBatch.objects.select_related(
+        "finished_good", "quality_check"
+    ).prefetch_related("sale_items__sale")
+    orders = Order.objects.filter(
+        production_batches__isnull=False
+    ).distinct().select_related("customer").prefetch_related(
+        "items__finished_good",
+        Prefetch("production_batches", queryset=batches_qs),
+    )
+    return render(request, "production/batches_list.html", {"orders": orders})
+
+
+@login_required
+def production_batch_detail(request, pk):
+    batch = get_object_or_404(
+        ProductionBatch.objects.select_related(
+            "finished_good", "order", "order_item", "order__customer", "quality_check"
+        ).prefetch_related(
+            "cost_snapshots__lines__raw_material",
+            "sale_items__sale",
+            "reconciliation_in__source_batch__order",
+            "reconciliation_out__target_batch__order",
+            "order__items__finished_good",
+        ),
+        pk=pk,
+    )
+    recon_form = ProductionReconciliationForm(target_batch=batch) if batch.shortage_flag else None
+    return render(request, "production/batch_detail.html", {
+        "batch": batch,
+        "qc_form": ProductionQualityCheckForm(instance=batch.quality_check),
+        "recon_form": recon_form,
+    })
+
+
+@login_required
+def production_batch_reconcile(request, pk):
+    batch = get_object_or_404(
+        ProductionBatch.objects.select_related("order", "finished_good"),
+        pk=pk,
+    )
+    if request.method != "POST":
+        return redirect("production_batch_detail", pk=pk)
+
+    form = ProductionReconciliationForm(request.POST, target_batch=batch)
+    if form.is_valid():
+        source = form.cleaned_data["source_batch"]
+        quantity = form.cleaned_data["quantity"]
+        with transaction.atomic():
+            # Re-check the live surplus/shortage inside the transaction so two
+            # users cannot allocate the same surplus concurrently.
+            source = ProductionBatch.objects.select_for_update().get(pk=source.pk)
+            target = ProductionBatch.objects.select_for_update().get(pk=batch.pk)
+            if quantity > source.available_surplus_units:
+                form.add_error("quantity", f"Only {source.available_surplus_units:.2f} units remain available from that source batch.")
+            elif quantity > target.outstanding_shortage_units:
+                form.add_error("quantity", f"Only {target.outstanding_shortage_units:.2f} units remain to be reconciled.")
             else:
-                # Production happened, but the finished goods went directly to
-                # the customer and never entered physical shelf stock.
-                record_finished_good_movement(
-                    good,
-                    item.total_units,
-                    StockMovement.FG_PRODUCTION,
-                    note=f"Customer-order production completed for order #{order.pk}",
-                    affects_stock=False,
+                ProductionBatchReconciliation.objects.create(
+                    business=target.business,
+                    created_by=request.user,
+                    source_batch=source,
+                    target_batch=target,
+                    quantity=quantity,
+                    reason=form.cleaned_data["reason"].strip(),
                 )
-                good.total_delivered_to_customers += item.total_units
-                good.save(update_fields=["total_produced", "total_delivered_to_customers"])
-
-        order.status = "completed"
-        order.completed_date = today()
-        order.save()
-
-        if order.order_type in ("distribution", "online"):
-            from sales.models import Sale, SaleItem
-
-            sale = Sale.objects.create(
-                business=order.business,
-                date=order.completed_date,
-                customer=order.customer_name,
-                payment_method=order.payment_method,
-                transaction_type=(order.transaction_type if order.order_type == "physical_store" else ("paid" if order.customer_payment_status == "paid" else "unpaid")),
-                unpaid_description=(order.unpaid_description if order.order_type == "physical_store" else ("" if order.customer_payment_status == "paid" else "Customer receivable — payment to be recorded through Finance.")),
-                account=(order.account if order.order_type == "physical_store" else order.customer_payment_account),
-                source=f"{order.order_type}_order",
-                linked_order=order,
-                created_by=request.user,
-            )
-
-            for item in order.items.all():
-                snapshot = item.cost_snapshots.order_by("-id").first()
-                SaleItem.objects.create(
-                    sale=sale,
-                    finished_good=item.finished_good,
-                    batch_qty=item.batch_qty,
-                    piece_qty=item.piece_qty,
-                    discount=item.discount,
-                    price=item.price,
-                    unit_cost=snapshot.unit_cost if snapshot else None,
+                # Reconciliation represents actual fulfillment of the target
+                # customer order from already-produced surplus. It therefore
+                # increases delivered-to-customers, but does not create a new
+                # production event, sale, cash entry, or stock movement.
+                target.finished_good.total_delivered_to_customers += quantity
+                target.finished_good.save(update_fields=["total_delivered_to_customers", "updated_at"])
+                audit(
+                    request.business,
+                    request.user,
+                    "reconcile_shortage",
+                    target,
+                    f"{quantity:.2f} units reconciled from {source.batch_number} to {target.batch_number}",
+                    {
+                        "source_batch": source.batch_number,
+                        "quantity": str(quantity),
+                        "reason": form.cleaned_data["reason"].strip(),
+                        "channel": target.order.order_type,
+                    },
                 )
+                messages.success(request, f"{quantity:.2f} units reconciled from {source.batch_number}.")
+                return redirect("production_batch_detail", pk=pk)
 
-            if sale.transaction_type == "paid" and order.order_type == "physical_store":
-                record_cash(order.business, request.user, date=sale.date, amount=sale.total, transaction_type=FinancialTransaction.INCOME, category="Sales revenue", description=f"Sale #{sale.pk}", payment_method=sale.payment_method, reference=f"SALE-{sale.pk}", account=getattr(sale, "account", None))
-            audit(order.business, request.user, "complete", order, f"Order #{order.pk} completed", {"transaction_type": order.transaction_type, "unpaid_reason": order.unpaid_description})
+    return render(request, "production/batch_detail.html", {
+        "batch": batch,
+        "qc_form": ProductionQualityCheckForm(instance=batch.quality_check),
+        "recon_form": form,
+    })
 
-    if order.order_type in ("distribution", "online"):
-        messages.success(
-            request,
-            "Order completed — added to the Sales list as fulfilled.",
-        )
-    else:
-        messages.success(
-            request,
-            "Order completed — stock updated.",
-        )
 
-    return redirect("orders_list")
-
+@login_required
+def production_batch_qc(request, pk):
+    batch = get_object_or_404(ProductionBatch, pk=pk)
+    if request.method != "POST":
+        return redirect("production_batch_detail", pk=pk)
+    form = ProductionQualityCheckForm(request.POST, instance=batch.quality_check)
+    if form.is_valid():
+        with transaction.atomic():
+            qc = form.save(commit=False)
+            qc.business = batch.business
+            qc.created_by = request.user if not qc.pk else qc.created_by
+            qc.checked_by = request.user
+            qc.checked_at = timezone.now()
+            qc.batch = batch
+            qc.save()
+            audit(request.business, request.user, "quality_check", batch, f"Quality check updated for batch {batch.batch_number}", {"status": qc.status})
+        messages.success(request, "Quality check updated.")
+        return redirect("production_batch_detail", pk=pk)
+    return render(request, "production/batch_detail.html", {"batch": batch, "qc_form": form})
 
 @login_required
 def order_delete(request, pk):

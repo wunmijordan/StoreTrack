@@ -5,6 +5,7 @@
   <p class="text-xs text-stone-500 mb-4">Use this for business spending that is not a supplier purchase order — utilities, repairs, transport, labour, marketing and other overheads. If the spend is a procured inventory item, use Procurement so it is tied to the purchased material and stock.</p>
   <form method="post">
     {% csrf_token %}
+    {% if form.non_field_errors %}<div class="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-md p-3 mb-3">{{ form.non_field_errors }}</div>{% endif %}
     <div class="grid sm:grid-cols-2 gap-3">
       {% include "_field.html" with field=form.date %}
       {% include "_field.html" with field=form.category %}

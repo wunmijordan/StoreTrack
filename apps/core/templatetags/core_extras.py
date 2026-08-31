@@ -1,3 +1,4 @@
+from decimal import Decimal, InvalidOperation
 from django import template
 
 register = template.Library()
@@ -13,8 +14,11 @@ def money(value, symbol="₦"):
 
 @register.filter
 def num(value):
+    """Render every numeric value consistently to exactly 2 decimal places."""
     try:
-        v = float(value)
-        return str(int(v)) if v == int(v) else f"{v:g}"
-    except (TypeError, ValueError):
+        if value is None:
+            return "0.00"
+        v = Decimal(str(value))
+        return f"{v:,.2f}"
+    except (TypeError, ValueError, InvalidOperation):
         return value

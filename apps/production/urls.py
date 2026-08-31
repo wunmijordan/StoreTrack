@@ -2,6 +2,10 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    path("batches/", views.production_batches, name="production_batches"),
+    path("batches/<int:pk>/", views.production_batch_detail, name="production_batch_detail"),
+    path("batches/<int:pk>/quality-check/", views.production_batch_qc, name="production_batch_qc"),
+    path("batches/<int:pk>/reconcile/", views.production_batch_reconcile, name="production_batch_reconcile"),
     path("orders/", views.orders_list, name="orders_list"),
     path("orders/add/", views.order_form, name="order_add"),
     path("orders/<int:pk>/edit/", views.order_form, name="order_edit"),

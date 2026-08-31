@@ -1,9 +1,11 @@
 {% extends "base.html" %}
+{% load core_extras %}
 {% block content %}
 <h2 class="text-xl font-semibold font-display text-[#8f172d] mb-4">{% if obj %}Edit Product{% else %}Add Product{% endif %}</h2>
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] p-5 max-w-2xl">
   <form method="post">
     {% csrf_token %}
+    {% if form.non_field_errors %}<div class="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-md p-3 mb-3">{{ form.non_field_errors }}</div>{% endif %}
     {% include "_field.html" with field=form.name %}
     <div class="grid grid-cols-3 gap-3">
       {% include "_field.html" with field=form.unit %}
@@ -12,7 +14,7 @@
     </div>
     {% include "_field.html" with field=form.stock %}
     {% include "_field.html" with field=form.units_per_batch %}
-    {% if obj %}<p class="text-[11px] text-stone-400 -mt-2 mb-3">Total made all-time: <span class="font-mono">{{ obj.total_produced }}</span> {{ obj.unit }} (updates automatically as orders complete)</p>{% endif %}
+    {% if obj %}<p class="text-[11px] text-stone-400 -mt-2 mb-3">Total made all-time: <span class="font-mono">{{ obj.total_produced|num }}</span> {{ obj.unit }} (updates automatically as orders complete)</p>{% endif %}
 
     <span class="block text-xs font-medium text-stone-600 mb-1 mt-4">Channel Selling Prices</span>
     <p class="text-[11px] text-stone-400 mb-2">Optional channel-specific prices. If a channel is left blank, the default Selling Price above is used.</p>

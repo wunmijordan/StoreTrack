@@ -169,6 +169,8 @@ def production_order_pdf(order):
         story.append(Paragraph(f"Customer order type: {order.get_order_type_display()}", styles["body"]))
     else:
         story.append(Paragraph("Sales channel: <b>PHYSICAL STORE</b>", styles["body"]))
+        destination = order.get_production_destination_display() if hasattr(order, "get_production_destination_display") else "Store replenishment"
+        story.append(Paragraph(f"Production destination: <b>{destination}</b>", styles["body"]))
     story.append(Paragraph(f"Status: {order.get_status_display()}", styles["body"]))
     if order.customer_region:
         story.append(Paragraph(f"Region: {order.customer_region}", styles["body"]))
@@ -179,8 +181,6 @@ def production_order_pdf(order):
         story.append(Paragraph(f"Payment status: <b>{payment_label}</b>", styles["body"]))
         if order.customer_payment_status == "paid":
             story.append(Paragraph(f"Payment method: <b>{order.customer_payment_method}</b>", styles["body"]))
-    else:
-        story.append(Paragraph(f"Payment status: <b>{'Paid / shelf stock' if order.transaction_type == 'paid' else 'Non-cash product issue'}</b>", styles["body"]))
     if order.notes:
         story.append(Spacer(1, 2 * mm))
         story.append(Paragraph(f"Notes: {order.notes}", styles["small"]))

@@ -1,4 +1,5 @@
 from decimal import Decimal
+from django.conf import settings
 from django.db import models
 from core.models import BusinessOwnedModel, TimestampedModel
 
@@ -17,23 +18,39 @@ class Order(BusinessOwnedModel):
     ]
     PAYMENT_CHOICES = [("Cash", "Cash"), ("Card", "Card"), ("Transfer", "Transfer")]
     TRANSACTION_CHOICES = [("paid", "Paid"), ("unpaid", "Unpaid")]
+    DESTINATION_CHOICES = [
+        ("store", "Store replenishment — add to Physical Store stock"),
+        ("non_stock", "Non-stock purpose — do not add to Physical Store stock"),
+    ]
     CUSTOMER_PAYMENT_CHOICES = [("paid", "Received"), ("unpaid", "Receivable")]
 
     date = models.DateField()
     order_type = models.CharField(max_length=15, choices=TYPE_CHOICES, default="physical_store")
+    production_destination = models.CharField(
+        max_length=12, choices=DESTINATION_CHOICES, default="store",
+        help_text="Physical Store orders only: choose whether completed production enters Shelf Stock or is for a non-stock purpose.",
+    )
+    non_stock_purpose = models.CharField(
+        max_length=255, blank=True, default="",
+        help_text="Specific purpose when production is not going to Physical Store stock (e.g. Staff Welfare, Gift, Charity).",
+    )
+    customer = models.ForeignKey("sales.Customer", null=True, blank=True, on_delete=models.SET_NULL, related_name="production_orders")
     customer_name = models.CharField(max_length=120, blank=True,
         help_text="Required for distribution and online orders; leave blank for a physical store restock.")
     customer_region = models.CharField(max_length=100, blank=True,
         help_text="Optional reporting region/territory for distribution or online customer analytics.")
     customer_group = models.CharField(max_length=100, blank=True,
         help_text="Optional customer group/segment for distribution or online customer analytics.")
-    transaction_type = models.CharField(max_length=10, choices=TRANSACTION_CHOICES, default="paid", help_text="Physical Store purpose only: paid stock restock or non-cash product issue.")
+    # Legacy payment fields are retained for historical rows and database
+    # compatibility. They are deliberately not exposed for Physical Store
+    # Orders: those are production/restock requests, not direct sales.
+    transaction_type = models.CharField(max_length=10, choices=TRANSACTION_CHOICES, default="paid", help_text="Legacy field retained for historical physical-store orders; direct sales are recorded in Sales.")
     customer_payment_status = models.CharField(max_length=10, choices=CUSTOMER_PAYMENT_CHOICES, default="paid", help_text="Distribution/Online only: whether the customer payment has been received or remains a receivable.")
-    customer_payment_method = models.CharField(max_length=10, choices=PAYMENT_CHOICES, default="Transfer")
+    customer_payment_method = models.CharField(max_length=10, choices=PAYMENT_CHOICES, default="Transfer", blank=True)
     customer_payment_account = models.ForeignKey("core.CashAccount", null=True, blank=True, on_delete=models.PROTECT, related_name="customer_order_payments")
-    unpaid_description = models.CharField(max_length=255, blank=True, default="", help_text="Required when this physical-store order is unpaid.")
-    payment_method = models.CharField(max_length=10, choices=PAYMENT_CHOICES, default="Cash",
-        help_text="Payment method to use if a customer payment is later recorded.")
+    unpaid_description = models.CharField(max_length=255, blank=True, default="")
+    payment_method = models.CharField(max_length=10, choices=PAYMENT_CHOICES, default="Cash", blank=True,
+        help_text="Legacy field retained for historical rows; customer-order payment is handled through Finance.")
     account = models.ForeignKey("core.CashAccount", null=True, blank=True, on_delete=models.PROTECT, related_name="production_orders")
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="pending")
     notes = models.TextField(blank=True)
@@ -117,6 +134,119 @@ class OrderItem(TimestampedModel):
         50 units at 1500 with a 200 discount is (1500-200)*50 = 65,000,
         not 1500*50-200. Matches how a per-item price cut actually works."""
         return self.total_units * ((self.price or Decimal("0")) - (self.discount or Decimal("0")))
+class ProductionBatch(BusinessOwnedModel):
+    """A traceable production output record for one finished-good order line.
+
+    The batch records planned output, gross production, wastage and saleable
+    output. It is the bridge between the production event, its frozen cost,
+    quality inspection and any customer/shelf movement that follows.
+    """
+    order = models.ForeignKey(Order, on_delete=models.PROTECT, related_name="production_batches")
+    order_item = models.ForeignKey(OrderItem, on_delete=models.PROTECT, related_name="production_batches")
+    finished_good = models.ForeignKey("inventory.FinishedGood", on_delete=models.PROTECT, related_name="production_batches")
+    production_date = models.DateField()
+    batch_number = models.CharField(max_length=60)
+    expiry_date = models.DateField(null=True, blank=True)
+    planned_units = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    produced_units = models.DecimalField(max_digits=14, decimal_places=2, default=0, help_text="Gross units produced before wastage/rejection.")
+    wastage_units = models.DecimalField(max_digits=14, decimal_places=2, default=0, help_text="Units lost, rejected or otherwise not saleable.")
+    wastage_reason = models.CharField(max_length=255, blank=True, default="")
+    notes = models.TextField(blank=True, default="")
+    total_cost = models.DecimalField(max_digits=16, decimal_places=4, default=0)
+    unit_cost = models.DecimalField(max_digits=16, decimal_places=6, default=0)
+
+    # A customer order is fulfilled at the ordered quantity. If gross
+    # production is sufficient but wastage/rejection leaves fewer saleable
+    # units, the deficit is recorded explicitly rather than pretending the
+    # order was produced short. Reconciliation is a separate auditable
+    # allocation from surplus production in the same sales channel.
+    shortage_flag = models.BooleanField(default=False)
+    shortage_reason = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+        ordering = ["-production_date", "-id"]
+        constraints = [models.UniqueConstraint(fields=["business", "batch_number"], name="unique_production_batch_per_business")]
+
+    def __str__(self):
+        return f"{self.batch_number} — {self.finished_good.name}"
+
+    @property
+    def saleable_units(self):
+        return max(Decimal("0"), self.produced_units - self.wastage_units)
+
+    @property
+    def yield_percent(self):
+        if not self.planned_units:
+            return Decimal("0")
+        return (self.saleable_units / self.planned_units * Decimal("100")).quantize(Decimal("0.01"))
+
+    @property
+    def shortage_units(self):
+        return max(Decimal("0"), self.planned_units - self.saleable_units)
+
+    @property
+    def reconciled_units(self):
+        return sum((r.quantity for r in self.reconciliation_in.all()), Decimal("0"))
+
+    @property
+    def outstanding_shortage_units(self):
+        return max(Decimal("0"), self.shortage_units - self.reconciled_units)
+
+    @property
+    def available_surplus_units(self):
+        """Saleable units above this batch's own commitment that may be
+        allocated to another shortage in the same channel/product."""
+        outgoing = sum((r.quantity for r in self.reconciliation_out.all()), Decimal("0"))
+        return max(Decimal("0"), self.saleable_units - self.planned_units - outgoing)
+
+
+class ProductionBatchReconciliation(BusinessOwnedModel):
+    """Auditable fulfillment allocation from surplus production to a
+    customer-order production shortage. It is not a new sale, cash entry,
+    inventory movement, or production event."""
+
+    source_batch = models.ForeignKey(
+        "ProductionBatch",
+        on_delete=models.PROTECT,
+        related_name="reconciliation_out",
+    )
+    target_batch = models.ForeignKey(
+        "ProductionBatch",
+        on_delete=models.PROTECT,
+        related_name="reconciliation_in",
+    )
+    quantity = models.DecimalField(max_digits=14, decimal_places=2)
+    reason = models.CharField(max_length=255)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return f"{self.quantity} — {self.source_batch.batch_number} → {self.target_batch.batch_number}"
+
+
+class ProductionQualityCheck(BusinessOwnedModel):
+    """Quality inspection attached to a completed production batch."""
+    STATUS_CHOICES = [
+        ("pending", "Pending inspection"),
+        ("passed", "Passed"),
+        ("conditional", "Passed with conditions"),
+        ("failed", "Failed"),
+    ]
+    batch = models.OneToOneField(ProductionBatch, on_delete=models.CASCADE, related_name="quality_check")
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default="pending")
+    checked_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="production_quality_checks")
+    checked_at = models.DateTimeField(null=True, blank=True)
+    notes = models.TextField(blank=True, default="")
+    defects = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-checked_at", "-id"]
+
+    def __str__(self):
+        return f"QC — {self.batch.batch_number} — {self.get_status_display()}"
+
+
 class ProductionCostSnapshot(BusinessOwnedModel):
     """Frozen production cost calculated when an order is completed.
 
@@ -125,6 +255,7 @@ class ProductionCostSnapshot(BusinessOwnedModel):
     """
     order = models.ForeignKey(Order, null=True, blank=True, on_delete=models.SET_NULL, related_name="cost_snapshots")
     order_item = models.ForeignKey(OrderItem, null=True, blank=True, on_delete=models.SET_NULL, related_name="cost_snapshots")
+    production_batch = models.ForeignKey("ProductionBatch", null=True, blank=True, on_delete=models.SET_NULL, related_name="cost_snapshots")
     finished_good = models.ForeignKey("inventory.FinishedGood", on_delete=models.PROTECT, related_name="production_cost_snapshots")
     production_date = models.DateField()
     produced_units = models.DecimalField(max_digits=14, decimal_places=2, default=0)

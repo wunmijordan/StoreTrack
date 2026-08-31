@@ -1,7 +1,8 @@
 from django import forms
 from django.forms import inlineformset_factory
-from .models import Sale, SaleItem
+from .models import Customer, Sale, SaleItem, CustomerProductPrice
 from core.models import CashAccount
+from inventory.models import FinishedGood
 
 INPUT_CLS = "w-full rounded-md border border-[#D9CFB4] bg-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#8f172d]/30 focus:border-[#8f172d]"
 
@@ -13,20 +14,44 @@ class StyledModelForm(forms.ModelForm):
             f.widget.attrs["class"] = INPUT_CLS
 
 
+class CustomerForm(StyledModelForm):
+    class Meta:
+        model = Customer
+        fields = ["name", "phone", "email", "address", "region", "customer_group", "credit_limit", "payment_terms_days", "active", "notes"]
+        widgets = {
+            "address": forms.Textarea(attrs={"rows": 2}),
+            "notes": forms.Textarea(attrs={"rows": 2}),
+        }
+
+    def clean_name(self):
+        name = (self.cleaned_data.get("name") or "").strip()
+        if not name:
+            raise forms.ValidationError("Customer name is required.")
+        return name
+
+
 class SaleForm(StyledModelForm):
     class Meta:
         model = Sale
-        fields = ["date", "customer", "transaction_type", "unpaid_description", "payment_method", "account"]
+        fields = ["date", "customer_master", "customer", "transaction_type", "unpaid_description", "payment_method", "account"]
         widgets = {"date": forms.DateInput(attrs={"type": "date"}), "unpaid_description": forms.Textarea(attrs={"rows": 2})}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["customer_master"].queryset = Customer.objects.filter(active=True).order_by("name")
+        self.fields["customer_master"].required = False
+        self.fields["customer"].required = False
         self.fields["account"].queryset = CashAccount.objects.filter(active=True).order_by("name")
         self.fields["account"].required = False
         self.fields["transaction_type"].choices = [("paid", "Paid"), ("unpaid", "Unpaid")]
 
     def clean(self):
         cleaned = super().clean()
+        master = cleaned.get("customer_master")
+        if master:
+            cleaned["customer"] = master.name
+        elif not (cleaned.get("customer") or "").strip():
+            cleaned["customer"] = "Walk-in"
         if cleaned.get("transaction_type") == "unpaid" and not (cleaned.get("unpaid_description") or "").strip():
             self.add_error("unpaid_description", "Explain why this physical-store sale is unpaid.")
         if cleaned.get("transaction_type") == "paid" and not cleaned.get("account"):
@@ -39,5 +64,33 @@ class SaleItemForm(StyledModelForm):
         model = SaleItem
         fields = ["finished_good", "batch_qty", "piece_qty", "discount"]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # The Sales form is the only place where physical-store products are
+        # sold directly. Only finished goods configured for physical-store
+        # shelf stock are therefore valid choices here.
+        self.fields["finished_good"].queryset = FinishedGood.objects.filter(
+            stock__isnull=False,
+            reorder_level__gt=0,
+        ).order_by("name")
+
 
 SaleItemFormSet = inlineformset_factory(Sale, SaleItem, form=SaleItemForm, extra=1, can_delete=True)
+
+
+class CustomerProductPriceForm(StyledModelForm):
+    class Meta:
+        model = CustomerProductPrice
+        fields = ["finished_good", "channel", "price"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["finished_good"].queryset = FinishedGood.objects.all().order_by("name")
+        self.fields["channel"].required = True
+        self.fields["price"].min_value = 0
+
+
+CustomerProductPriceFormSet = inlineformset_factory(
+    Customer, CustomerProductPrice, form=CustomerProductPriceForm,
+    extra=1, can_delete=True,
+)

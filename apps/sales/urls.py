@@ -2,6 +2,10 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    path("customers/", views.customer_list, name="customer_list"),
+    path("customers/add/", views.customer_form, name="customer_add"),
+    path("customers/<int:pk>/edit/", views.customer_form, name="customer_edit"),
+    path("customers/<int:pk>/toggle-active/", views.customer_toggle_active, name="customer_toggle_active"),
     path("", views.sales_list, name="sales_list"),
     path("add/", views.sale_form, name="sale_add"),
     path("<int:pk>/delete/", views.sale_delete, name="sale_delete"),

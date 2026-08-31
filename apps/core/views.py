@@ -16,7 +16,7 @@ from .models import Business, FinancialTransaction
 from .forms import BusinessForm
 from inventory.models import RawMaterial, FinishedGood, RecipeItem, ProductionMaterial, StockMovement, StockAdjustment, OperationalSupplyDispense
 from procurement.models import PurchaseOrder, PurchaseOrderItem, RawMaterialCostSnapshot, SupplierPayment
-from production.models import Order, OrderItem
+from production.models import Order, OrderItem, ProductionBatch
 from sales.models import Sale, SaleItem
 from expenses.models import Expense
 
@@ -837,31 +837,36 @@ def _finished_good_search_detail(good):
     }
     channel_rows = []
     for channel in ("physical_store", "distribution", "online"):
-        qs = completed_orders.filter(order_type=channel)
-        units = Decimal("0")
-        batches = 0
-        for order in qs:
-            for item in order.items.all():
-                if item.finished_good_id == good.id:
-                    units += item.total_units
-                    batches += 1
+        batches_qs = ProductionBatch.objects.filter(
+            finished_good=good,
+            order__order_type=channel,
+            order__status="completed",
+        ).prefetch_related("reconciliation_in", "reconciliation_out")
+        units = sum((b.saleable_units for b in batches_qs), Decimal("0"))
+        shortages = sum((b.shortage_units for b in batches_qs), Decimal("0"))
+        reconciled = sum((b.reconciled_units for b in batches_qs), Decimal("0"))
         channel_rows.append({
             "channel": channel_names[channel],
-            "production_events": batches,
+            "production_events": batches_qs.count(),
             "units": _decimal(units),
+            "shortage_units": _decimal(shortages),
+            "reconciled_units": _decimal(reconciled),
+            "outstanding_shortage_units": _decimal(max(Decimal("0"), shortages - reconciled)),
         })
 
     period_rows = []
     for label, start in periods:
         order_qs = completed_orders.filter(completed_date__range=(start, today()))
         sale_qs = sales.filter(date__range=(start, today()))
-        produced = Decimal("0")
-        production_events = 0
-        for order in order_qs:
-            for item in order.items.all():
-                if item.finished_good_id == good.id:
-                    produced += item.total_units
-                    production_events += 1
+        batch_qs = ProductionBatch.objects.filter(
+            finished_good=good,
+            production_date__range=(start, today()),
+            order__status="completed",
+        ).prefetch_related("reconciliation_in", "reconciliation_out")
+        produced = sum((b.saleable_units for b in batch_qs), Decimal("0"))
+        production_events = batch_qs.count()
+        shortage_units = sum((b.shortage_units for b in batch_qs), Decimal("0"))
+        reconciled_units = sum((b.reconciled_units for b in batch_qs), Decimal("0"))
         sold_units = Decimal("0")
         revenue = Decimal("0")
         unpaid_value = Decimal("0")
@@ -891,6 +896,9 @@ def _finished_good_search_detail(good):
             "label": label,
             "produced_units": _decimal(produced),
             "production_events": production_events,
+            "shortage_units": _decimal(shortage_units),
+            "reconciled_units": _decimal(reconciled_units),
+            "outstanding_shortage_units": _decimal(max(Decimal("0"), shortage_units - reconciled_units)),
             "sold_units": _decimal(sold_units),
             "sale_events": sale_events,
             "revenue": _money(revenue),

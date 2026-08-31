@@ -138,7 +138,7 @@
               </div>
             </section>
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Production frequency by channel</h4></div><div class="p-4 space-y-2"><template x-for="row in detail.production_channels" :key="row.channel"><div class="flex items-center justify-between text-xs border-b border-stone-100 pb-2"><span x-text="row.channel"></span><span class="font-mono" x-text="fmt(row.units) + ' units • ' + row.production_events + ' event(s)'"></span></div></template></div></section>
+              <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Production frequency by channel</h4></div><div class="p-4 space-y-2"><template x-for="row in detail.production_channels" :key="row.channel"><div class="flex items-center justify-between text-xs border-b border-stone-100 pb-2 gap-3"><span x-text="row.channel"></span><span class="font-mono text-right" x-text="fmt(row.units) + ' saleable • ' + row.production_events + ' event(s)' + (Number(row.outstanding_shortage_units || 0) > 0 ? ' • ' + fmt(row.outstanding_shortage_units) + ' shortage' : '')"></span></div></template></div></section>
               <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Sales by channel</h4></div><div class="p-4 space-y-2"><template x-for="row in detail.sales_channels" :key="row.channel"><div class="flex items-center justify-between text-xs border-b border-stone-100 pb-2"><span x-text="row.channel"></span><span class="font-mono" x-text="fmt(row.units) + ' units • ' + money(row.revenue)"></span></div></template></div></section>
             </div>
             <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Recipe / production cost</h4></div><div class="overflow-x-auto"><table class="w-full text-xs min-w-[620px]"><thead class="bg-stone-50 text-stone-500"><tr><th class="px-3 py-2 text-left">Material</th><th class="px-3 py-2 text-right">Qty / batch</th><th class="px-3 py-2 text-left">Unit</th><th class="px-3 py-2 text-right">Current cost / usage unit</th></tr></thead><tbody><template x-for="row in detail.recipe" :key="row.name"><tr class="border-t border-stone-100"><td class="px-3 py-2 font-semibold" x-text="row.name"></td><td class="px-3 py-2 text-right font-mono" x-text="fmt(row.qty_per_batch)"></td><td class="px-3 py-2" x-text="row.unit"></td><td class="px-3 py-2 text-right font-mono" x-text="money(row.current_cost)"></td></tr></template></tbody></table></div><p class="px-4 py-3 text-[10px] text-stone-400" x-text="detail.note"></p></section>
@@ -990,10 +990,10 @@
 <script>
 function money(value) {
   const symbol = '{{ biz.currency_symbol|default:"₦"|escapejs }}';
-  return `${symbol}${Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  return `${symbol}${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 function number(value) {
-  return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 function renderFinancialBreakdown(scope, data) {
   const current = data[scope] || {};
@@ -1055,7 +1055,7 @@ function renderFinancialBreakdown(scope, data) {
     const number = Number(value || 0);
 
     return number.toLocaleString(undefined, {
-      maximumFractionDigits: 0
+      minimumFractionDigits: 2, maximumFractionDigits: 2
     });
   }
 
@@ -1258,11 +1258,11 @@ function dashboardSearch() {
     clear() { this.query = ''; this.results = []; this.showResults = false; },
 
     fmt(value) {
-      return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+      return Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     },
 
     money(value) {
-      return `${this.currency}${Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+      return `${this.currency}${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     },
 
     summaryCards() {

@@ -1,22 +1,21 @@
-# Architecture
+# StoreTrack Architecture
 
-An index of how StoreTrack is put together, and why — written the same way
-as ChurchForce's `docs/architecture/README.md`, scaled to a much smaller
-system.
+An index of how StoreTrack is put together, and why. StoreTrack is deliberately
+small, but its domains are connected so procurement, production, sales and
+finance describe one business flow rather than four isolated ledgers.
 
-## Why this structure
+## What StoreTrack can be described as today
 
-The brief was: emulate a proven multitenant Django structure, but keep it
-lightweight enough to start using immediately. The compromise:
+> **StoreTrack is a production-aware commercial management system for
+> businesses that procure materials, prepare or manufacture finished goods,
+> manage inventory, sell through multiple channels, and track the resulting
+> payables, receivables and cash flow.**
 
-- **Borrowed**: `apps/` layout, one Django app per domain, a shared base
-  model hierarchy, a tenant-owned base model with a scoped manager resolved
-  in middleware.
-- **Deliberately not borrowed (yet)**: real tenant routing, permission
-  tiers, dedicated per-tenant databases, Channels/Redis/Cloudinary, an AI
-  skill registry. None of these earn their complexity at one business, one
-  admin user, SQLite. `CLAUDE.md` §7 lists exactly what's missing and how
-  to add it the same way ChurchForce did, when it's actually needed.
+It is **not yet a full manufacturing ERP**. It has a strong batch/recipe,
+procurement, inventory, sales and finance foundation, but production planning,
+MRP/material planning, WIP, scheduling, labour/overhead costing, formal QC
+release gates, and delivery/fulfilment are intentionally still on the roadmap.
+See `docs/ROADMAP.md` for the remaining evolution.
 
 ## Directory layout
 
@@ -24,100 +23,215 @@ lightweight enough to start using immediately. The compromise:
 storetrack/
   manage.py
   storetrack/              project package: settings, root urls, wsgi
-  apps/                     domain apps (added to sys.path via settings.py)
-    core/                   Business, BaseModel/TimestampedModel/BusinessOwnedModel,
-                            middleware, dashboard, reports & backup
-    inventory/              RawMaterial, FinishedGood, RecipeItem (bill of materials)
-    procurement/            PurchaseOrder, PurchaseOrderItem
-    production/             Order, OrderItem (customer orders & physical store restocks)
-    sales/                  Sale, SaleItem
+  apps/
+    core/                   Business, base models, middleware, dashboard,
+                            reports, backup and finance
+    inventory/              RawMaterial, FinishedGood, RecipeItem,
+                            ProductionMaterial, stock ledger/adjustments
+    procurement/            PurchaseOrder, PurchaseOrderItem,
+                            historical procurement cost snapshots, supplier payments
+    production/             customer/physical orders, production batches,
+                            yield/wastage, quality checks and frozen production costs
+    sales/                  Customer master, Sale, SaleItem, customer payments
   templates/                one dir per app, mirroring the apps/ split
   docs/
     ARCHITECTURE.md         this file
-  CLAUDE.md                 agent instructions — read this first when editing
+    ROADMAP.md              remaining product evolution
+  CLAUDE.md                 agent instructions
 ```
 
-## Data flow
+## Core business flow
 
 ```
-PurchaseOrder --(receive)--> RawMaterial.stock += qty x total_conversion_factor
-                              RawMaterial.cost_per_unit updated
-RawMaterial --(recipe, per BATCH)--> FinishedGood     (RecipeItem: qty_per_batch)
+PurchaseOrder
+    --receive-->
+RawMaterial stock + procurement cost history
+    --recipe/BOM + production inputs-->
+Production Order
+    --approve-->
+Raw materials released/consumed
+    --complete-->
+ProductionBatch
+    ├── gross output
+    ├── wastage/rejected output
+    ├── saleable output + yield
+    ├── batch number + expiry
+    ├── Quality Check
+    └── ProductionCostSnapshot + material cost lines
+              │
+              ├── Physical Store stock
+              └── Distribution / Online sale
+                         │
+                         ▼
+                       Sale
+                         │
+                         ├── CustomerPayment
+                         └── Receivable -> Received
 
-Walk-in Sale --(save)--> FinishedGood.stock -= (batch_qty x units_per_batch + piece_qty)  [immediate]
-                          price auto-filled from FinishedGood.selling_price, not entered
-
-Order (customer or physical_store) --(created)--> status=pending, nothing touched yet
-  --(approve)--> RawMaterial.stock -= exact batch+piece requirement per line item
-                 (piece portion is proportional: qty_per_batch / units_per_batch x piece_qty —
-                  no rounding up to a whole batch, no surplus production)
-                 status=approved
-  --(complete)--> FinishedGood.total_produced += total_units, always
-                  IF order_type == physical_store: FinishedGood.stock += total_units
-                  IF order_type == customer: stock untouched (delivered directly, never
-                     shelved) — instead a Sale + SaleItem is created automatically
-                     (source=customer_order), appearing on the Sales list
-                  status=completed
-  --(reject)--> only from pending, before any deduction — status=rejected
+Procurement -> SupplierPayment -> Payable -> Paid
+All actual money movement -> FinancialTransaction -> CashAccount
 ```
 
-Every stock-mutating step above runs inside `transaction.atomic()`. Orders are
-approved/completed as a whole (all line items together), not item-by-item.
-Quantity is always entered as exact batches + pieces at order/sale time —
-nothing downstream re-asks for or rounds it.
+Production orders are approved as a whole. Approval releases the material
+requirements calculated from each finished good's recipe and production
+materials. Completion records the actual production result rather than
+assuming that planned quantity was perfectly achieved.
 
-## The Business (tenant) pattern
+## Customer master data
+
+`Sales.Customer` is the reusable customer record. It stores:
+
+- name
+- phone and email
+- address
+- region and customer group
+- credit limit
+- payment terms in days
+- active/archive state
+- notes
+
+Distribution and Online production orders select a master customer. The order
+still stores `customer_name`, `customer_region` and `customer_group` as a
+historical snapshot so old invoices/reports do not change when a master
+record is edited. Existing order/sale names are migrated into the customer
+master when the migration runs.
+
+## Product and customer-channel pricing
+
+Selling-price resolution is intentionally layered and channel-specific:
 
 ```
-Request
-  -> BusinessMiddleware resolves Business.default() (one row today)
-  -> request.business attached
-  -> contextvar set (core.context)
-  -> BusinessOwnedModel.objects (scoped manager) filters every query by it
-  -> BusinessOwnedModel.raw_objects bypasses the filter (admin/shell only)
+Customer + Product + Channel price
+            ↓ if unavailable
+Product + Channel price
+            ↓ if unavailable
+FinishedGood.selling_price (default)
 ```
 
-This is the one piece of real "future-proofing" in an otherwise
-deliberately minimal system, because multi-location was flagged as a likely
-next step. The day there's a second `Business` row, the scoping is already
-correct — verified directly during development by creating a second
-business, confirming `objects.all()` only sees its own rows, and confirming
-`raw_objects.all()` sees both. What's still missing for real multi-location
-is _routing_ (deciding which business a request belongs to from the URL or
-session) — see `CLAUDE.md` §7.
+For Distribution and Online production orders, the selected customer may have
+an agreed `CustomerProductPrice` for the selected finished good and channel.
+That price has priority over the finished good's channel price. If no customer
+agreement exists for that exact channel/product, the finished good's
+`FinishedGoodChannelPrice` for that channel is used. If no channel price is
+configured, the finished good's legacy/default `selling_price` is used.
 
-## Update this file when
+The production-order form now receives these layers separately so its
+Price/Unit display resolves the same way for the selected **channel + product**,
+without accidentally falling back to another channel's price. Changing the
+customer, order channel, or selected product immediately refreshes the
+display. The resolved price is still snapshotted server-side onto
+`OrderItem.price` when the order is saved, so historical orders are not changed
+by later pricing edits.
 
-- An app boundary changes (a model moves apps, or a new app is added)
-- The Business/tenant pattern changes (e.g. real routing gets added)
-- A new stock-mutating flow is added — extend the data-flow diagram above
+Customer-specific pricing currently applies to Distribution and Online
+channels. Physical Store orders do not use a customer price; their display
+resolves channel price first and then the product default.
 
-## Accounting and audit layer
+### "A user should be able to answer:"
 
-StoreTrack now separates physical stock movement, product costing, recognised
-revenue, and actual cash movement.
+### What price will this product use?
+For a Distribution/Online order, the user should be able to select a customer
+and product and immediately see the applicable unit price: **customer-specific
+price → exact channel price → product default**. The saved order retains that
+resolved price as a historical snapshot.
 
-- `StockMovement` is the physical inventory ledger and carries a reference,
-  unit value and optional inventory location.
-- `StockAdjustment` records count corrections, wastage, damage, returns,
-  internal use, staff issues and charity/donation issues without silently
-  changing stock.
-- `ProductionCostSnapshot` freezes historical production cost using the latest
-  received procurement price available on the production date; no weighted
-  averaging is used.
-- `Sale.transaction_type` distinguishes paid sales from unpaid product issues.
-  Unpaid sales reduce stock and remain visible as non-cash product value.
-- Physical-store unpaid production orders first record production into shelf
-  stock and immediately record the outgoing product issue, so the physical
-  stock ledger remains fully explainable.
-- `FinancialTransaction` is the actual money-in/money-out ledger.
-- `CashAccount` provides cash/bank/POS balances.
-- `SupplierPayment` and `CustomerPayment` provide explicit settlement records.
-- `AuditLog` records important operational mutations.
+## Production batches, yield and wastage
+
+Each completed production-order line creates one `ProductionBatch`.
+A batch records:
+
+- planned units
+- gross units produced
+- wastage/rejected units
+- saleable units (`gross - wastage`)
+- yield percentage (`saleable / planned * 100`)
+- batch number
+- expiry date
+- wastage reason
+- frozen total and unit production cost
+
+The existing `FinishedGood.total_produced` now represents saleable production
+from new batches, while wastage is kept separately on the batch and recorded
+as a non-stock production-wastage movement. Physical-store stock and
+customer-delivered totals increase only by saleable units.
+
+For Distribution and Online orders, completion deliberately requires the
+saleable quantity to equal the quantity promised by the order. This prevents
+an order from being marked commercially fulfilled while silently producing
+less saleable product. Physical-store production can legitimately produce
+less and record the resulting yield/wastage.
+
+## Batch traceability
+
+`ProductionBatch` is the traceability bridge between:
+
+```
+Customer/physical production order
+        ↓
+ProductionBatch
+        ↓
+ProductionCostSnapshot
+        ↓
+ProductionCostLine -> RawMaterial
+        ↓
+RawMaterialCostSnapshot -> PurchaseOrderItem -> PurchaseOrder
+```
+
+For Distribution and Online sales, `SaleItem.production_batch` also points
+back to the production batch that fulfilled the sale. This permits a batch to
+be traced forward into its originating customer sale and backward into the
+materials/cost records used to produce it.
+
+This is **production-batch traceability, not yet full supplier-lot
+traceability**. Raw-material lots are not yet maintained as separate stock
+pools, so StoreTrack should not claim exact lot-level genealogy until that
+future layer is implemented.
+
+## Quality control
+
+`ProductionQualityCheck` is a one-to-one inspection record for each production
+batch. It records:
+
+- Pending inspection
+- Passed
+- Passed with conditions
+- Failed
+- inspector
+- inspection time
+- notes
+- defects
+
+QC is currently an explicit record attached to the batch, but it is **not yet
+a hard release gate** that blocks stock/sales. That is intentional for this
+stage so existing production workflows are not made brittle. A future QC
+release workflow can be added once the business rules for quarantine,
+rejection and rework are defined.
+
+## Procurement and finance
+
+Procurement supports Paid, Partially Paid and Unpaid states. A partially paid
+PO records the amount paid immediately as a `SupplierPayment`; only the
+remaining balance is shown as payable in Finance. Subsequent Finance payments
+reduce the balance and the PO becomes Paid when fully settled.
+
+Customer Distribution/Online orders use the same settlement pattern on the
+other side:
+
+```
+Order: Receivable
+      ↓ completion
+Sale: Unpaid/Receivable
+      ↓ Finance CustomerPayment(s)
+Sale: Partially Paid -> Paid/Received
+      ↓ final settlement
+Order: Received
+```
+
+`FinancialTransaction` is the actual money-in/money-out ledger and
+`CashAccount` is the account balance layer. The Order's customer payment state
+is intentionally separate from the physical-store `transaction_type` field.
 
 ## Cost/profit/cash distinction
-
-The dashboard treats these as separate concepts:
 
 ```
 Sales revenue (paid transactions)
@@ -127,44 +241,136 @@ Sales revenue (paid transactions)
 Cash received - actual cash outflows
         = Net cash flow
 
-Unpaid product issues
-        = non-cash product value (tracked separately)
+Unpaid product issues / receivables
+        = non-cash activity tracked separately
 ```
 
-Procurement and expenses marked unpaid are not counted as realised cash
-outflow. Existing records default to paid so upgrading an existing database
-does not change its historical totals unexpectedly.
+Production cost is frozen at batch completion from the latest received
+procurement cost available on the production date. It is not retrospectively
+recalculated when a later procurement price changes.
 
-## Operational supply dispensing and financial settlement
+## The Business (tenant) pattern
 
-Operational supplies are RawMaterials with category `operational_supply`. They are procured through the normal Purchase Order flow and therefore increase raw-material stock when a PO is received, regardless of whether the supplier has been paid. They are intentionally excluded from FinishedGood recipes/production materials.
+```
+Request
+  -> BusinessMiddleware resolves Business.default() (one row today)
+  -> request.business attached
+  -> contextvar set (core.context)
+  -> BusinessOwnedModel.objects filters every query to that business
+  -> BusinessOwnedModel.raw_objects bypasses the filter for admin/shell
+```
 
-A manual Operational Supply Dispense records a dated reasoned issue in the material's usage unit and creates a `StockMovement.OPERATIONAL_DISPENSE` entry. This reduces stock and therefore participates in the normal reorder/warning logic. It is inventory consumption, not a second cash expense; the procurement that brought the supply into inventory remains the financial acquisition event.
+This is future-proofed for multiple businesses, but real tenant/location
+routing is not implemented yet.
 
-Customer Distribution/Online orders are treated as receivables after completion. Their Sales records begin unpaid and can move to partial/paid through Finance > Customer Payment. Physical Store unpaid transactions are different: they represent non-cash product issues (for example staff or charity) and remain explicitly reasoned on the physical-store transaction.
+## "A user should be able to answer:"
 
-Supplier procurement is also split between inventory recognition and cash settlement. Receiving a PO always records inventory and the historical procurement price. A paid PO records its cash outflow at receipt; an unpaid/partial PO remains a payable until Supplier Payment entries are recorded in Finance. Financial analytics therefore distinguish received procurement value from actual procurement cash paid.
+StoreTrack's intended value can be expressed as a chain of business questions:
 
-CashAccount records represent real cash/bank/card locations. New paid sales, paid procurement and paid expenses require an account selection; later customer/supplier payments also require an account. This keeps the cash ledger reconcilable to real-world balances.
+### What did we buy?
+**Procurement** records suppliers, purchase orders, received quantities,
+purchase prices, historical material costs and supplier payments.
 
-Customer and supplier payment forms only expose outstanding Distribution/Online sales and received unpaid/partial purchase orders respectively. Selecting a customer or supplier document populates the associated document and outstanding amount for review before posting the payment.
+### What do we have?
+**Inventory** tracks raw-material stock, finished-good shelf stock, stock
+movements, adjustments, reorder levels and unit conversions.
 
+### What can we make?
+**Recipes/BOMs + production materials** define the material requirements for a
+finished good, including packaging and production supplies.
 
-## Access control and payment timing
+### What should we make?
+**Not fully yet.** Production orders can be created and material shortages can
+be checked, but demand-driven production planning and MRP are roadmap items.
 
-The application uses a custom `accounts.CustomUser` with a single full-name field plus
-username, email, phone and a business role. `UserBusiness` scopes membership to a
-business, and `UserModulePermission` provides per-user View/Edit permissions for each
-application module. The live Users & Access screen is the normal administration path;
-Django admin remains reserved for true superusers.
+### What did we actually make?
+**Production batches** record gross output, wastage/rejection, saleable output,
+yield, batch number and expiry.
 
-Payment state is intentionally separated by transaction context:
-- Physical Store orders/sales use `transaction_type` for Paid shelf stock versus
-  Unpaid non-cash issues.
-- Distribution/Online production orders use `customer_payment_status` for Paid at
-  Request versus Pay Later. A payment marked paid at request creates the cash/bank
-  ledger entry immediately; a later payment creates a CustomerPayment and cash entry.
-- Procurement and Expenses use `payment_status`. Paid procurement/expenses record
-  cash at request, while unpaid records remain payables until Finance settles them.
-- Receiving a procurement always changes raw-material stock and creates the historical
-  procurement cost snapshot regardless of payment status.
+### What did it actually cost?
+**Production cost snapshots** freeze material-based cost at the production
+date. Labour and overhead costing remain roadmap items.
+
+### What happened to quality?
+**Quality checks** record the inspection outcome, inspector, defects and notes
+for each production batch. Formal quarantine/release/rework control remains a
+roadmap item.
+
+### Where did it go?
+Completed production can go to physical-store stock or directly to
+Distribution/Online customers. Customer-order sale lines retain the production
+batch used to fulfil them.
+
+### Who bought it?
+**Customer master data + sales/orders** provide reusable customer identity,
+region/group, credit terms, order history and downstream sales records.
+
+### Who owes us?
+**Customer receivables** are tracked through Sales and Finance. Partial payments
+remain outstanding; the final payment changes the sale and originating
+Distribution/Online order to Received.
+
+### Who do we owe?
+**Supplier payables** are tracked from received purchase orders through
+SupplierPayment records until the balance is cleared.
+
+### Did we actually make money?
+**Finance + sales + historical production cost** provide the foundation for
+revenue, COGS, gross profit, cash flow and future product/channel/customer
+profitability analysis.
+
+## Modified and added files for the current production/commercial expansion
+
+### Modified
+
+- `apps/sales/models.py` — customer master, master links on sales/payments,
+  production-batch link on sale lines.
+- `apps/sales/forms.py` — customer master and customer form handling.
+- `apps/sales/views.py` — customer master list/create/edit/archive workflows.
+- `apps/sales/urls.py` — customer routes.
+- `apps/sales/admin.py` — customer/batch-aware admin registrations.
+- `apps/core/finance_views.py` — links Finance customer payments to the master
+  customer when a linked sale has one.
+- `apps/production/models.py` — customer link, ProductionBatch,
+  ProductionQualityCheck and batch-linked cost snapshots.
+- `apps/production/forms.py` — master-customer order selection and production
+  completion/QC forms.
+- `apps/production/views.py` — customer snapshot syncing, batch completion,
+  yield/wastage handling, QC and batch traceability views; exposes separate
+  default/channel pricing data for the production-order price resolver.
+- `apps/production/urls.py` — batch and QC routes.
+- `apps/production/admin.py` — batch/QC admin registrations.
+- `apps/inventory/models.py` — production-wastage movement type.
+- `templates/_nav_links.html` — Customers and production-batch navigation.
+- `templates/production/order_form.html` — customer master selection and
+  restored channel-aware Price/Unit auto-rendering with customer/channel/default
+  resolution.
+- `templates/production/order_detail.html` — batch links and new completion
+  workflow.
+- `templates/sales/sales_list.html` — existing sales UI remains compatible with
+  the master/batch model.
+
+### Added
+
+- `templates/sales/customers_list.html`
+- `templates/sales/customer_form.html`
+- `templates/production/order_complete.html`
+- `templates/production/batches_list.html`
+- `templates/production/batch_detail.html`
+- `apps/sales/migrations/0002_customer_master.py`
+- `apps/sales/migrations/0003_saleitem_production_batch.py`
+- `apps/production/migrations/0003_production_batches_customer_links.py`
+- `apps/inventory/migrations/0002_production_wastage_movement.py`
+- `docs/ROADMAP.md`
+
+The inventory migration is intentionally schema-neutral because adding a
+choice value does not require a database column change; it simply gives the
+migration history an explicit marker for the new movement type.
+
+## Update this file when
+
+- An app boundary changes or a new app is added.
+- The Business/tenant pattern changes.
+- A new stock-mutating flow is added.
+- A production/sales/finance relationship changes.
+- A major capability moves from roadmap into the implemented product.

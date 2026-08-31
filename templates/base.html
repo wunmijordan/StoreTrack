@@ -15,6 +15,8 @@
     .font-mono { font-family: 'IBM Plex Mono', monospace; }
     table { font-variant-numeric: tabular-nums; }
     [x-cloak] { display: none !important; }
+    .field-client-invalid { border-color: #e11d48 !important; box-shadow: 0 0 0 1px rgba(225,29,72,.15); }
+    .field-has-error input, .field-has-error select, .field-has-error textarea { border-color: #e11d48 !important; }
     @media (min-width: 1024px) {
       .desktop-sidebar { position: fixed; inset: 0 auto 0 0; width: 14rem; height: 100vh; overflow-y: auto; scrollbar-width: none; z-index: 50; }
       .desktop-sidebar::-webkit-scrollbar { width: 0; height: 0; }
@@ -154,6 +156,44 @@
         const hash = window.location.hash;
         if (hash === '#raw') setActiveTab('raw');
         if (hash === '#finished') setActiveTab('finished');
+      });
+    });
+
+    // Submission validation: give immediate, visible feedback for required
+    // or otherwise invalid fields instead of silently leaving the user to
+    // guess why a form did not save. Server-side Django validation remains
+    // authoritative; this is a visual/UX layer only.
+    document.addEventListener("DOMContentLoaded", function () {
+      const forms = document.querySelectorAll('form[method="post"]');
+      forms.forEach((form) => {
+        form.addEventListener("submit", function (event) {
+          let firstInvalid = null;
+          form.querySelectorAll('.client-field-error').forEach((el) => el.remove());
+          form.querySelectorAll('.field-client-invalid').forEach((el) => el.classList.remove('field-client-invalid'));
+
+          form.querySelectorAll('input, select, textarea').forEach((field) => {
+            if (field.disabled || field.type === 'hidden') return;
+            const style = window.getComputedStyle(field);
+            if (style.display === 'none' || style.visibility === 'hidden') return;
+            if (!field.checkValidity()) {
+              field.classList.add('field-client-invalid');
+              const host = field.closest('label, td, div') || field.parentElement;
+              if (host && !host.querySelector('.client-field-error')) {
+                const message = document.createElement('span');
+                message.className = 'client-field-error block text-[11px] text-rose-600 mt-0.5';
+                message.textContent = field.validationMessage || 'Please complete this field.';
+                host.appendChild(message);
+              }
+              if (!firstInvalid) firstInvalid = field;
+            }
+          });
+
+          if (firstInvalid) {
+            event.preventDefault();
+            firstInvalid.focus({ preventScroll: true });
+            firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        });
       });
     });
 

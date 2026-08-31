@@ -147,8 +147,17 @@ class FinishedGood(BusinessOwnedModel):
             return False
         return self.stock <= (self.reorder_level * Decimal("1.5"))
 
-    def selling_price_for(self, channel):
-        """Return channel-specific price, falling back to the legacy default."""
+    def selling_price_for(self, channel, customer=None):
+        """Resolve the selling price in this order:
+        customer-specific price -> channel price -> legacy/default price.
+
+        Customer overrides are intentionally kept in the Sales app to avoid
+        coupling the inventory master price to customer agreements.
+        """
+        if customer is not None and channel in ("distribution", "online"):
+            override = self.customer_prices.filter(customer=customer, channel=channel).first()
+            if override is not None:
+                return override.price
         configured = self.channel_prices.filter(channel=channel).first()
         return configured.price if configured else self.selling_price
 
@@ -305,6 +314,7 @@ class StockMovement(BusinessOwnedModel):
     FG_PRODUCTION = "fg_production"
     FG_SALE = "fg_sale"
     FG_UNPAID_ISSUE = "fg_unpaid_issue"
+    FG_WASTAGE = "fg_wastage"
     OPERATIONAL_DISPENSE = "operational_dispense"
     ADJUSTMENT = "adjustment"
 
@@ -314,6 +324,7 @@ class StockMovement(BusinessOwnedModel):
         (FG_PRODUCTION, "Finished goods production"),
         (FG_SALE, "Finished goods sale"),
         (FG_UNPAID_ISSUE, "Unpaid product issue"),
+        (FG_WASTAGE, "Production wastage"),
         (OPERATIONAL_DISPENSE, "Operational supply dispense"),
         (ADJUSTMENT, "Adjustment"),
     ]
