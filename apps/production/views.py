@@ -10,7 +10,7 @@ from django.utils.crypto import get_random_string
 from procurement.models import RawMaterialCostSnapshot
 
 from .forms import OrderForm, OrderItemFormSet, ProductionCompletionForm, ProductionQualityCheckForm, ProductionReconciliationForm
-from .models import Order, OrderItem, ProductionBatch, ProductionBatchReconciliation, ProductionQualityCheck, ProductionCostSnapshot, ProductionCostLine
+from .models import Order, OrderItem, OrderMaterialUsage, ProductionBatch, ProductionBatchReconciliation, ProductionQualityCheck, ProductionCostSnapshot, ProductionCostLine
 from sales.models import CustomerProductPrice
 from inventory.models import FinishedGood
 from inventory.services import (
@@ -137,12 +137,91 @@ def order_form(request, pk=None):
     return render(request, "production/order_form.html", {"form": form, "formset": formset, "prices": prices, "obj": obj})
 
 
+def _material_release_plan(order, post_data=None):
+    """Return flexible controls, per-item usage snapshots, and total release.
+
+    Recipe quantities remain fixed unless the RecipeItem is explicitly marked
+    flexible. Flexible values are entered as quantity per batch at approval.
+    """
+    flexible_rows = []
+    usage_entries = []
+    aggregated = {}
+    errors = []
+
+    items = list(order.items.select_related("finished_good").prefetch_related(
+        "finished_good__recipe_items__raw_material",
+        "finished_good__production_materials__raw_material",
+    ))
+    for item in items:
+        good = item.finished_good
+        upb = good.units_per_batch or Decimal("1")
+        multiplier = item.batch_qty + (item.piece_qty / upb)
+        per_material = {}
+        links = [(link, True) for link in good.recipe_items.all()]
+        links += [(link, False) for link in good.production_materials.all()]
+
+        for link, is_recipe in links:
+            planned_per_batch = link.qty_per_batch
+            actual_per_batch = planned_per_batch
+            flexible = bool(is_recipe and getattr(link, "flexible_usage", False))
+            input_name = f"flex_qty_{item.pk}_{link.pk}" if flexible else None
+
+            if flexible and post_data is not None:
+                raw = post_data.get(input_name)
+                if raw not in (None, ""):
+                    try:
+                        actual_per_batch = Decimal(str(raw))
+                        if actual_per_batch < 0:
+                            raise ValueError
+                    except Exception:
+                        errors.append(
+                            f"Enter a valid non-negative quantity for {link.raw_material.name} in {good.name}."
+                        )
+                        actual_per_batch = planned_per_batch
+
+            if flexible:
+                flexible_rows.append({
+                    "item": item,
+                    "good": good,
+                    "material": link.raw_material,
+                    "input_name": input_name,
+                    "planned_per_batch": planned_per_batch,
+                    "actual_per_batch": actual_per_batch,
+                    "multiplier": multiplier,
+                    "usage_unit": link.raw_material.usage_unit,
+                })
+
+            material_row = per_material.setdefault(link.raw_material_id, {
+                "order": order,
+                "order_item": item,
+                "raw_material": link.raw_material,
+                "planned_quantity": Decimal("0"),
+                "actual_quantity": Decimal("0"),
+                "flexible": False,
+            })
+            material_row["planned_quantity"] += planned_per_batch * multiplier
+            material_row["actual_quantity"] += actual_per_batch * multiplier
+            material_row["flexible"] = material_row["flexible"] or flexible
+
+        usage_entries.extend(per_material.values())
+        for material_row in per_material.values():
+            mat = material_row["raw_material"]
+            current = aggregated.get(mat.pk)
+            if current:
+                current[1] += material_row["actual_quantity"]
+            else:
+                aggregated[mat.pk] = [mat, material_row["actual_quantity"]]
+
+    return flexible_rows, usage_entries, aggregated, errors
+
+
 @login_required
 def order_detail(request, pk):
     order = get_object_or_404(Order.objects.select_related("customer"), pk=pk)
     shortages = order.shortages() if order.status == "pending" else []
+    flexible_usages = _material_release_plan(order)[0] if order.status == "pending" else []
     batches = order.production_batches.select_related("finished_good").prefetch_related("quality_check")
-    return render(request, "production/order_detail.html", {"order": order, "shortages": shortages, "batches": batches})
+    return render(request, "production/order_detail.html", {"order": order, "shortages": shortages, "batches": batches, "flexible_usages": flexible_usages})
 
 
 @login_required
@@ -151,14 +230,35 @@ def order_approve(request, pk):
     if request.method != "POST" or order.status != "pending":
         return redirect("order_detail", pk=pk)
     force = request.POST.get("force") == "1"
-    shortages = order.shortages()
+    flexible_usages, usage_entries, aggregated, errors = _material_release_plan(order, request.POST)
+    if errors:
+        for error in errors:
+            messages.error(request, error)
+        return render(request, "production/order_detail.html", {
+            "order": order, "shortages": order.shortages(), "confirm_approve": False,
+            "flexible_usages": flexible_usages,
+            "batches": order.production_batches.select_related("finished_good").prefetch_related("quality_check"),
+        })
+    shortages = []
+    for mat, needed in aggregated.values():
+        if needed > mat.stock:
+            shortages.append({
+                "name": mat.name, "category": mat.get_category_display(), "usage_unit": mat.usage_unit,
+                "needed": needed, "have": mat.stock, "short": needed - mat.stock,
+            })
     if shortages and not force:
-        return render(request, "production/order_detail.html", {"order": order, "shortages": shortages, "confirm_approve": True})
+        return render(request, "production/order_detail.html", {
+            "order": order, "shortages": shortages, "confirm_approve": True,
+            "flexible_usages": flexible_usages,
+            "batches": order.production_batches.select_related("finished_good").prefetch_related("quality_check"),
+        })
     with transaction.atomic():
-        materials = {}
-        for mat, needed in order.material_requirements().values():
-            materials[mat.id] = (mat, materials.get(mat.id, (mat, Decimal("0")))[1] + needed)
-        for mat, needed in materials.values():
+        locked_order = Order.objects.select_for_update().get(pk=order.pk)
+        if locked_order.status != "pending":
+            return redirect("order_detail", pk=pk)
+        for entry in usage_entries:
+            OrderMaterialUsage.objects.create(business=order.business, created_by=request.user, **entry)
+        for mat, needed in aggregated.values():
             material_cost, _ = _latest_material_cost(mat, order.date)
             record_raw_material_movement(
                 mat, -needed, StockMovement.RAW_CONSUMPTION,
@@ -167,7 +267,12 @@ def order_approve(request, pk):
         order.status = "approved"
         order.approved_date = today()
         order.save()
-        audit(request.business, request.user, "approve", order, f"Order #{order.pk} approved")
+        audit(request.business, request.user, "approve", order, f"Order #{order.pk} approved", {
+            "flexible_materials": [
+                {"product": r["good"].name, "material": r["material"].name, "qty_per_batch": str(r["actual_per_batch"])}
+                for r in flexible_usages
+            ]
+        })
     messages.success(request, "Order approved — raw materials released for production.")
     return redirect("order_detail", pk=pk)
 
@@ -200,6 +305,7 @@ def _create_production_cost_snapshot(order, item, batch):
     links = list(good.recipe_items.select_related("raw_material")) + list(good.production_materials.select_related("raw_material"))
     piece_factor = item.piece_qty / upb
     total_batch_multiplier = item.batch_qty + piece_factor
+    released_usages = list(item.material_usages.select_related("raw_material"))
     total_cost = Decimal("0")
     sources = set()
     snapshot = ProductionCostSnapshot.objects.create(
@@ -207,14 +313,18 @@ def _create_production_cost_snapshot(order, item, batch):
         production_date=production_date, produced_units=batch.saleable_units,
         batch_number=batch.batch_number, expiry_date=batch.expiry_date,
     )
-    for link in links:
-        qty = link.qty_per_batch * total_batch_multiplier
-        unit_cost, source = _latest_material_cost(link.raw_material, production_date)
+    cost_rows = released_usages if released_usages else [
+        type("RecipeCostRow", (), {"raw_material": link.raw_material, "actual_quantity": link.qty_per_batch * total_batch_multiplier})
+        for link in links
+    ]
+    for usage in cost_rows:
+        qty = usage.actual_quantity
+        unit_cost, source = _latest_material_cost(usage.raw_material, production_date)
         line_total = qty * unit_cost
         total_cost += line_total
         sources.add(source)
         ProductionCostLine.objects.create(
-            snapshot=snapshot, raw_material=link.raw_material, quantity=qty,
+            snapshot=snapshot, raw_material=usage.raw_material, quantity=qty,
             usage_unit_cost=unit_cost, total_cost=line_total, source=source,
         )
     snapshot.total_cost = total_cost

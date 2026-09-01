@@ -1,10 +1,14 @@
+import csv
 from decimal import Decimal
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
+from django.db.models.deletion import ProtectedError
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.db.models import Sum
+from openpyxl import Workbook
 from .models import CashAccount, FinancialTransaction, AuditLog
 from .finance_forms import CashAccountForm, SupplierPaymentForm, CustomerPaymentForm, StockAdjustmentForm
 from .services import record_cash, audit
@@ -15,10 +19,76 @@ from expenses.models import Expense, ExpensePayment
 from inventory.services import record_raw_material_movement, record_finished_good_movement
 
 def today(): return timezone.localdate()
+
+
+def _finance_transactions(request):
+    return FinancialTransaction.objects.filter(business=request.business).select_related("account", "created_by")
+
+
+def _finance_audit_logs(request):
+    return AuditLog.objects.filter(business=request.business).select_related("created_by")
+
+
+def _csv_export(filename, header, rows):
+    response = HttpResponse(content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    # BOM keeps UTF-8 text (including the Naira sign) friendly in Excel.
+    response.write("\ufeff")
+    writer = csv.writer(response)
+    writer.writerow(header)
+    writer.writerows(rows)
+    return response
+
+
+def _xlsx_export(filename, sheet_name, header, rows):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = sheet_name[:31]
+    ws.append(header)
+    for row in rows:
+        ws.append(list(row))
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+    for column in ws.columns:
+        max_len = max(len(str(cell.value or "")) for cell in column)
+        ws.column_dimensions[column[0].column_letter].width = min(max(max_len + 2, 10), 42)
+    response = HttpResponse(content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    wb.save(response)
+    return response
+
+
+def _money_movement_rows(request):
+    rows = []
+    for item in _finance_transactions(request)[:100]:
+        rows.append([
+            item.date.isoformat(),
+            "Money in" if item.transaction_type == FinancialTransaction.INCOME else "Money out",
+            item.description,
+            item.payment_method or "",
+            item.amount,
+            item.account.name if item.account else "",
+        ])
+    return rows
+
+
+def _audit_trail_rows(request):
+    rows = []
+    for item in _finance_audit_logs(request)[:80]:
+        created_at = timezone.localtime(item.created_at) if timezone.is_aware(item.created_at) else item.created_at
+        rows.append([
+            created_at.strftime("%Y-%m-%d %H:%M"),
+            item.action,
+            f"{item.model_name} #{item.object_id}",
+            item.description,
+            item.created_by.username if item.created_by else "",
+        ])
+    return rows
+
 @login_required
 def finance_dashboard(request):
-    accounts=CashAccount.objects.filter(active=True)
-    tx=FinancialTransaction.objects.select_related("account","created_by")[:100]
+    accounts=CashAccount.objects.all()
+    tx=_finance_transactions(request)[:100]
     receivables = Decimal("0")
     for s in Sale.objects.filter(source__in=("distribution_order","online_order"), transaction_type__in=("unpaid","partial")).prefetch_related("items","payments"):
         receivables += max(Decimal("0"), s.total - sum((p.amount for p in s.payments.all()), Decimal("0")))
@@ -40,7 +110,7 @@ def finance_dashboard(request):
         {"expense": e, "balance": e.amount}
         for e in Expense.objects.filter(payment_status="unpaid").order_by("-date","-id")[:30]
     ]
-    return render(request,"core/finance.html",{"accounts":accounts,"transactions":tx,"audit_logs":AuditLog.objects.select_related("created_by")[:80],
+    return render(request,"core/finance.html",{"accounts":accounts,"transactions":tx,"audit_logs":_finance_audit_logs(request)[:80],
         "receivables":receivables,"payables":payables,"outstanding_sales":outstanding_sales[:30],
         "outstanding_pos":outstanding_pos[:30],"outstanding_expenses":outstanding_expenses})
 @login_required
@@ -52,6 +122,22 @@ def cash_account_form(request,pk=None):
         if not obj: x.created_by=request.user
         x.save(); audit(request.business,request.user,"create" if not obj else "update",x,"Cash account saved"); messages.success(request,"Cash account saved."); return redirect("finance_dashboard")
     return render(request,"core/cash_account_form.html",{"form":form,"obj":obj})
+@login_required
+def cash_account_delete(request, pk):
+    account = get_object_or_404(CashAccount, pk=pk)
+    if request.method != "POST":
+        return redirect("finance_dashboard")
+    try:
+        name = account.name
+        account_id = account.pk
+        account.delete()
+        audit(request.business, request.user, "delete", None, f"Cash account deleted: {name}", {"account_id": account_id, "account_name": name})
+        messages.success(request, f"{name} deleted.")
+    except ProtectedError:
+        messages.error(request, "This account has linked financial records and cannot be deleted. Edit it and mark it inactive instead.")
+    return redirect("finance_dashboard")
+
+
 @login_required
 def supplier_payment_form(request):
     form=SupplierPaymentForm(request.POST or None,initial={"date":today()})
@@ -123,4 +209,40 @@ def stock_adjustment_form(request):
         messages.success(request,"Stock adjustment recorded."); return redirect("finance_dashboard")
     return render(request,"core/adjustment_form.html",{"form":form})
 
+@login_required
+def export_money_movements_csv(request):
+    return _csv_export(
+        "finance-money-movements.csv",
+        ["Date", "Type", "Description", "Method", "Amount", "Account"],
+        _money_movement_rows(request),
+    )
+
+
+@login_required
+def export_money_movements_xlsx(request):
+    return _xlsx_export(
+        "finance-money-movements.xlsx",
+        "Money Movements",
+        ["Date", "Type", "Description", "Method", "Amount", "Account"],
+        _money_movement_rows(request),
+    )
+
+
+@login_required
+def export_audit_trail_csv(request):
+    return _csv_export(
+        "finance-audit-trail.csv",
+        ["When", "Action", "Record", "Description", "User"],
+        _audit_trail_rows(request),
+    )
+
+
+@login_required
+def export_audit_trail_xlsx(request):
+    return _xlsx_export(
+        "finance-audit-trail.xlsx",
+        "Audit Trail",
+        ["When", "Action", "Record", "Description", "User"],
+        _audit_trail_rows(request),
+    )
 

@@ -37,13 +37,13 @@
     </div>
 
     <span class="block text-xs font-medium text-stone-600 mb-1 mt-2">Recipe (Raw Materials used per BATCH)</span>
-    <p class="text-[11px] text-stone-400 mb-1">Qty here is per batch (see "units per batch" above), in each material's <strong>usage unit</strong> (e.g. kg, sachet) — check the Inventory page if you're not sure.</p>
+    <p class="text-[11px] text-stone-400 mb-1">Qty here is per batch (see "units per batch" above), in each material's <strong>usage unit</strong>. Mark <strong>Flexible</strong> for ingredients such as yeast whose actual quantity may need to change when an order is approved.</p>
     {{ formset.management_form }}
     <div class="border border-[#E7DFCC] rounded-md overflow-hidden">
       <div class="overflow-x-auto">
         <table class="w-full min-w-[680px] text-sm">
           <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
-            <th class="px-2 py-1.5">Raw Material</th><th class="px-2 py-1.5 w-28">Qty/Batch</th><th class="px-2 py-1.5 w-20">Usage Unit</th><th class="w-16"></th>
+            <th class="px-2 py-1.5">Raw Material</th><th class="px-2 py-1.5 w-28">Qty/Batch</th><th class="px-2 py-1.5 w-20">Usage Unit</th><th class="px-2 py-1.5 w-28">Flexible?</th><th class="w-16"></th>
           </tr></thead>
           <tbody id="recipe-rows">
             {% for f in formset %}
@@ -51,6 +51,7 @@
               <td class="px-2 py-1.5">{{ f.id }}{{ f.raw_material }}</td>
               <td class="px-2 py-1.5">{{ f.qty_per_batch }}</td>
               <td class="px-2 py-1.5 text-left text-xs text-stone-500 font-mono unit-display"></td>
+              <td class="px-2 py-1.5 text-center text-xs text-stone-600">{{ f.flexible_usage }}</td>
               <td class="px-2 py-1.5 text-center text-xs text-rose-600">
                 {% if f.instance.pk %}
                 <label>{{ f.DELETE }}</label>

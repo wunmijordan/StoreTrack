@@ -131,13 +131,14 @@ FinishedGoodChannelPriceFormSet = inlineformset_factory(
 class RecipeItemForm(StyledModelForm):
     class Meta:
         model = RecipeItem
-        fields = ["raw_material", "qty_per_batch"]
+        fields = ["raw_material", "qty_per_batch", "flexible_usage"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["raw_material"].queryset = RawMaterial.objects.filter(
             category=RawMaterial.CATEGORY_INGREDIENT
         )
+        self.fields["flexible_usage"].widget.attrs["class"] = "h-4 w-4 rounded border-[#D9CFB4] text-[#8f172d]"
 
 
 class ProductionMaterialForm(StyledModelForm):

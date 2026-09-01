@@ -298,6 +298,25 @@ def stock_history(request, kind, pk):
 
         data.append(row)
 
+    materials = []
+    if is_finished_good:
+        for recipe in item.recipe_items.select_related("raw_material").order_by("raw_material__name"):
+            materials.append({
+                "name": recipe.raw_material.name,
+                "category": "Recipe ingredient",
+                "qty_per_batch": str(recipe.qty_per_batch),
+                "usage_unit": recipe.raw_material.usage_unit,
+                "flexible": recipe.flexible_usage,
+            })
+        for production_input in item.production_materials.select_related("raw_material").order_by("raw_material__name"):
+            materials.append({
+                "name": production_input.raw_material.name,
+                "category": production_input.raw_material.get_category_display(),
+                "qty_per_batch": str(production_input.qty_per_batch),
+                "usage_unit": production_input.raw_material.usage_unit,
+                "flexible": False,
+            })
+
     response = {
         "kind": kind,
         "name": name,
@@ -314,6 +333,7 @@ def stock_history(request, kind, pk):
             if total_delivered is not None
             else None
         ),
+        "materials": materials,
         "data": data,
     }
 

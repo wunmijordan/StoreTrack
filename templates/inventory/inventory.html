@@ -230,7 +230,19 @@
       <div id="stock-history-empty" class="hidden px-5 py-12 text-center text-sm text-stone-400">No Stock movement history is available for this item yet.</div>
 
       <div id="stock-history-content" class="hidden p-5 space-y-5">
-        <div class="rounded-lg border border-[#E7DFCC] bg-[#FFFDF8] p-3">
+        <div id="stock-history-materials-card" class="hidden rounded-lg border border-[#E7DFCC] overflow-hidden">
+          <div class="px-4 py-3 bg-[#F0EAD9] border-b border-[#E7DFCC] flex items-center justify-between gap-3">
+            <div><div class="text-xs font-bold uppercase tracking-wider text-stone-600">Recipe & Production Inputs</div><div class="text-[10px] text-stone-400 mt-0.5">Materials configured to make this product, shown even before the first production movement.</div></div>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="min-w-[640px] w-full text-sm">
+              <thead class="bg-stone-50 text-xs text-stone-500"><tr><th class="px-4 py-2 text-left">Material</th><th class="px-4 py-2 text-left">Type</th><th class="px-4 py-2 text-right">Qty / Batch</th><th class="px-4 py-2 text-left">Unit</th><th class="px-4 py-2 text-left">Usage</th></tr></thead>
+              <tbody id="stock-history-material-rows"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="stock-history-movement-card" class="rounded-lg border border-[#E7DFCC] bg-[#FFFDF8] p-3">
           <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
             <div class="text-xs font-bold uppercase tracking-wider text-stone-500">Stock & Production</div>
             <div id="stock-history-unit-label" class="text-xs text-stone-400"></div>
@@ -246,7 +258,9 @@
           </div>
         </div>
 
-        <div class="rounded-lg border border-[#E7DFCC] overflow-hidden">
+        <div id="stock-history-no-movements" class="hidden rounded-lg border border-stone-200 bg-stone-50 px-4 py-4 text-sm text-stone-500">No stock movement history is available for this product yet. Its configured recipe and production inputs are shown above.</div>
+
+        <div id="stock-history-daily-card" class="rounded-lg border border-[#E7DFCC] overflow-hidden">
           <div class="px-4 py-3 bg-[#F0EAD9] border-b border-[#E7DFCC] text-xs font-bold uppercase tracking-wider text-stone-600">Daily Movement</div>
           <div class="overflow-x-auto">
             <table class="min-w-[720px] w-full text-sm">
@@ -306,6 +320,11 @@
   const historyUnitLabel = document.getElementById('stock-history-unit-label');
   const historyChart = document.getElementById('stock-history-chart');
   const historyRows = document.getElementById('stock-history-rows');
+  const historyMaterialsCard = document.getElementById('stock-history-materials-card');
+  const historyMaterialRows = document.getElementById('stock-history-material-rows');
+  const historyMovementCard = document.getElementById('stock-history-movement-card');
+  const historyDailyCard = document.getElementById('stock-history-daily-card');
+  const historyNoMovements = document.getElementById('stock-history-no-movements');
   const historyClose = document.getElementById('stock-history-close');
   const periodButtons = [...document.querySelectorAll('.stock-period-btn')];
 
@@ -528,13 +547,44 @@
     `;
   }
 
+  function renderMaterials() {
+    const materials = Array.isArray(stockHistoryData?.materials) ? stockHistoryData.materials : [];
+    const show = stockHistoryData?.kind === 'finished' && materials.length;
+    historyMaterialsCard.classList.toggle('hidden', !show);
+    historyMaterialRows.innerHTML = materials.map(row => `
+      <tr class="border-t border-[#E7DFCC]">
+        <td class="px-4 py-2.5 font-medium text-stone-700">${row.name}</td>
+        <td class="px-4 py-2.5 text-xs text-stone-500">${row.category}</td>
+        <td class="px-4 py-2.5 text-right font-mono">${fmt(row.qty_per_batch)}</td>
+        <td class="px-4 py-2.5 text-xs text-stone-500">${row.usage_unit || ''}</td>
+        <td class="px-4 py-2.5 text-xs">${row.flexible ? '<span class="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">Flexible at approval</span>' : '<span class="text-stone-400">Fixed recipe</span>'}</td>
+      </tr>
+    `).join('');
+  }
+
   function renderHistory() {
     const rows = filteredHistory();
+    const hasMaterials = stockHistoryData?.kind === 'finished' && Array.isArray(stockHistoryData.materials) && stockHistoryData.materials.length;
+    renderMaterials();
     if (!rows.length) {
-      setHistoryState('empty');
+      if (hasMaterials) {
+        setHistoryState('ready');
+        historySummary.innerHTML = `
+          ${stockHistoryData.total_produced != null ? `<span><strong class="text-stone-700">Total Made:</strong> ${fmt(stockHistoryData.total_produced)} ${stockHistoryData.usage_unit || ''}</span>` : ''}
+          ${stockHistoryData.total_delivered_to_customers != null ? `<span><strong class="text-stone-700">Customer Orders:</strong> ${fmt(stockHistoryData.total_delivered_to_customers)} ${stockHistoryData.usage_unit || ''}</span>` : ''}
+        `;
+        historyMovementCard.classList.add('hidden');
+        historyDailyCard.classList.add('hidden');
+        historyNoMovements.classList.remove('hidden');
+      } else {
+        setHistoryState('empty');
+      }
       return;
     }
     setHistoryState('ready');
+    historyMovementCard.classList.remove('hidden');
+    historyDailyCard.classList.remove('hidden');
+    historyNoMovements.classList.add('hidden');
     renderSummary(rows);
     renderChart(rows);
     renderTable(rows);
@@ -550,6 +600,7 @@
     historyTitle.textContent = button.dataset.stockName || 'Stock history';
     historySubtitle.textContent = 'Daily stock flow';
     historySummary.innerHTML = '<span>Loading…</span>';
+    historyUnitLabel.textContent = '';
     stockHistoryData = null;
     setHistoryState('loading');
 
@@ -560,10 +611,6 @@
       });
       if (!response.ok) throw new Error(`Request failed (${response.status})`);
       stockHistoryData = await response.json();
-      if (!Array.isArray(stockHistoryData.data) || !stockHistoryData.data.length) {
-        setHistoryState('empty');
-        return;
-      }
       renderHistory();
     } catch (error) {
       console.error('Stock history error:', error);

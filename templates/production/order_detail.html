@@ -48,6 +48,22 @@
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg p-4 mb-4 max-w-4xl"><div class="flex items-center justify-between mb-2"><h3 class="font-semibold text-stone-700">Production batches</h3><a href="{% url 'production_batches' %}" class="text-xs text-[#8f172d] hover:underline">All batches</a></div><div class="space-y-2">{% for b in batches %}<div class="flex flex-wrap items-center justify-between gap-2 text-xs border-t border-[#E7DFCC] pt-2"><span><a href="{% url 'production_batch_detail' b.pk %}" class="font-mono text-[#8f172d] hover:underline">{{ b.batch_number }}</a> · {{ b.finished_good.name }}</span><span>Saleable {{ b.saleable_units|num }} · Yield {{ b.yield_percent|num }}% · {% if b.shortage_flag %}Shortage {{ b.outstanding_shortage_units|num }} outstanding · {% endif %}{{ b.quality_check.get_status_display }}</span></div>{% endfor %}</div></div>
 {% endif %}
 
+{% if order.status == 'pending' and flexible_usages %}
+<div class="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4 max-w-3xl">
+  <h3 class="text-sm font-semibold text-amber-900">Flexible recipe usage</h3>
+  <p class="text-xs text-amber-700 mt-1 mb-3">Only ingredients marked Flexible on the product recipe can be changed here. Enter the actual quantity per batch to release for this order (for example, extra yeast for an urgent production run).</p>
+  <div class="space-y-2">
+    {% for row in flexible_usages %}
+    <div class="grid grid-cols-1 sm:grid-cols-[1fr_9rem_auto] gap-2 items-end border-t border-amber-200 pt-2">
+      <div class="text-xs"><b>{{ row.good.name }}</b> · {{ row.material.name }}<div class="text-[10px] text-amber-600">Recipe: {{ row.planned_per_batch|num }} {{ row.usage_unit }} / batch · order equivalent {{ row.multiplier|num }} batch(es)</div></div>
+      <label class="text-[10px] text-amber-700">Actual qty / batch<input form="approve-order-form" type="number" min="0" step="0.01" name="{{ row.input_name }}" value="{{ row.actual_per_batch }}" class="mt-1 w-full rounded-md border border-amber-300 bg-white px-2 py-1.5 text-sm font-mono"></label>
+      <span class="text-[10px] text-amber-600 pb-2">{{ row.usage_unit }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {% if shortages %}
 <div class="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-md p-3 mb-4 max-w-2xl">
   <div class="text-lg mb-1">
@@ -65,6 +81,7 @@
   {% if confirm_approve %}
   <form method="post" action="{% url 'order_approve' order.pk %}" class="mt-2">
     {% csrf_token %}<input type="hidden" name="force" value="1">
+    {% for row in flexible_usages %}<input type="hidden" name="{{ row.input_name }}" value="{{ row.actual_per_batch }}">{% endfor %}
     <button type="submit" class="px-3 py-1.5 text-xs rounded-md font-medium bg-rose-600 text-white hover:bg-rose-700">Approve anyway (Raw Materials go negative)</button>
   </form>
   {% endif %}
@@ -75,7 +92,7 @@
   <a href="{% url 'order_invoice' order.pk %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] hover:bg-[#E7DFCC] border border-[#D9CFB4]">Download PDF</a>
   {% if order.status == 'pending' %}
   <a href="{% url 'order_edit' order.pk %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] hover:bg-[#E7DFCC] border border-[#D9CFB4]">Edit</a>
-  <form method="post" action="{% url 'order_approve' order.pk %}">{% csrf_token %}
+  <form id="approve-order-form" method="post" action="{% url 'order_approve' order.pk %}">{% csrf_token %}
     <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">Approve — release Raw Materials</button>
   </form>
   <form method="post" action="{% url 'order_reject' order.pk %}" onsubmit="return confirm('Reject this order?');">{% csrf_token %}

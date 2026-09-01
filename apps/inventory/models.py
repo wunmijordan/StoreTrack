@@ -208,6 +208,10 @@ class RecipeItem(TimestampedModel):
     finished_good = models.ForeignKey(FinishedGood, related_name="recipe_items", on_delete=models.CASCADE)
     raw_material = models.ForeignKey(RawMaterial, on_delete=models.CASCADE)
     qty_per_batch = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    flexible_usage = models.BooleanField(
+        default=False,
+        help_text="Allow the quantity per batch to be adjusted when the production order is approved (useful for yeast or other urgency-sensitive ingredients).",
+    )
 
     class Meta:
         unique_together = ("finished_good", "raw_material")

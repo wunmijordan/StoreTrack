@@ -134,6 +134,29 @@ class OrderItem(TimestampedModel):
         50 units at 1500 with a 200 discount is (1500-200)*50 = 65,000,
         not 1500*50-200. Matches how a per-item price cut actually works."""
         return self.total_units * ((self.price or Decimal("0")) - (self.discount or Decimal("0")))
+class OrderMaterialUsage(BusinessOwnedModel):
+    """Actual raw-material quantity released for one production order item.
+
+    Created at approval so flexible recipe ingredients can vary from the base
+    recipe while preserving the quantity used for stock release and costing.
+    """
+    order = models.ForeignKey(Order, related_name="material_usages", on_delete=models.CASCADE)
+    order_item = models.ForeignKey(OrderItem, related_name="material_usages", on_delete=models.CASCADE)
+    raw_material = models.ForeignKey("inventory.RawMaterial", on_delete=models.PROTECT)
+    planned_quantity = models.DecimalField(max_digits=14, decimal_places=4, default=0)
+    actual_quantity = models.DecimalField(max_digits=14, decimal_places=4, default=0)
+    flexible = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["order_item_id", "raw_material__name"]
+        constraints = [
+            models.UniqueConstraint(fields=["order_item", "raw_material"], name="unique_material_usage_per_order_item")
+        ]
+
+    def __str__(self):
+        return f"Order #{self.order_id} — {self.raw_material.name}: {self.actual_quantity}"
+
+
 class ProductionBatch(BusinessOwnedModel):
     """A traceable production output record for one finished-good order line.
 
