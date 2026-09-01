@@ -845,6 +845,9 @@ def _finished_good_search_detail(good):
         units = sum((b.saleable_units for b in batches_qs), Decimal("0"))
         shortages = sum((b.shortage_units for b in batches_qs), Decimal("0"))
         reconciled = sum((b.reconciled_units for b in batches_qs), Decimal("0"))
+        excess_units = sum((b.excess_units for b in batches_qs), Decimal("0"))
+        excess_stock_units = sum((b.excess_stock_units for b in batches_qs), Decimal("0"))
+        excess_non_stock_units = sum((b.excess_non_stock_units for b in batches_qs), Decimal("0"))
         channel_rows.append({
             "channel": channel_names[channel],
             "production_events": batches_qs.count(),
@@ -852,6 +855,9 @@ def _finished_good_search_detail(good):
             "shortage_units": _decimal(shortages),
             "reconciled_units": _decimal(reconciled),
             "outstanding_shortage_units": _decimal(max(Decimal("0"), shortages - reconciled)),
+            "excess_units": _decimal(excess_units),
+            "excess_stock_units": _decimal(excess_stock_units),
+            "excess_non_stock_units": _decimal(excess_non_stock_units),
         })
 
     period_rows = []
@@ -867,6 +873,9 @@ def _finished_good_search_detail(good):
         production_events = batch_qs.count()
         shortage_units = sum((b.shortage_units for b in batch_qs), Decimal("0"))
         reconciled_units = sum((b.reconciled_units for b in batch_qs), Decimal("0"))
+        excess_units = sum((b.excess_units for b in batch_qs), Decimal("0"))
+        excess_stock_units = sum((b.excess_stock_units for b in batch_qs), Decimal("0"))
+        excess_non_stock_units = sum((b.excess_non_stock_units for b in batch_qs), Decimal("0"))
         sold_units = Decimal("0")
         revenue = Decimal("0")
         unpaid_value = Decimal("0")
@@ -899,6 +908,9 @@ def _finished_good_search_detail(good):
             "shortage_units": _decimal(shortage_units),
             "reconciled_units": _decimal(reconciled_units),
             "outstanding_shortage_units": _decimal(max(Decimal("0"), shortage_units - reconciled_units)),
+            "excess_units": _decimal(excess_units),
+            "excess_stock_units": _decimal(excess_stock_units),
+            "excess_non_stock_units": _decimal(excess_non_stock_units),
             "sold_units": _decimal(sold_units),
             "sale_events": sale_events,
             "revenue": _money(revenue),

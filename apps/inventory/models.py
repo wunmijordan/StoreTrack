@@ -35,7 +35,7 @@ class RawMaterial(BusinessOwnedModel):
         help_text="How many usage units in ONE package_unit. Standard: kg→g is 1000, litre→ml is 1000, "
                    "same unit both ways is 1. Non-standard (spoon, cap…): count it yourself, e.g. "
                    "'my spoon holds 5g' → if package_unit is kg, that's 200 spoons per kg → 200.")
-    stock = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    stock = models.DecimalField(max_digits=13, decimal_places=3, default=0)
     reorder_level = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     # Stored in usage units. Higher precision prevents tiny per-gram/per-ml
     # costs from being rounded away when procurement prices are converted.
@@ -355,8 +355,8 @@ class StockMovement(BusinessOwnedModel):
     )
 
     quantity = models.DecimalField(
-        max_digits=14,
-        decimal_places=2,
+        max_digits=15,
+        decimal_places=3,
         help_text="Signed quantity in the item's internal stock unit.",
     )
 
@@ -369,8 +369,8 @@ class StockMovement(BusinessOwnedModel):
     )
 
     balance_after = models.DecimalField(
-        max_digits=14,
-        decimal_places=2,
+        max_digits=15,
+        decimal_places=3,
         null=True,
         blank=True,
         help_text="Stock balance immediately after this movement. Null for non-stock events.",

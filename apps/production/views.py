@@ -397,6 +397,9 @@ def order_complete(request, pk):
                             if order.order_type in ("distribution", "online")
                             else ""
                         ),
+                        excess_stock_units=form.cleaned_data.get("excess_to_stock") or Decimal("0"),
+                        excess_non_stock_units=form.cleaned_data.get("excess_to_non_stock") or Decimal("0"),
+                        excess_non_stock_purpose=(form.cleaned_data.get("excess_non_stock_purpose") or "").strip(),
                     )
                     ProductionQualityCheck.objects.create(
                         business=order.business,
@@ -409,6 +412,10 @@ def order_complete(request, pk):
                     )
                     snapshot = _create_production_cost_snapshot(order, item, batch)
                     good = item.finished_good
+                    planned = Decimal(item.total_units)
+                    committed = min(saleable, planned)
+                    excess_stock = batch.excess_stock_units
+                    excess_non_stock = batch.excess_non_stock_units
                     good.total_produced += saleable
 
                     if wastage:
@@ -418,35 +425,48 @@ def order_complete(request, pk):
                             reference=batch.batch_number, affects_stock=False, unit_value=snapshot.unit_cost,
                         )
 
-                    if order.order_type == "physical_store" and order.production_destination == "store":
-                        # Only Physical Store orders explicitly destined for
-                        # Store replenishment enter Shelf Stock. Non-stock
-                        # physical-store production remains out of inventory.
+                    # Record the planned/committed portion according to the
+                    # order's original destination. Excess is handled
+                    # separately below so it cannot silently inflate customer
+                    # deliveries or shelf stock.
+                    if committed > 0:
+                        if order.order_type == "physical_store" and order.production_destination == "store":
+                            record_finished_good_movement(
+                                good, committed, StockMovement.FG_PRODUCTION,
+                                note=f"Planned store production — batch {batch.batch_number}",
+                                reference=batch.batch_number, affects_stock=True, unit_value=snapshot.unit_cost,
+                            )
+                        else:
+                            record_finished_good_movement(
+                                good, committed, StockMovement.FG_PRODUCTION,
+                                note=(
+                                    f"Non-stock production ({order.non_stock_purpose}) — batch {batch.batch_number}"
+                                    if order.order_type == "physical_store" and order.production_destination == "non_stock"
+                                    else f"Customer-order production batch {batch.batch_number}"
+                                ),
+                                reference=batch.batch_number, affects_stock=False, unit_value=snapshot.unit_cost,
+                            )
+                            if order.order_type in ("distribution", "online"):
+                                good.total_delivered_to_customers += committed
+
+                    if excess_stock > 0:
                         record_finished_good_movement(
-                            good, saleable, StockMovement.FG_PRODUCTION,
-                            note=f"Production batch {batch.batch_number}", reference=batch.batch_number,
-                            affects_stock=True, unit_value=snapshot.unit_cost,
+                            good, excess_stock, StockMovement.FG_PRODUCTION,
+                            note=f"Excess production retained in Physical Store stock — batch {batch.batch_number}",
+                            reference=batch.batch_number, affects_stock=True, unit_value=snapshot.unit_cost,
                         )
-                        good.save(update_fields=["total_produced"])
-                    else:
-                        # Non-stock Physical Store production is neither shelf stock
-                        # nor a customer delivery. Distribution/Online production is
-                        # delivered to the customer and is reflected in delivery
-                        # analytics; non-stock internal production remains separate.
+
+                    if excess_non_stock > 0:
                         record_finished_good_movement(
-                            good, saleable, StockMovement.FG_PRODUCTION,
-                            note=(
-                                f"Non-stock production ({order.non_stock_purpose}) — batch {batch.batch_number}"
-                                if order.order_type == "physical_store" and order.production_destination == "non_stock"
-                                else f"Customer-order production batch {batch.batch_number}"
-                            ),
+                            good, excess_non_stock, StockMovement.FG_PRODUCTION,
+                            note=f"Excess production for {batch.excess_non_stock_purpose} — batch {batch.batch_number}",
                             reference=batch.batch_number, affects_stock=False, unit_value=snapshot.unit_cost,
                         )
-                        if order.order_type in ("distribution", "online"):
-                            good.total_delivered_to_customers += saleable
-                            good.save(update_fields=["total_produced", "total_delivered_to_customers"])
-                        else:
-                            good.save(update_fields=["total_produced"])
+
+                    update_fields = ["total_produced"]
+                    if order.order_type in ("distribution", "online"):
+                        update_fields.append("total_delivered_to_customers")
+                    good.save(update_fields=update_fields)
 
                 order.status = "completed"
                 order.save(update_fields=["status", "completed_date", "updated_at"])
@@ -483,7 +503,21 @@ def order_complete(request, pk):
                             description=f"Payment received for order #{order.pk}", payment_method=sale.payment_method,
                             reference=f"ORDER-{order.pk}", account=order.customer_payment_account,
                         )
-                    audit(order.business, request.user, "complete", order, f"Order #{order.pk} completed", {"customer_payment_status": order.customer_payment_status, "customer": order.customer.name if order.customer else order.customer_name})
+                audit(
+                    order.business, request.user, "complete", order, f"Order #{order.pk} completed",
+                    {
+                        "channel": order.order_type,
+                        "customer_payment_status": order.customer_payment_status if order.order_type in ("distribution", "online") else None,
+                        "customer": (order.customer.name if order.customer else order.customer_name) if order.order_type in ("distribution", "online") else None,
+                        "excess_to_stock": str(sum((f.cleaned_data.get("excess_to_stock") or Decimal("0") for _, f in completion_forms), Decimal("0"))),
+                        "excess_to_non_stock": str(sum((f.cleaned_data.get("excess_to_non_stock") or Decimal("0") for _, f in completion_forms), Decimal("0"))),
+                        "non_stock_excess_purposes": [
+                            f.cleaned_data.get("excess_non_stock_purpose", "").strip()
+                            for _, f in completion_forms
+                            if (f.cleaned_data.get("excess_to_non_stock") or Decimal("0")) > 0
+                        ],
+                    },
+                )
 
             messages.success(request, "Production completed and batch records created.")
             return redirect("order_detail", pk=pk)
@@ -549,10 +583,15 @@ def production_batch_reconcile(request, pk):
         with transaction.atomic():
             # Re-check the live surplus/shortage inside the transaction so two
             # users cannot allocate the same surplus concurrently.
-            source = ProductionBatch.objects.select_for_update().get(pk=source.pk)
-            target = ProductionBatch.objects.select_for_update().get(pk=batch.pk)
-            if quantity > source.available_surplus_units:
-                form.add_error("quantity", f"Only {source.available_surplus_units:.2f} units remain available from that source batch.")
+            source = ProductionBatch.objects.select_for_update().select_related("finished_good", "order").get(pk=source.pk)
+            target = ProductionBatch.objects.select_for_update().select_related("finished_good", "order").get(pk=batch.pk)
+            source_good = FinishedGood.objects.select_for_update().get(pk=source.finished_good_id)
+            outgoing = sum((r.quantity for r in source.reconciliation_out.all()), Decimal("0"))
+            retained_surplus = max(Decimal("0"), source.excess_stock_units - outgoing)
+            live_stock = max(Decimal("0"), Decimal(source_good.stock or 0))
+            live_available = min(retained_surplus, live_stock)
+            if quantity > live_available:
+                form.add_error("quantity", f"Only {live_available:.2f} units remain available from that source batch/stock pool.")
             elif quantity > target.outstanding_shortage_units:
                 form.add_error("quantity", f"Only {target.outstanding_shortage_units:.2f} units remain to be reconciled.")
             else:
@@ -564,10 +603,18 @@ def production_batch_reconcile(request, pk):
                     quantity=quantity,
                     reason=form.cleaned_data["reason"].strip(),
                 )
-                # Reconciliation represents actual fulfillment of the target
-                # customer order from already-produced surplus. It therefore
-                # increases delivered-to-customers, but does not create a new
-                # production event, sale, cash entry, or stock movement.
+                # Reconciliation fulfils the target customer order from
+                # excess that was deliberately retained as physical shelf
+                # stock. The source may be from any production channel, so
+                # remove the allocated units from stock and increase customer
+                # delivery analytics without creating a second sale or
+                # production event.
+                record_finished_good_movement(
+                    source_good, -quantity, StockMovement.ADJUSTMENT,
+                    note=f"Shortage reconciliation to batch {target.batch_number} from {source.batch_number}",
+                    reference=f"RECON-{source.batch_number}-{target.batch_number}",
+                    affects_stock=True, unit_value=source.unit_cost,
+                )
                 target.finished_good.total_delivered_to_customers += quantity
                 target.finished_good.save(update_fields=["total_delivered_to_customers", "updated_at"])
                 audit(
@@ -580,7 +627,8 @@ def production_batch_reconcile(request, pk):
                         "source_batch": source.batch_number,
                         "quantity": str(quantity),
                         "reason": form.cleaned_data["reason"].strip(),
-                        "channel": target.order.order_type,
+                        "source_channel": source.order.order_type,
+                        "target_channel": target.order.order_type,
                     },
                 )
                 messages.success(request, f"{quantity:.2f} units reconciled from {source.batch_number}.")

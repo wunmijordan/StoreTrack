@@ -11,7 +11,7 @@ def default_location(business):
 @transaction.atomic
 def record_raw_material_movement(material, quantity, movement_type, *, note="", reference="", unit_value=None, location=None):
     quantity = Decimal(quantity)
-    material.stock = (material.stock + quantity).quantize(Decimal("0.01"))
+    material.stock = (material.stock + quantity).quantize(Decimal("0.001"))
     material.save(update_fields=["stock"])
     StockMovement.objects.create(
         business=material.business, raw_material=material, movement_type=movement_type,

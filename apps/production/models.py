@@ -182,9 +182,17 @@ class ProductionBatch(BusinessOwnedModel):
     # production is sufficient but wastage/rejection leaves fewer saleable
     # units, the deficit is recorded explicitly rather than pretending the
     # order was produced short. Reconciliation is a separate auditable
-    # allocation from surplus production in the same sales channel.
+    # allocation from available surplus production of the same product, regardless of channel.
     shortage_flag = models.BooleanField(default=False)
     shortage_reason = models.CharField(max_length=255, blank=True, default="")
+
+    # Saleable output above planned units must be explicitly accounted for.
+    # Excess assigned to shelf stock remains available for later shortage
+    # reconciliation; excess assigned to a non-stock purpose is consumed by
+    # that purpose and is not available to satisfy another order.
+    excess_stock_units = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    excess_non_stock_units = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    excess_non_stock_purpose = models.CharField(max_length=255, blank=True, default="")
 
     class Meta:
         ordering = ["-production_date", "-id"]
@@ -216,17 +224,24 @@ class ProductionBatch(BusinessOwnedModel):
         return max(Decimal("0"), self.shortage_units - self.reconciled_units)
 
     @property
+    def excess_units(self):
+        return max(Decimal("0"), self.saleable_units - self.planned_units)
+
+    @property
     def available_surplus_units(self):
-        """Saleable units above this batch's own commitment that may be
-        allocated to another shortage in the same channel/product."""
+        """Excess units deliberately retained in shelf stock and still
+        available to satisfy a shortage from any production channel."""
         outgoing = sum((r.quantity for r in self.reconciliation_out.all()), Decimal("0"))
-        return max(Decimal("0"), self.saleable_units - self.planned_units - outgoing)
+        retained = max(Decimal("0"), self.excess_stock_units - outgoing)
+        physical_stock = max(Decimal("0"), Decimal(self.finished_good.stock or 0))
+        return min(retained, physical_stock)
 
 
 class ProductionBatchReconciliation(BusinessOwnedModel):
     """Auditable fulfillment allocation from surplus production to a
-    customer-order production shortage. It is not a new sale, cash entry,
-    inventory movement, or production event."""
+    customer-order production shortage. It is not a new sale, cash entry, or production event.
+    When the source surplus sits in shelf stock, reconciliation removes the
+    allocated quantity from physical stock."""
 
     source_batch = models.ForeignKey(
         "ProductionBatch",

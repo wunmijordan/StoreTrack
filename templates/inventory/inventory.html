@@ -43,7 +43,7 @@
             data-stock-history-trigger
             data-stock-history-kind="raw"
             data-stock-history-url="{% url 'stock_history' 'raw' m.pk %}"
-            data-stock-name="{{ m.name|escapejs }}"
+            data-stock-name="{{ m.name|escape }}"
           >
             {{ m.name }}
           </button>
@@ -147,7 +147,7 @@
             data-stock-history-trigger
             data-stock-history-kind="finished"
             data-stock-history-url="{% url 'stock_history' 'finished' g.pk %}"
-            data-stock-name="{{ g.name|escapejs }}"
+            data-stock-name="{{ g.name|escape }}"
           >
             {{ g.name }}
           </button>

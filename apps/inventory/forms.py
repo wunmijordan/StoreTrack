@@ -42,9 +42,9 @@ class RawMaterialForm(StyledModelForm):
         help_text="How many purchase units should trigger a reorder, e.g. 2 bags.",
     )
     stock_purchase_units = forms.DecimalField(
-        label="Stock (in purchase units)", max_digits=14, decimal_places=2,
+        label="Stock (in purchase units)", max_digits=14, decimal_places=3,
         required=False, initial=0,
-        help_text="How many purchase units you currently have, e.g. 3 (bags).",
+        help_text="How many purchase units you currently have, e.g. 3 or 2.375 (bags). Up to 3 decimal places are accepted.",
     )
     cost_per_purchase_unit = forms.DecimalField(
         label="Cost (per purchase unit)", max_digits=14, decimal_places=2,
@@ -63,12 +63,10 @@ class RawMaterialForm(StyledModelForm):
         super().__init__(*args, **kwargs)
         if self.instance and self.instance.pk:
             factor = self.instance.total_conversion_factor or Decimal("1")
-            # Quantize to exactly 2dp for display — plain division/multiplication
-            # can produce long, ugly decimal expansions that don't match what
-            # the 2dp fields will actually accept on resubmission. This does
-            # NOT round to a whole purchase unit — fractional amounts like
-            # 2.60 bags are shown and kept exactly, just cleaned to 2dp.
-            self.fields["stock_purchase_units"].initial = (self.instance.stock / factor).quantize(Decimal("0.01"))
+            # Stock entry supports 3dp so fractional purchase-unit counts can
+            # be preserved more accurately (e.g. 2.375 bags). Cost and reorder
+            # fields intentionally retain their existing 2dp precision.
+            self.fields["stock_purchase_units"].initial = (self.instance.stock / factor).quantize(Decimal("0.001"))
             self.fields["cost_per_purchase_unit"].initial = (self.instance.cost_per_unit * factor).quantize(Decimal("0.01"))
             self.fields["reorder_level_purchase_units"].initial = (self.instance.reorder_level / factor).quantize(Decimal("0.01"))
 
@@ -92,7 +90,7 @@ class RawMaterialForm(StyledModelForm):
         purchase_stock = self.cleaned_data.get("stock_purchase_units") or Decimal("0")
         purchase_cost = self.cleaned_data.get("cost_per_purchase_unit") or Decimal("0")
         purchase_reorder = (self.cleaned_data.get("reorder_level_purchase_units") or Decimal("0"))
-        instance.stock = (purchase_stock * factor).quantize(Decimal("0.01"))
+        instance.stock = (purchase_stock * factor).quantize(Decimal("0.001"))
         instance.cost_per_unit = (purchase_cost / factor).quantize(Decimal("0.000001"))
         instance.reorder_level = (purchase_reorder * factor).quantize(Decimal("0.01"))
         if commit:

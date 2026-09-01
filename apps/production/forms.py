@@ -134,6 +134,9 @@ class ProductionCompletionForm(forms.Form):
     qc_notes = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 2}), label="QC notes")
     flag_shortage = forms.BooleanField(required=False, label="Flag production shortage for reconciliation")
     shortage_reason = forms.CharField(max_length=255, required=False, label="Shortage / reconciliation reason")
+    excess_to_stock = forms.DecimalField(max_digits=14, decimal_places=2, min_value=0, required=False, initial=0, label="Excess to Physical Store stock")
+    excess_to_non_stock = forms.DecimalField(max_digits=14, decimal_places=2, min_value=0, required=False, initial=0, label="Excess to non-stock purpose")
+    excess_non_stock_purpose = forms.CharField(max_length=255, required=False, label="Non-stock excess purpose")
 
     def __init__(self, *args, planned_units=None, customer_order=False, **kwargs):
         super().__init__(*args, **kwargs)
@@ -156,7 +159,7 @@ class ProductionCompletionForm(forms.Form):
         if self.customer_order and produced < self.planned_units:
             self.add_error("produced_units", f"Gross output cannot be below the ordered quantity of {self.planned_units:.2f} units.")
         if self.customer_order and shortage > 0 and not cleaned.get("flag_shortage"):
-            self.add_error("flag_shortage", "Flag this shortage so it can be reconciled from surplus production in the same sales channel.")
+            self.add_error("flag_shortage", "Flag this shortage so it can be reconciled from available surplus production of the same product, regardless of channel.")
         if self.customer_order and shortage > 0 and not (cleaned.get("shortage_reason") or "").strip():
             self.add_error("shortage_reason", "Explain the shortage and how it is expected to be reconciled.")
         if not self.customer_order:
@@ -166,6 +169,21 @@ class ProductionCompletionForm(forms.Form):
             self.add_error("flag_shortage", "There is no production shortage to reconcile.")
         if shortage == 0:
             cleaned["shortage_reason"] = ""
+
+        excess = max(Decimal("0"), cleaned["saleable_units"] - self.planned_units)
+        to_stock = cleaned.get("excess_to_stock") or Decimal("0")
+        to_non_stock = cleaned.get("excess_to_non_stock") or Decimal("0")
+        cleaned["excess_units"] = excess
+        if excess > 0:
+            if (to_stock + to_non_stock) != excess:
+                self.add_error("excess_to_stock", f"Allocate the full excess of {excess:.2f} units between Physical Store stock and non-stock purpose.")
+                self.add_error("excess_to_non_stock", f"Allocated excess must total exactly {excess:.2f} units.")
+            if to_non_stock > 0 and not (cleaned.get("excess_non_stock_purpose") or "").strip():
+                self.add_error("excess_non_stock_purpose", "Give the purpose for excess units assigned outside Physical Store stock (for example Staff Welfare or Charity).")
+        else:
+            if to_stock or to_non_stock:
+                self.add_error("excess_to_stock", "There is no excess saleable output to allocate.")
+            cleaned["excess_non_stock_purpose"] = ""
         return cleaned
 
 
@@ -187,9 +205,13 @@ class ProductionReconciliationForm(forms.Form):
             candidates = ProductionBatch.objects.filter(
                 business=target_batch.business,
                 finished_good=target_batch.finished_good,
-                order__order_type=target_batch.order.order_type,
+                excess_stock_units__gt=0,
             ).exclude(pk=target_batch.pk).select_related("order", "finished_good")
             self.fields["source_batch"].queryset = candidates
+            self.fields["source_batch"].label_from_instance = lambda obj: (
+                f"{obj.batch_number} — {obj.order.get_order_type_display()} — "
+                f"{obj.available_surplus_units:.2f} available"
+            )
 
     def clean(self):
         cleaned = super().clean()
@@ -203,12 +225,10 @@ class ProductionReconciliationForm(forms.Form):
             return cleaned
         if not target.shortage_flag:
             self.add_error("source_batch", "This batch is not flagged for reconciliation.")
-        if source.order.order_type != target.order.order_type:
-            self.add_error("source_batch", "Source and target batches must use the same sales channel.")
         if source.finished_good_id != target.finished_good_id:
             self.add_error("source_batch", "Source and target batches must be for the same finished good.")
         if qty > source.available_surplus_units:
-            self.add_error("quantity", f"Only {source.available_surplus_units:.2f} units are available from that source batch.")
+            self.add_error("quantity", f"Only {source.available_surplus_units:.2f} units are currently available from that source batch/stock pool.")
         if qty > target.outstanding_shortage_units:
             self.add_error("quantity", f"Only {target.outstanding_shortage_units:.2f} units remain to be reconciled.")
         if not (cleaned.get("reason") or "").strip():
