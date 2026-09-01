@@ -19,7 +19,7 @@ class StyledModelForm(forms.ModelForm):
 class OrderForm(StyledModelForm):
     class Meta:
         model = Order
-        fields = ["date", "order_type", "production_destination", "non_stock_purpose", "customer", "customer_payment_status", "customer_payment_method", "customer_payment_account",
+        fields = ["date", "order_type", "production_destination", "non_stock_purpose", "customer", "customer_name", "customer_region", "customer_group", "customer_payment_status", "customer_payment_method", "customer_payment_account",
                   "transaction_type", "unpaid_description", "payment_method", "account", "notes"]
         widgets = {
             "date": forms.DateInput(attrs={"type": "date"}),
@@ -33,6 +33,14 @@ class OrderForm(StyledModelForm):
         self.fields["production_destination"].required = False
         self.fields["non_stock_purpose"].required = False
         self.fields["customer"].required = False
+        self.fields["customer"].label = "Customer (from Customer list)"
+        self.fields["customer"].help_text = "Required for Distribution. Optional for Online orders."
+        self.fields["customer_name"].required = False
+        self.fields["customer_name"].label = "Customer name (optional)"
+        self.fields["customer_region"].required = False
+        self.fields["customer_region"].label = "Region (optional)"
+        self.fields["customer_group"].required = False
+        self.fields["customer_group"].label = "Group (optional)"
         self.fields["payment_method"].required = False
         accounts = CashAccount.objects.filter(active=True).order_by("name")
         self.fields["account"].queryset = accounts
@@ -58,8 +66,17 @@ class OrderForm(StyledModelForm):
         cleaned = super().clean()
         order_type = cleaned.get("order_type")
         customer = cleaned.get("customer")
-        if order_type in ("distribution", "online") and not customer:
-            self.add_error("customer", "Select a customer from the customer master.")
+        # Distribution retains the existing customer-master requirement.
+        # Online orders may come from an ad-hoc web buyer, so customer master,
+        # name, region and group are all optional while the rest of the order
+        # workflow (pricing, payment status, approval and fulfilment) is unchanged.
+        if order_type == "distribution" and not customer:
+            self.add_error("customer", "Select a customer from the customer master for a Distribution order.")
+        if order_type == "physical_store":
+            cleaned["customer"] = None
+            cleaned["customer_name"] = ""
+            cleaned["customer_region"] = ""
+            cleaned["customer_group"] = ""
         if order_type == "physical_store":
             # Physical Store Orders are never payment records. Direct sale
             # payment is captured only when the product is sold from Sales.

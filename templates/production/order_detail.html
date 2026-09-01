@@ -15,7 +15,7 @@
 {% endif %}
 <p class="text-sm text-stone-500 mb-4">
   {% if order.order_type == 'distribution' %}For {{ order.customer_name }} — Distribution sale will be recorded once completed.
-  {% elif order.order_type == 'online' %}For {{ order.customer_name }} — Online sale will be recorded once completed.
+  {% elif order.order_type == 'online' %}{% if order.customer_name %}For {{ order.customer_name }} — {% endif %}Online sale will be recorded once completed.
   {% else %}Physical Store production — <b>{{ order.get_production_destination_display }}</b>. {% if order.production_destination == "store" %}Completed production adds to Shelf Stock.{% else %}Completed production does not enter Shelf Stock. Purpose: <b>{{ order.non_stock_purpose }}</b>.{% endif %} Direct sales and all payment details are handled in the Sales form.{% endif %}
 </p>
 

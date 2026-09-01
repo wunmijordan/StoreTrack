@@ -16,7 +16,10 @@
 <h2 class="text-xl font-semibold font-display text-[#8f172d]">Raw Materials</h2>
 <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
   <p class="text-sm text-stone-500 mt-0.5 flex-1 min-w-[240px]">Ingredients, production inputs and operational supplies — all procured through the same material form and procurement chain.</p>
-  {% if module_permissions.inventory.edit %}<a href="{% url 'raw_material_add' %}" class="shrink-0 px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">+ Add Material</a>{% endif %}
+  <div class="flex items-center gap-2 shrink-0">
+    <a href="{% url 'raw_material_inventory_pdf' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-white text-[#8f172d] border border-[#8f172d]/30 hover:bg-[#FFF4F6]" title="Export current raw-material stock and reorder status as PDF">Export PDF</a>
+    {% if module_permissions.inventory.edit %}<a href="{% url 'raw_material_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">+ Add Material</a>{% endif %}
+  </div>
 </div>
 <div id="material-category-tabs" class="flex flex-wrap gap-1.5 mb-4">
   <button type="button" data-material-tab="ingredient" class="material-tab px-3 py-1.5 rounded-md text-xs font-medium border">Ingredients <span data-material-count="ingredient" class="ml-1 text-[10px] opacity-70"></span></button>

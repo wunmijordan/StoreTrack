@@ -88,9 +88,17 @@ def order_form(request, pk=None):
             if obj is None:
                 order.created_by = request.user
             if order.customer:
+                # A selected master customer remains authoritative for the
+                # historical customer snapshot and customer-specific pricing.
                 order.customer_name = order.customer.name
                 order.customer_region = order.customer.region
                 order.customer_group = order.customer.customer_group
+            elif order.order_type == "online":
+                # Ad-hoc online buyers do not need to exist in Customer master.
+                # Keep any optional free-text snapshot supplied on the order.
+                order.customer_name = (order.customer_name or "").strip()
+                order.customer_region = (order.customer_region or "").strip()
+                order.customer_group = (order.customer_group or "").strip()
             else:
                 order.customer_name = ""
                 order.customer_region = ""

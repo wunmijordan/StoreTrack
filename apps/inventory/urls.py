@@ -4,6 +4,7 @@ from . import views
 urlpatterns = [
     path("", views.inventory, name="inventory"),
     path("raw-material/add/", views.raw_material_form, name="raw_material_add"),
+    path("raw-material/export/pdf/", views.raw_material_inventory_pdf, name="raw_material_inventory_pdf"),
     path("raw-material/<int:pk>/edit/", views.raw_material_form, name="raw_material_edit"),
     path("raw-material/<int:pk>/delete/", views.raw_material_delete, name="raw_material_delete"),
     path("product/add/", views.finished_good_form, name="finished_good_add"),

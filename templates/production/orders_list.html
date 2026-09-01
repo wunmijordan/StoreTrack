@@ -26,7 +26,7 @@
         </td>
         <td class="px-3 py-2 text-xs">{% if o.order_type == 'physical_store' %}{% if o.production_destination == 'store' %}<span class="text-emerald-700">Store replenishment</span>{% else %}<span class="text-stone-500">Non-stock purpose</span>{% endif %}{% else %}<span class="text-stone-400">—</span>{% endif %}</td>
         <td class="px-3 py-2 text-xs">{% if o.order_type == 'physical_store' %}<span class="text-stone-400">—</span>{% else %}{% if o.customer_payment_status == 'paid' %}<span class="text-emerald-700">Received</span>{% else %}<span class="text-amber-700">Receivable</span>{% endif %}{% endif %}</td>
-        <td class="px-3 py-2 text-xs">{% if o.order_type == 'distribution' or o.order_type == 'online' %}{{ o.customer_name }}{% else %}Physical store{% endif %}</td>
+        <td class="px-3 py-2 text-xs">{% if o.order_type == 'distribution' %}{{ o.customer_name }}{% elif o.order_type == 'online' %}{{ o.customer_name|default:'Not provided' }}{% else %}Physical store{% endif %}</td>
         <td class="px-3 py-2 text-xs text-stone-500">{% for i in o.items.all %}{{ i.finished_good.name }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
         <td class="px-3 py-2 text-right font-mono">{{ o.total_units|num }}</td>
         <td class="px-3 py-2"><span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium border capitalize
