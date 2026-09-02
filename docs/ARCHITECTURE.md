@@ -456,3 +456,11 @@ Production Orders separate the global database primary key (`Order.id`) from the
 
 This is the numbering foundation for multi-tenant operation: two businesses may each legitimately have an `Order #1` while their internal database IDs remain globally distinct.
 
+
+### Repeatable planned-offcut customer allocations
+
+At production completion, saleable planned offcut may be split across any number of interested Distribution/Online customers. Each allocation records customer, channel, quantity, and its own linked Sale/receivable in `ProductionOffcutAllocation`. The batch keeps aggregate customer-allocation units plus the automatic remainder retained as general finished-goods stock. Legacy single-customer batch fields remain for backward compatibility with batches completed before this structure.
+
+If no customer is available, all saleable planned offcut automatically remains in general finished-goods stock. If several customers are available, the sum of their allocations may not exceed the saleable planned offcut; any remainder still becomes general stock.
+
+Shared Production Run creation uses a multi-select dropdown of eligible Pending orders rather than a checkbox list. The run still supports adding new customer Orders from its detail page and aggregates each member Order's normal proportional recipe/material requirement at approval.

@@ -24,8 +24,25 @@ def users_list(request):
     if not can_manage(request):
         return render(request, "403.html", status=403)
     seed_business_roles(request.business)
-    memberships = UserBusiness.objects.filter(business=request.business, active=True).select_related("user", "role").order_by("user__fullname")
-    roles = Role.objects.filter(business=request.business, active=True).order_by("is_system", "name")
+    memberships = (
+        UserBusiness.objects
+        .filter(business=request.business, active=True)
+        .select_related("user", "role")
+        .order_by("user__fullname")
+    )
+    roles = Role.objects.filter(business=request.business, active=True)
+
+    # A global superuser can audit every membership and role in the selected
+    # business. Business Admins are intentionally shielded from global
+    # superusers and roles marked visible_to_admin=False.
+    if not request.user.is_superuser:
+        memberships = memberships.filter(
+            role__visible_to_admin=True,
+            user__is_superuser=False,
+        )
+        roles = roles.filter(visible_to_admin=True)
+
+    roles = roles.order_by("is_system", "name")
     return render(request, "accounts/users_list.html", {"memberships": memberships, "roles": roles, "can_manage_roles": can_manage_roles(request)})
 
 

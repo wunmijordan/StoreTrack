@@ -10,8 +10,8 @@ from django.utils.crypto import get_random_string
 
 from procurement.models import RawMaterialCostSnapshot
 
-from .forms import (OrderForm, OrderItemFormSet, ProductionCompletionForm, ProductionQualityCheckForm, ProductionReconciliationForm, ProductionRunForm)
-from .models import (Order, OrderNumberSequence, OrderItem, OrderMaterialUsage, ProductionBatch, ProductionBatchReconciliation, ProductionQualityCheck, ProductionCostSnapshot, ProductionCostLine, ProductionRun)
+from .forms import (OrderForm, OrderItemFormSet, ProductionCompletionForm, ProductionQualityCheckForm, ProductionReconciliationForm, ProductionRunForm, PlannedOffcutAllocationFormSet)
+from .models import (Order, OrderNumberSequence, OrderItem, OrderMaterialUsage, ProductionBatch, ProductionBatchReconciliation, ProductionQualityCheck, ProductionCostSnapshot, ProductionCostLine, ProductionRun, ProductionOffcutAllocation)
 from sales.models import CustomerProductPrice
 from inventory.models import FinishedGood
 from inventory.services import (
@@ -513,7 +513,7 @@ def order_detail(request, pk):
     in_draft_run = bool(run_link and run_link.production_run.status == "draft")
     shortages = order.shortages() if order.status == "pending" and not in_draft_run else []
     flexible_usages = _material_release_plan(order)[0] if order.status == "pending" and not in_draft_run else []
-    batches = order.production_batches.select_related("finished_good").prefetch_related("quality_check")
+    batches = order.production_batches.select_related("finished_good").prefetch_related("quality_check", "offcut_allocations__customer")
     return render(request, "production/order_detail.html", {"order": order, "shortages": shortages, "batches": batches, "flexible_usages": flexible_usages, "production_run": run_link.production_run if run_link else None})
 
 
@@ -651,34 +651,83 @@ def order_complete(request, pk):
     }.get(order.order_type, "P")
     date_code = today().strftime("%y%m%d")
     for item_index, item in enumerate(items, start=1):
-        # Channel + short date + order number + product position in that
-        # order. The final segment is the product identifier within the order,
-        # so a multi-product order remains traceable without duplicated suffixes.
         default_batch = f"{channel_code}{date_code}-{order.pk}-{item_index}"
-        completion_forms.append(
-            (item, ProductionCompletionForm(
-                request.POST or None,
-                prefix=f"item-{item.pk}",
-                planned_units=item.production_total_units,
-                required_units=item.total_units,
-                customer_order=order.order_type in ("distribution", "online"),
-                initial={
-                    "produced_units": f"{Decimal(item.production_total_units).quantize(Decimal('0.01')):.2f}",
-                    "batch_number": default_batch,
-                    "planned_offcut_to_stock": item.planned_overproduction_units,
-                },
-            ))
+        form = ProductionCompletionForm(
+            request.POST or None,
+            prefix=f"item-{item.pk}",
+            planned_units=item.production_total_units,
+            required_units=item.total_units,
+            customer_order=order.order_type in ("distribution", "online"),
+            initial={
+                "produced_units": f"{Decimal(item.production_total_units).quantize(Decimal('0.01')):.2f}",
+                "batch_number": default_batch,
+            },
         )
+        offcut_formset = (
+            PlannedOffcutAllocationFormSet(
+                request.POST or None,
+                prefix=f"offcut-{item.pk}",
+                form_kwargs={"business": order.business},
+            )
+            if order.order_type in ("distribution", "online") else None
+        )
+        completion_forms.append((item, form, offcut_formset))
 
     if request.method == "POST":
-        valid = all(form.is_valid() for _, form in completion_forms)
+        valid = True
+        for item, form, offcut_formset in completion_forms:
+            form_valid = form.is_valid()
+            allocations_valid = offcut_formset.is_valid() if offcut_formset is not None else True
+            if not form_valid or not allocations_valid:
+                valid = False
+                continue
+
+            planned_available = form.cleaned_data.get("planned_surplus_available_units") or Decimal("0")
+            allocations = []
+            for alloc_form in (offcut_formset.forms if offcut_formset is not None else []):
+                data = getattr(alloc_form, "cleaned_data", {}) or {}
+                if data.get("DELETE"):
+                    continue
+                qty = data.get("quantity") or Decimal("0")
+                if qty > 0:
+                    allocations.append({
+                        "quantity": qty,
+                        "customer": data["customer"],
+                        "channel": data["channel"],
+                    })
+            allocated_total = sum((row["quantity"] for row in allocations), Decimal("0"))
+            if allocated_total > planned_available:
+                target_form = next(
+                    (f for f in reversed(offcut_formset.forms)
+                     if getattr(f, "cleaned_data", {}).get("quantity")),
+                    offcut_formset.forms[0] if offcut_formset and offcut_formset.forms else None,
+                ) if offcut_formset is not None else None
+                if target_form is not None:
+                    target_form.add_error(
+                        "quantity",
+                        f"Customer allocations total {allocated_total:.2f}, but only {planned_available:.2f} planned offcut units are available.",
+                    )
+                valid = False
+                continue
+
+            form.cleaned_data["planned_offcut_allocations"] = allocations
+            form.cleaned_data["planned_surplus_customer_units"] = allocated_total
+            form.cleaned_data["planned_surplus_stock_units"] = max(
+                Decimal("0"), planned_available - allocated_total
+            )
+
         if valid:
             with transaction.atomic():
                 order.completed_date = today()
-                for item, form in completion_forms:
+                for item, form, offcut_formset in completion_forms:
                     produced = form.cleaned_data["produced_units"]
                     wastage = form.cleaned_data["wastage_units"]
                     saleable = form.cleaned_data["saleable_units"]
+                    allocations = form.cleaned_data.get("planned_offcut_allocations", [])
+                    aggregate_customer_units = form.cleaned_data.get("planned_surplus_customer_units") or Decimal("0")
+                    legacy_customer = allocations[0]["customer"] if len(allocations) == 1 else None
+                    legacy_channel = allocations[0]["channel"] if len(allocations) == 1 else ""
+
                     batch = ProductionBatch.objects.create(
                         business=order.business,
                         created_by=request.user,
@@ -692,9 +741,9 @@ def order_complete(request, pk):
                         planned_units=item.production_total_units,
                         ordered_units=item.total_units,
                         planned_surplus_stock_units=form.cleaned_data.get("planned_surplus_stock_units") or Decimal("0"),
-                        planned_surplus_customer_units=form.cleaned_data.get("planned_surplus_customer_units") or Decimal("0"),
-                        planned_surplus_customer=form.cleaned_data.get("planned_offcut_customer"),
-                        planned_surplus_customer_channel=form.cleaned_data.get("planned_offcut_channel") or "",
+                        planned_surplus_customer_units=aggregate_customer_units,
+                        planned_surplus_customer=legacy_customer,
+                        planned_surplus_customer_channel=legacy_channel,
                         produced_units=produced,
                         wastage_units=wastage,
                         wastage_reason=form.cleaned_data.get("wastage_reason", ""),
@@ -727,7 +776,6 @@ def order_complete(request, pk):
                     customer_committed = min(saleable, ordered) if order.order_type in ("distribution", "online") else Decimal("0")
                     destination_committed = min(saleable, planned) if order.order_type == "physical_store" else customer_committed
                     planned_surplus_stock = batch.planned_surplus_stock_units
-                    planned_surplus_customer = batch.planned_surplus_customer_units
                     excess_stock = batch.excess_stock_units
                     excess_non_stock = batch.excess_non_stock_units
                     good.total_produced += saleable
@@ -739,10 +787,6 @@ def order_complete(request, pk):
                             reference=batch.batch_number, affects_stock=False, unit_value=snapshot.unit_cost,
                         )
 
-                    # Record the planned/committed portion according to the
-                    # order's original destination. Excess is handled
-                    # separately below so it cannot silently inflate customer
-                    # deliveries or shelf stock.
                     if destination_committed > 0:
                         if order.order_type == "physical_store" and order.production_destination == "store":
                             record_finished_good_movement(
@@ -770,34 +814,53 @@ def order_complete(request, pk):
                             reference=batch.batch_number, affects_stock=True, unit_value=snapshot.unit_cost,
                         )
 
-                    if planned_surplus_customer > 0:
+                    offcut_sales = []
+                    if allocations:
                         from sales.models import Sale, SaleItem
-                        customer = batch.planned_surplus_customer
-                        channel = batch.planned_surplus_customer_channel
-                        price = good.selling_price_for(channel, customer=customer)
-                        upb = good.units_per_batch or Decimal("1")
-                        alloc_batches = (planned_surplus_customer // upb) if upb else Decimal("0")
-                        alloc_pieces = planned_surplus_customer - (alloc_batches * upb)
-                        offcut_sale = Sale.objects.create(
-                            business=order.business, date=order.completed_date,
-                            customer=customer.name, customer_master=customer,
-                            transaction_type="unpaid",
-                            unpaid_description=f"Planned production offcut from order #{order.display_number} — receivable",
-                            account=None, payment_method="Transfer",
-                            source=f"{channel}_order", linked_order=order, created_by=request.user,
-                        )
-                        SaleItem.objects.create(
-                            sale=offcut_sale, finished_good=good, batch_qty=alloc_batches, piece_qty=alloc_pieces,
-                            discount=Decimal("0"), price=price, unit_cost=snapshot.unit_cost, production_batch=batch,
-                        )
-                        batch.planned_surplus_sale = offcut_sale
-                        batch.save(update_fields=["planned_surplus_sale", "updated_at"])
-                        record_finished_good_movement(
-                            good, planned_surplus_customer, StockMovement.FG_PRODUCTION,
-                            note=f"Planned offcut allocated to {customer.name} via {channel.title()} — batch {batch.batch_number}",
-                            reference=batch.batch_number, affects_stock=False, unit_value=snapshot.unit_cost,
-                        )
-                        good.total_delivered_to_customers += planned_surplus_customer
+                        for allocation in allocations:
+                            customer = allocation["customer"]
+                            channel = allocation["channel"]
+                            quantity = allocation["quantity"]
+                            price = good.selling_price_for(channel, customer=customer)
+                            upb = good.units_per_batch or Decimal("1")
+                            alloc_batches = (quantity // upb) if upb else Decimal("0")
+                            alloc_pieces = quantity - (alloc_batches * upb)
+                            offcut_sale = Sale.objects.create(
+                                business=order.business, date=order.completed_date,
+                                customer=customer.name, customer_master=customer,
+                                transaction_type="unpaid",
+                                unpaid_description=f"Planned production offcut from order #{order.display_number} — receivable",
+                                account=None, payment_method="Transfer",
+                                source=f"{channel}_order", linked_order=order, created_by=request.user,
+                            )
+                            SaleItem.objects.create(
+                                sale=offcut_sale, finished_good=good,
+                                batch_qty=alloc_batches, piece_qty=alloc_pieces,
+                                discount=Decimal("0"), price=price,
+                                unit_cost=snapshot.unit_cost, production_batch=batch,
+                            )
+                            ProductionOffcutAllocation.objects.create(
+                                business=order.business,
+                                created_by=request.user,
+                                batch=batch,
+                                customer=customer,
+                                channel=channel,
+                                quantity=quantity,
+                                sale=offcut_sale,
+                            )
+                            offcut_sales.append(offcut_sale)
+                            record_finished_good_movement(
+                                good, quantity, StockMovement.FG_PRODUCTION,
+                                note=f"Planned offcut allocated to {customer.name} via {channel.title()} — batch {batch.batch_number}",
+                                reference=batch.batch_number, affects_stock=False, unit_value=snapshot.unit_cost,
+                            )
+                            good.total_delivered_to_customers += quantity
+
+                        # Preserve old single-sale summary field for code/data
+                        # that predates repeatable allocations.
+                        if len(offcut_sales) == 1:
+                            batch.planned_surplus_sale = offcut_sales[0]
+                            batch.save(update_fields=["planned_surplus_sale", "updated_at"])
 
                     if excess_stock > 0:
                         record_finished_good_movement(
@@ -842,7 +905,7 @@ def order_complete(request, pk):
                         linked_order=order,
                         created_by=request.user,
                     )
-                    for item, form in completion_forms:
+                    for item, form, offcut_formset in completion_forms:
                         snapshot = item.cost_snapshots.order_by("-id").first()
                         batch = item.production_batches.order_by("-id").first()
                         SaleItem.objects.create(
@@ -859,20 +922,30 @@ def order_complete(request, pk):
                             description=f"Payment received for order #{order.display_number}", payment_method=sale.payment_method,
                             reference=f"ORDER-{order.pk}", account=order.customer_payment_account,
                         )
+
+                audit_allocations = []
+                for item, form, offcut_formset in completion_forms:
+                    for allocation in form.cleaned_data.get("planned_offcut_allocations", []):
+                        audit_allocations.append({
+                            "product": item.finished_good.name,
+                            "customer": allocation["customer"].name,
+                            "channel": allocation["channel"],
+                            "quantity": str(allocation["quantity"]),
+                        })
                 audit(
                     order.business, request.user, "complete", order, f"Order #{order.display_number} completed",
                     {
                         "channel": order.order_type,
                         "customer_payment_status": order.customer_payment_status if order.order_type in ("distribution", "online") else None,
                         "customer": (order.customer.name if order.customer else order.customer_name) if order.order_type in ("distribution", "online") else None,
-                        "planned_offcut_to_stock": str(sum((f.cleaned_data.get("planned_surplus_stock_units") or Decimal("0") for _, f in completion_forms), Decimal("0"))),
-                        "planned_offcut_to_customer": str(sum((f.cleaned_data.get("planned_surplus_customer_units") or Decimal("0") for _, f in completion_forms), Decimal("0"))),
-                        "planned_offcut_customers": [f.cleaned_data["planned_offcut_customer"].name for _, f in completion_forms if f.cleaned_data.get("planned_offcut_customer")],
-                        "excess_to_stock": str(sum((f.cleaned_data.get("excess_to_stock") or Decimal("0") for _, f in completion_forms), Decimal("0"))),
-                        "excess_to_non_stock": str(sum((f.cleaned_data.get("excess_to_non_stock") or Decimal("0") for _, f in completion_forms), Decimal("0"))),
+                        "planned_offcut_to_stock": str(sum((f.cleaned_data.get("planned_surplus_stock_units") or Decimal("0") for _, f, _ in completion_forms), Decimal("0"))),
+                        "planned_offcut_to_customer": str(sum((f.cleaned_data.get("planned_surplus_customer_units") or Decimal("0") for _, f, _ in completion_forms), Decimal("0"))),
+                        "planned_offcut_allocations": audit_allocations,
+                        "excess_to_stock": str(sum((f.cleaned_data.get("excess_to_stock") or Decimal("0") for _, f, _ in completion_forms), Decimal("0"))),
+                        "excess_to_non_stock": str(sum((f.cleaned_data.get("excess_to_non_stock") or Decimal("0") for _, f, _ in completion_forms), Decimal("0"))),
                         "non_stock_excess_purposes": [
                             f.cleaned_data.get("excess_non_stock_purpose", "").strip()
-                            for _, f in completion_forms
+                            for _, f, _ in completion_forms
                             if (f.cleaned_data.get("excess_to_non_stock") or Decimal("0")) > 0
                         ],
                     },
@@ -915,6 +988,7 @@ def production_batch_detail(request, pk):
             "reconciliation_in__source_batch__order",
             "reconciliation_out__target_batch__order",
             "order__items__finished_good",
+            "offcut_allocations__customer",
         ),
         pk=pk,
     )

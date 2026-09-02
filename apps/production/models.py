@@ -403,6 +403,35 @@ class ProductionBatch(BusinessOwnedModel):
         return min(retained, physical_stock)
 
 
+class ProductionOffcutAllocation(BusinessOwnedModel):
+    """One customer allocation from a production batch's planned offcut.
+
+    New completions may split planned offcut across any number of Distribution
+    and Online customers.  The legacy single-customer fields on ProductionBatch
+    remain as summary/backward-compatibility fields for older records.
+    """
+    batch = models.ForeignKey(
+        ProductionBatch, on_delete=models.CASCADE, related_name="offcut_allocations"
+    )
+    customer = models.ForeignKey(
+        "sales.Customer", on_delete=models.PROTECT, related_name="planned_offcut_allocations"
+    )
+    channel = models.CharField(
+        max_length=20, choices=[("distribution", "Distribution"), ("online", "Online")]
+    )
+    quantity = models.DecimalField(max_digits=14, decimal_places=2)
+    sale = models.ForeignKey(
+        "sales.Sale", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="planned_offcut_allocations"
+    )
+
+    class Meta:
+        ordering = ["id"]
+
+    def __str__(self):
+        return f"{self.batch.batch_number} — {self.customer.name}: {self.quantity}"
+
+
 class ProductionBatchReconciliation(BusinessOwnedModel):
     """Auditable fulfillment allocation from surplus production to a
     customer-order production shortage. It is not a new sale, cash entry, or production event.

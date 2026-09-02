@@ -1,7 +1,7 @@
 from decimal import Decimal
 from django import forms
-from django.db.models import Q
 from django.forms.models import BaseInlineFormSet, inlineformset_factory
+from django.db.models import Q
 from .models import Order, OrderItem, ProductionBatch, ProductionQualityCheck, ProductionRun
 from inventory.models import FinishedGood
 from sales.models import Customer
@@ -198,20 +198,12 @@ class ProductionCompletionForm(forms.Form):
     excess_to_stock = forms.DecimalField(max_digits=14, decimal_places=2, min_value=0, required=False, initial=0, label="Excess to Physical Store stock")
     excess_to_non_stock = forms.DecimalField(max_digits=14, decimal_places=2, min_value=0, required=False, initial=0, label="Excess to non-stock purpose")
     excess_non_stock_purpose = forms.CharField(max_length=255, required=False, label="Non-stock excess purpose")
-    planned_offcut_to_stock = forms.DecimalField(
-        max_digits=14, decimal_places=2, min_value=Decimal("0"), required=False, initial=0,
-        label="Uncommitted planned offcut to stock", widget=forms.HiddenInput(),
-    )
-    planned_offcut_to_customer = forms.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0"), required=False, initial=0, label="Planned offcut to customer")
-    planned_offcut_customer = forms.ModelChoiceField(queryset=Customer.objects.none(), required=False, label="Interested customer")
-    planned_offcut_channel = forms.ChoiceField(choices=[("", "Select channel"), ("distribution", "Distribution"), ("online", "Online")], required=False, label="Customer channel")
 
     def __init__(self, *args, planned_units=None, required_units=None, customer_order=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.planned_units = Decimal(planned_units or 0).quantize(Decimal("0.01"))
         self.required_units = Decimal(required_units if required_units is not None else planned_units or 0).quantize(Decimal("0.01"))
         self.customer_order = bool(customer_order)
-        self.fields["planned_offcut_customer"].queryset = Customer.objects.filter(active=True).order_by("name")
         for f in self.fields.values():
             f.widget.attrs["class"] = INPUT_CLS
         self.fields["produced_units"].help_text = (
@@ -234,37 +226,10 @@ class ProductionCompletionForm(forms.Form):
             max(Decimal("0"), min(cleaned["saleable_units"], self.planned_units) - self.required_units)
             if self.customer_order else Decimal("0")
         )
-        to_planned_customer = cleaned.get("planned_offcut_to_customer") or Decimal("0")
-        if planned_surplus > 0:
-            if to_planned_customer > planned_surplus:
-                self.add_error(
-                    "planned_offcut_to_customer",
-                    f"Customer allocation cannot exceed the available planned offcut of {planned_surplus:.2f} units.",
-                )
-                to_planned_customer = planned_surplus
-            if to_planned_customer > 0:
-                if not cleaned.get("planned_offcut_customer"):
-                    self.add_error("planned_offcut_customer", "Select the customer receiving this planned offcut.")
-                if cleaned.get("planned_offcut_channel") not in ("distribution", "online"):
-                    self.add_error("planned_offcut_channel", "Select Distribution or Online for the interested customer.")
-            else:
-                cleaned["planned_offcut_customer"] = None
-                cleaned["planned_offcut_channel"] = ""
-            # Any saleable planned offcut not already committed to another
-            # customer is real finished-goods inventory and is retained
-            # automatically in general stock. Production completion therefore
-            # never has to wait for a future customer allocation.
-            cleaned["planned_surplus_customer_units"] = to_planned_customer
-            cleaned["planned_surplus_stock_units"] = max(Decimal("0"), planned_surplus - to_planned_customer)
-            cleaned["planned_offcut_to_stock"] = cleaned["planned_surplus_stock_units"]
-        else:
-            if to_planned_customer:
-                self.add_error("planned_offcut_to_customer", "There is no saleable planned offcut to allocate.")
-            cleaned["planned_surplus_stock_units"] = Decimal("0")
-            cleaned["planned_surplus_customer_units"] = Decimal("0")
-            cleaned["planned_offcut_to_stock"] = Decimal("0")
-            cleaned["planned_offcut_customer"] = None
-            cleaned["planned_offcut_channel"] = ""
+        # Customer allocations are validated by a separate repeatable formset
+        # in the completion view.  This form only determines how much planned
+        # offcut is actually saleable and therefore available to allocate.
+        cleaned["planned_surplus_available_units"] = planned_surplus
         if self.customer_order and shortage > 0 and not cleaned.get("flag_shortage"):
             self.add_error("flag_shortage", "Flag this shortage so it can be reconciled from available surplus production of the same product, regardless of channel.")
         if self.customer_order and shortage > 0 and not (cleaned.get("shortage_reason") or "").strip():
@@ -344,6 +309,73 @@ class ProductionReconciliationForm(forms.Form):
         return cleaned
 
 
+class PlannedOffcutAllocationForm(forms.Form):
+    quantity = forms.DecimalField(
+        max_digits=14, decimal_places=2, min_value=Decimal("0"), required=False,
+        label="Quantity", widget=forms.NumberInput(attrs={"step": "0.01", "min": "0"}),
+    )
+    customer = forms.ModelChoiceField(
+        queryset=Customer.objects.none(), required=False, label="Customer"
+    )
+    channel = forms.ChoiceField(
+        choices=[("", "Select channel"), ("distribution", "Distribution"), ("online", "Online")],
+        required=False, label="Channel",
+    )
+
+    def __init__(self, *args, business=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        customers = Customer.objects.filter(active=True)
+        if business is not None:
+            customers = customers.filter(business=business)
+        self.fields["customer"].queryset = customers.order_by("name")
+        for field in self.fields.values():
+            field.widget.attrs["class"] = INPUT_CLS
+
+    def clean(self):
+        cleaned = super().clean()
+        qty = cleaned.get("quantity") or Decimal("0")
+        customer = cleaned.get("customer")
+        channel = cleaned.get("channel") or ""
+        if qty > 0:
+            if not customer:
+                self.add_error("customer", "Select the customer receiving this offcut allocation.")
+            if channel not in ("distribution", "online"):
+                self.add_error("channel", "Select Distribution or Online.")
+        elif customer or channel:
+            self.add_error("quantity", "Enter a quantity for this customer allocation.")
+        return cleaned
+
+
+class BasePlannedOffcutAllocationFormSet(forms.BaseFormSet):
+    def clean(self):
+        super().clean()
+        if any(self.errors):
+            return
+        seen = set()
+        for form in self.forms:
+            if not getattr(form, "cleaned_data", None) or form.cleaned_data.get("DELETE"):
+                continue
+            qty = form.cleaned_data.get("quantity") or Decimal("0")
+            customer = form.cleaned_data.get("customer")
+            channel = form.cleaned_data.get("channel") or ""
+            if qty <= 0 or not customer or not channel:
+                continue
+            key = (customer.pk, channel)
+            if key in seen:
+                raise forms.ValidationError(
+                    "The same customer/channel is listed more than once. Combine it into one allocation row."
+                )
+            seen.add(key)
+
+
+PlannedOffcutAllocationFormSet = forms.formset_factory(
+    PlannedOffcutAllocationForm,
+    formset=BasePlannedOffcutAllocationFormSet,
+    extra=1,
+    can_delete=True,
+)
+
+
 class ProductionQualityCheckForm(StyledModelForm):
     class Meta:
         model = ProductionQualityCheck
@@ -360,7 +392,7 @@ class ProductionRunForm(StyledModelForm):
             "Optionally attach pending orders that are already in StoreTrack. "
             "After saving the run, you can also create new customer orders directly inside it."
         ),
-        widget=forms.CheckboxSelectMultiple(),
+        widget=forms.SelectMultiple(attrs={"size": "7"}),
     )
 
     class Meta:
