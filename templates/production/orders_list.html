@@ -3,10 +3,10 @@
 {% block content %}
 <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
   <div>
-    <h2 class="text-xl font-semibold font-display text-[#8f172d]">Orders</h2>
-    <p class="text-sm text-stone-500 mt-0.5">Distribution, Online and Physical Store orders — approve to release Raw Materials, complete to finish production</p>
+    <h2 class="text-xl font-semibold font-display text-[#8f172d]">{{ vertical_ui.orders }}</h2>
+    <p class="text-sm text-stone-500 mt-0.5">Customer, online and stock-replenishment demand — approve to release raw materials, complete to finish production</p>
   </div>
-  <div class="flex flex-wrap gap-2"><a href="{% url 'production_runs' %}" class="px-3.5 py-2 text-sm rounded-md border border-[#D9CFB4] text-[#8f172d] hover:bg-[#F0EAD9]">Shared Production Runs</a>{% if can_reset_current_business_numbering %}<form method="post" action="{% url 'reset_order_numbering' %}" onsubmit="return confirm('Reset {{ biz.name|escapejs }} Order # numbering so its next Order starts from #1? Other businesses and database IDs are unaffected.');">{% csrf_token %}<input type="hidden" name="scope" value="business"><input type="hidden" name="business_id" value="{{ biz.pk }}"><button type="submit" class="px-3.5 py-2 text-sm rounded-md border border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100">Reset {{ biz.name }} Order #</button></form>{% endif %}{% if module_permissions.production.edit %}<a href="{% url 'order_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">+ New Order</a>{% endif %}</div>
+  <div class="flex flex-wrap gap-2"><a href="{% url 'production_runs' %}" class="px-3.5 py-2 text-sm rounded-md border border-[#D9CFB4] text-[#8f172d] hover:bg-[#F0EAD9]">{{ vertical_ui.runs }}</a>{% if can_reset_current_business_numbering %}<form method="post" action="{% url 'reset_order_numbering' %}" onsubmit="return confirm('Reset {{ biz.name|escapejs }} Order # numbering so its next Order starts from #1? Other businesses and database IDs are unaffected.');">{% csrf_token %}<input type="hidden" name="scope" value="business"><input type="hidden" name="business_id" value="{{ biz.pk }}"><button type="submit" class="px-3.5 py-2 text-sm rounded-md border border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100">Reset {{ biz.name }} Order #</button></form>{% endif %}{% if module_permissions.production.edit %}<a href="{% url 'order_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">+ New {{ vertical_ui.orders|slice:":-1" }}</a>{% endif %}</div>
 </div>
 
 {% if request.user.is_superuser %}
@@ -39,7 +39,7 @@
         <td class="px-3 py-2 font-mono text-xs font-semibold">#{{ o.display_number }}</td>
         <td class="px-3 py-2 font-mono text-xs">{{ o.date }}</td>
         <td class="px-3 py-2">
-          <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium border {% if o.order_type == 'online' %}bg-fuchsia-50 text-fuchsia-800 border-fuchsia-300{% elif o.order_type == 'distribution' %}bg-sky-50 text-sky-800 border-sky-300{% else %}bg-violet-50 text-violet-800 border-violet-300{% endif %}">{{ o.get_order_type_display }}</span>
+          <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium border {% if o.order_type == 'online' %}bg-fuchsia-50 text-fuchsia-800 border-fuchsia-300{% elif o.order_type == 'distribution' %}bg-sky-50 text-sky-800 border-sky-300{% else %}bg-violet-50 text-violet-800 border-violet-300{% endif %}">{{ o.display_order_type }}</span>
         </td>
         <td class="px-3 py-2 text-xs">{% if o.order_type == 'physical_store' %}{% if o.production_destination == 'store' %}<span class="text-emerald-700">Store replenishment</span>{% else %}<span class="text-stone-500">Non-stock purpose</span>{% endif %}{% else %}<span class="text-stone-400">—</span>{% endif %}</td>
         <td class="px-3 py-2 text-xs">{% if o.order_type == 'physical_store' %}<span class="text-stone-400">—</span>{% else %}{% if o.customer_payment_status == 'paid' %}<span class="text-emerald-700">Received</span>{% else %}<span class="text-amber-700">Receivable</span>{% endif %}{% endif %}</td>

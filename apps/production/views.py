@@ -89,7 +89,7 @@ def order_form(request, pk=None):
             messages.error(request, "That Shared Production Run belongs to another business.")
             return redirect("production_runs")
     if request.method == "POST":
-        form = OrderForm(request.POST, instance=obj)
+        form = OrderForm(request.POST, instance=obj, business=request.business)
         store_replenishment = (
             request.POST.get("order_type") == "physical_store"
             and request.POST.get("production_destination", "store") == "store"
@@ -172,7 +172,7 @@ def order_form(request, pk=None):
             messages.success(request, "Order updated." if obj else "Order created — approve it from the Orders page when ready.")
             return redirect("order_detail", pk=order.pk)
     else:
-        form = OrderForm(instance=obj, initial=None if obj else {"date": today(), "order_type": "distribution"})
+        form = OrderForm(instance=obj, initial=None if obj else {"date": today(), "order_type": "distribution"}, business=request.business)
         store_replenishment = bool(
             obj and obj.order_type == "physical_store" and obj.production_destination == "store"
         )

@@ -33,10 +33,11 @@ class CustomerForm(StyledModelForm):
 class SaleForm(StyledModelForm):
     class Meta:
         model = Sale
-        fields = ["date", "customer_master", "customer", "transaction_type", "unpaid_description", "payment_method", "account"]
+        fields = ["date", "customer_master", "customer", "service_mode", "table_reference", "transaction_type", "unpaid_description", "payment_method", "account"]
         widgets = {"date": forms.DateInput(attrs={"type": "date"}), "unpaid_description": forms.Textarea(attrs={"rows": 2})}
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, business=None, **kwargs):
+        self.business = business
         super().__init__(*args, **kwargs)
         self.fields["customer_master"].queryset = Customer.objects.filter(active=True).order_by("name")
         self.fields["customer_master"].required = False
@@ -44,6 +45,14 @@ class SaleForm(StyledModelForm):
         self.fields["account"].queryset = CashAccount.objects.filter(active=True).order_by("name")
         self.fields["account"].required = False
         self.fields["transaction_type"].choices = [("paid", "Paid"), ("unpaid", "Unpaid")]
+        if not business or not business.is_restaurant:
+            self.fields.pop("service_mode")
+            self.fields.pop("table_reference")
+        else:
+            self.fields["service_mode"].required = True
+            self.fields["service_mode"].initial = Sale.SERVICE_DINE_IN
+            self.fields["table_reference"].required = False
+            self.fields["table_reference"].label = "Table / service reference"
 
     def clean(self):
         cleaned = super().clean()
@@ -56,6 +65,15 @@ class SaleForm(StyledModelForm):
             self.add_error("unpaid_description", "Explain why this physical-store sale is unpaid.")
         if cleaned.get("transaction_type") == "paid" and not cleaned.get("account"):
             self.add_error("account", "Select the cash/bank account that received this payment.")
+        if self.business and self.business.is_restaurant:
+            if (
+                cleaned.get("service_mode") == Sale.SERVICE_DINE_IN
+                and self.business.restaurant_table_service
+                and not (cleaned.get("table_reference") or "").strip()
+            ):
+                self.add_error("table_reference", "Enter the table number or dine-in reference.")
+            if cleaned.get("service_mode") != Sale.SERVICE_DINE_IN:
+                cleaned["table_reference"] = (cleaned.get("table_reference") or "").strip()
         return cleaned
 
 

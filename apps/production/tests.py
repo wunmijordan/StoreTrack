@@ -1,7 +1,10 @@
 from datetime import date
 
 from django.test import TestCase
+from django.urls import reverse
 
+from accounts.models import CustomUser, UserBusiness
+from accounts.services import seed_business_roles
 from core.models import Business
 from .models import Order, OrderNumberSequence
 
@@ -38,3 +41,26 @@ class BusinessOrderNumberingTests(TestCase):
         self.assertEqual(a_again.order_number, 1)
         self.assertEqual(b2.order_number, 2)
         self.assertEqual(b1.order_number, 1)
+
+
+class VerticalProductionUiTests(TestCase):
+    def test_restaurant_uses_restaurant_order_vocabulary(self):
+        business = Business.objects.create(
+            name="Kitchen", slug="kitchen", vertical=Business.VERTICAL_RESTAURANT
+        )
+        roles = seed_business_roles(business)
+        user = CustomUser.objects.create_user(
+            username="kitchen.admin", password="safe-password-123", fullname="Kitchen Admin"
+        )
+        UserBusiness.objects.create(
+            user=user, business=business,
+            role=roles[CustomUser.ROLE_BUSINESS_ADMIN],
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("order_add"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Catering / Bulk Order")
+        self.assertContains(response, "Kitchen / Counter Replenishment")
+        self.assertNotContains(response, ">Physical Store Order<")

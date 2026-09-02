@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Create your StoreTrack workspace</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>@import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Inter:wght@400;500;600&display=swap'); body{font-family:Inter,sans-serif;background:#FAF6EF;color:#211D1A}.font-display{font-family:Fraunces,serif}</style>
+</head>
+<body>
+  <main class="min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-2xl bg-[#FFFDF8] border border-[#E7DFCC] rounded-xl shadow-lg p-6">
+      <div class="font-semibold font-display">StoreTrack</div>
+      <div class="text-[10px] tracking-[0.2em] uppercase text-[#C69A3E]">Create a business workspace</div>
+      <h1 class="text-2xl font-semibold font-display text-[#8f172d] mt-4">Set up your business</h1>
+      <p class="text-sm text-stone-500 mb-5">Choose the operating style that fits you. Your first account becomes the Business Admin.</p>
+      {% if form.non_field_errors %}<div class="text-sm bg-rose-50 text-rose-700 border border-rose-200 rounded-md px-3 py-2 mb-3">{{ form.non_field_errors }}</div>{% endif %}
+      <form method="post">
+        {% csrf_token %}
+        <div class="grid sm:grid-cols-2 gap-x-4">
+          {% include "_field.html" with field=form.business_name %}
+          {% include "_field.html" with field=form.vertical %}
+          {% include "_field.html" with field=form.fullname %}
+          {% include "_field.html" with field=form.username %}
+          {% include "_field.html" with field=form.email %}
+          {% include "_field.html" with field=form.phone %}
+          {% include "_field.html" with field=form.password1 %}
+          {% include "_field.html" with field=form.password2 %}
+        </div>
+        <button class="w-full mt-2 bg-[#8f172d] text-white rounded-md py-2.5 text-sm font-medium hover:bg-[#4D1C25]">Create workspace</button>
+      </form>
+      <p class="text-xs text-center text-stone-500 mt-4">Already have an account? <a class="text-[#8f172d] underline" href="{% url 'login' %}">Sign in</a></p>
+    </div>
+  </main>
+</body>
+</html>

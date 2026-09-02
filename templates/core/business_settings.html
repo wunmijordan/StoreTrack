@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="max-w-3xl">
+  <h2 class="text-xl font-semibold font-display text-[#8f172d]">Business Settings</h2>
+  <p class="text-sm text-stone-500 mt-1 mb-5">Brand this workspace and choose the vocabulary and service details that match how {{ biz.name }} operates.</p>
+
+  <form method="post" class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-5">
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-md p-3 mb-3">{{ form.non_field_errors }}</div>{% endif %}
+    <div class="grid sm:grid-cols-2 gap-x-4">
+      {% include "_field.html" with field=form.name %}
+      {% include "_field.html" with field=form.vertical %}
+      {% include "_field.html" with field=form.currency_symbol %}
+      {% include "_field.html" with field=form.accent_color %}
+      <div class="sm:col-span-2">{% include "_field.html" with field=form.tagline %}</div>
+      <div id="restaurant-settings" class="sm:col-span-2 rounded-md border border-[#E7DFCC] bg-[#F5EFE0] p-3 mb-3">
+        <label class="flex items-start gap-2 text-sm">{{ form.restaurant_table_service }}<span><strong>Table service</strong><span class="block text-xs text-stone-500">Require a table or service reference for dine-in sales.</span></span></label>
+        {% if form.restaurant_table_service.errors %}<div class="text-xs text-rose-600 mt-1">{{ form.restaurant_table_service.errors|join:", " }}</div>{% endif %}
+      </div>
+    </div>
+    <p class="text-xs text-stone-500 mb-4">Changing the vertical adjusts labels and future defaults; it does not rewrite or delete existing inventory, orders, sales, or finance data.</p>
+    <button class="px-4 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">Save preferences</button>
+  </form>
+
+  <section class="mt-5 bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg p-5">
+    <h3 class="font-medium">Enabled modules</h3>
+    <p class="text-xs text-stone-500 mt-1 mb-3">Every module is included for now. This entitlement layer is ready for plan-based access later.</p>
+    <div class="grid sm:grid-cols-3 gap-2">
+      {% for item in business_modules %}<div class="rounded border border-[#E7DFCC] px-3 py-2 text-sm"><span class="inline-block h-2 w-2 rounded-full mr-2 {% if item.enabled %}bg-emerald-500{% else %}bg-stone-300{% endif %}"></span>{{ item.get_module_display }}</div>{% endfor %}
+    </div>
+  </section>
+</div>
+<script>
+  function toggleRestaurantSettings(){const field=document.getElementById('id_vertical');const panel=document.getElementById('restaurant-settings');if(panel)panel.style.display=field?.value==='restaurant'?'block':'none';}
+  document.getElementById('id_vertical')?.addEventListener('change',toggleRestaurantSettings);toggleRestaurantSettings();
+</script>
+{% endblock %}

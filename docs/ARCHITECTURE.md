@@ -314,15 +314,43 @@ recalculated when a later procurement price changes.
 
 ```
 Request
-  -> BusinessMiddleware resolves Business.default() (one row today)
+  -> BusinessMiddleware reads the authenticated user
+  -> validates active UserBusiness memberships
+  -> resolves session active_business_id (or first active membership)
   -> request.business attached
   -> contextvar set (core.context)
   -> BusinessOwnedModel.objects filters every query to that business
   -> BusinessOwnedModel.raw_objects bypasses the filter for admin/shell
 ```
 
-This is future-proofed for multiple businesses, but real tenant/location
-routing is not implemented yet.
+The global superuser can switch among all businesses. Ordinary users see and
+switch only among businesses where their membership is active. The session
+never accepts an arbitrary tenant ID without that authorization check.
+
+Public signup atomically creates `Business`, the standard roles and role
+permissions, all current `BusinessModuleAccess` entitlements, the first user,
+and that user's Business Admin membership. Existing Business rows migrate as
+the Bakery vertical so the original labels and behavior remain unchanged.
+
+`Business.vertical` selects bakery, restaurant, or general-production
+vocabulary without changing stable order/channel keys. Restaurants extend the
+ordinary sale with service mode (dine-in, takeaway, delivery) and an optional
+table/service reference. Every vertical continues to share the proven
+procurement, recipe/BOM, production, inventory, sales, finance, and reporting
+models.
+
+`BusinessModuleAccess` sits above role and per-user permissions:
+
+```
+Business/plan enables module
+          AND
+Role/user grants action
+          =
+Effective access
+```
+
+All modules are enabled now. A later plan/pricing system can change business
+entitlements without altering role definitions or tenant-owned records.
 
 ## "A user should be able to answer:"
 

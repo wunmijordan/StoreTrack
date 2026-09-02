@@ -1,5 +1,5 @@
 from django.db import transaction
-from .models import CustomUser, Role, RoleModulePermission, UserBusiness, UserModulePermission
+from .models import BusinessModuleAccess, CustomUser, Role, RoleModulePermission, UserBusiness, UserModulePermission
 
 ROLE_DEFAULTS = {
     CustomUser.ROLE_STOCK_KEEPER: {
@@ -68,8 +68,30 @@ def ensure_permissions(membership):
         UserModulePermission.objects.get_or_create(membership=membership, module=module)
 
 
+def seed_business_modules(business, source=BusinessModuleAccess.SOURCE_DEFAULT):
+    """Provision today's full module set behind the future plan boundary."""
+    for module, _label in RoleModulePermission.MODULE_CHOICES:
+        BusinessModuleAccess.objects.get_or_create(
+            business=business,
+            module=module,
+            defaults={"enabled": True, "source": source},
+        )
+
+
+def business_has_module(business, module):
+    """Return entitlement without penalising legacy/missing provisioning rows."""
+    if not business:
+        return False
+    enabled = BusinessModuleAccess.objects.filter(
+        business=business, module=module
+    ).values_list("enabled", flat=True).first()
+    return enabled is not False
+
+
 def user_has_permission(user, business, module, action="view"):
     if not getattr(user, "is_authenticated", False) or not business:
+        return False
+    if not business_has_module(business, module):
         return False
     if getattr(user, "is_superuser", False):
         return True

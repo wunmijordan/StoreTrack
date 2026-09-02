@@ -1,10 +1,10 @@
 # StoreTrack
 
-A lightweight inventory, production, and sales system for a bakery/
-restaurant-type business — Django backend and server-rendered frontend in
-one codebase, structured as `apps/`-per-domain (borrowed from a larger
-multitenant Django project; see `docs/ARCHITECTURE.md` and `CLAUDE.md` for
-what was borrowed and what was deliberately left out).
+A lightweight, multi-vertical, multitenant inventory, production, and sales
+system. Bakery businesses retain the original full workflow; restaurants add
+food-service vocabulary and dine-in/takeaway/delivery details; other makers
+use a general production profile. It remains one Django codebase and one
+SQLite database, suitable for PythonAnywhere.
 
 ## What it does
 
@@ -67,7 +67,8 @@ python manage.py createsuperuser
 python manage.py runserver
 ```
 
-Open http://127.0.0.1:8001 and log in.
+Open http://127.0.0.1:8001. Existing users sign in; a new business owner uses
+**Sign up** to create a workspace and its first Business Admin account.
 
 ### WiFi-only access for staff, right now
 
@@ -140,10 +141,24 @@ custom domain (needs their $10/month plan).
 Steps: sign up → open a Bash console → clone this repo (or upload it) →
 create a virtualenv and `pip install -r requirements.txt` → in the **Web**
 tab, add a manually-configured web app pointing its WSGI file at
-`storetrack.wsgi.application` → set env vars `DJANGO_SECRET_KEY`,
-`DJANGO_DEBUG=False`, `DJANGO_ALLOWED_HOSTS=yourusername.pythonanywhere.com`
-→ `python manage.py migrate` and `createsuperuser` from the console →
-reload the web app.
+`storetrack.wsgi.application` → set `SECRET_KEY`, `DEBUG=False`,
+`ALLOWED_HOSTS=yourusername.pythonanywhere.com`, and an absolute SQLite URL
+such as `DATABASE_URL=sqlite:////home/yourusername/storetrack/db.sqlite3`.
+
+For an upgrade with live data, stop/reload traffic around this short sequence:
+
+```bash
+cp db.sqlite3 "db.sqlite3.backup-$(date +%F-%H%M%S)"
+source venv/bin/activate
+pip install -r requirements.txt
+python manage.py migrate --noinput
+python manage.py check
+```
+
+Then reload the web app. Do not replace the SQLite file: the migrations add
+nullable/defaulted fields in place, classify every existing business as
+`bakery`, preserve all foreign keys/rows, and grant legacy tenants all current
+modules.
 
 Other options (Render, Railway, Fly.io, a VPS) all run Django fine — just
 confirm the free tier gives a **persistent disk**, or plan to switch
@@ -156,13 +171,12 @@ confirm the free tier gives a **persistent disk**, or plan to switch
 
 ## Security checklist before going live
 
-- [ ] `DJANGO_SECRET_KEY` set to a fresh random value
-- [ ] `DJANGO_DEBUG=False`
-- [ ] `DJANGO_ALLOWED_HOSTS` set to your real domain
-- [ ] Each staff member has their own login (Django admin → Users → Add user)
+- [ ] `SECRET_KEY` set to a fresh random value
+- [ ] `DEBUG=False`
+- [ ] `ALLOWED_HOSTS` set to your real domain
+- [ ] Each staff member has their own login (Business Settings → Users & Access)
 
 ## What's next
 
-See `CLAUDE.md` §7 for what was deliberately left out for now (real
-multi-location routing, permission tiers, Postgres) and how to add it later
-without a rewrite.
+See `docs/ROADMAP.md` for production planning, location support, and future
+plan/pricing work.

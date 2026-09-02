@@ -1,16 +1,39 @@
 from django.conf import settings
+from django.core.validators import RegexValidator
 from django.db import models
 from decimal import Decimal
 from .context import get_current_business_id
 
 
 class Business(models.Model):
-    """The tenant root. One row today (single business); the structure is
-    ready for multiple locations/franchises later without a model rewrite —
-    see docs/ARCHITECTURE.md."""
+    """Tenant root shared by every vertical.
+
+    Existing rows default to ``bakery`` so the original workflow and labels
+    remain unchanged after the multitenant migration.
+    """
+    VERTICAL_BAKERY = "bakery"
+    VERTICAL_RESTAURANT = "restaurant"
+    VERTICAL_GENERAL = "general"
+    VERTICAL_CHOICES = [
+        (VERTICAL_BAKERY, "Bakery"),
+        (VERTICAL_RESTAURANT, "Restaurant / food service"),
+        (VERTICAL_GENERAL, "General production"),
+    ]
+
     name = models.CharField(max_length=120, default="My Business")
     currency_symbol = models.CharField(max_length=5, default="₦")
     slug = models.SlugField(max_length=60, unique=True, default="main")
+    vertical = models.CharField(max_length=20, choices=VERTICAL_CHOICES, default=VERTICAL_BAKERY)
+    accent_color = models.CharField(
+        max_length=7,
+        default="#8F172D",
+        validators=[RegexValidator(r"^#[0-9A-Fa-f]{6}$", "Use a six-digit hex colour such as #8F172D.")],
+    )
+    tagline = models.CharField(max_length=100, blank=True, default="")
+    restaurant_table_service = models.BooleanField(
+        default=True,
+        help_text="For restaurant businesses, capture a table/reference for dine-in sales.",
+    )
 
     class Meta:
         verbose_name_plural = "businesses"
@@ -18,16 +41,22 @@ class Business(models.Model):
     def __str__(self):
         return self.name
 
+    @property
+    def is_restaurant(self):
+        return self.vertical == self.VERTICAL_RESTAURANT
+
     @classmethod
     def default(cls):
-        """Returns the single business row, creating it on first run.
-        This is the one place a real multi-business setup would instead
-        resolve 'which business' from the request (subdomain, path, session —
-        see ChurchForce's TenantMiddleware for the fuller pattern)."""
+        """Return the legacy tenant for bootstrap/admin compatibility only.
+
+        Request tenancy is resolved from memberships in BusinessMiddleware;
+        application views must not use this helper to choose a user's tenant.
+        """
         obj, _ = cls.objects.get_or_create(slug="main", defaults={"name": "My Business"})
         try:
-            from accounts.services import seed_business_roles
+            from accounts.services import seed_business_modules, seed_business_roles
             seed_business_roles(obj)
+            seed_business_modules(obj)
         except Exception:
             # Keep model import/bootstrap safe before migrations are complete.
             pass

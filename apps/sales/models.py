@@ -86,6 +86,14 @@ class Sale(BusinessOwnedModel):
     PAYMENT_CHOICES = [("Cash", "Cash"), ("Card", "Card"), ("Transfer", "Transfer")]
     TRANSACTION_CHOICES = [("paid", "Paid"), ("partial", "Partially Paid"), ("unpaid", "Unpaid")]
     SOURCE_CHOICES = [("walkin", "Physical Store"), ("distribution_order", "Distribution Order"), ("online_order", "Online Order")]
+    SERVICE_DINE_IN = "dine_in"
+    SERVICE_TAKEAWAY = "takeaway"
+    SERVICE_DELIVERY = "delivery"
+    SERVICE_MODE_CHOICES = [
+        (SERVICE_DINE_IN, "Dine-in"),
+        (SERVICE_TAKEAWAY, "Takeaway / pickup"),
+        (SERVICE_DELIVERY, "Delivery"),
+    ]
 
     date = models.DateField()
     customer = models.CharField(max_length=120, blank=True, default="Walk-in")
@@ -99,6 +107,14 @@ class Sale(BusinessOwnedModel):
         "production.Order", null=True, blank=True, on_delete=models.SET_NULL,
         help_text="Set automatically if this sale was created from a completed distribution or online order.",
     )
+    service_mode = models.CharField(
+        max_length=12, choices=SERVICE_MODE_CHOICES, blank=True, default="",
+        help_text="Restaurant service context. Blank for bakery/general sales and historical rows.",
+    )
+    table_reference = models.CharField(
+        max_length=40, blank=True, default="",
+        help_text="Optional restaurant table number, tab name, or service reference.",
+    )
 
     class Meta:
         ordering = ["-date", "-id"]
@@ -109,6 +125,12 @@ class Sale(BusinessOwnedModel):
     @property
     def total(self):
         return sum((i.line_total for i in self.items.all()), Decimal("0"))
+
+    @property
+    def display_source(self):
+        if self.source == "walkin" and self.business.is_restaurant:
+            return "Restaurant POS"
+        return self.get_source_display()
 
 
 class SaleItem(TimestampedModel):

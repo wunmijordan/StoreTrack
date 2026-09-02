@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{ biz.name|default:"Stock Ledger" }}</title>
+  <title>Sign in — StoreTrack</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -24,8 +24,8 @@
 <body>
 <div class="min-h-[80vh] flex items-center justify-center mt-6">
   <div class="w-full max-w-sm bg-[#FFFDF8] border border-[#E7DFCC] rounded-xl shadow-[0_2px_8px_#000000d2] p-6">
-    <div class="font-semibold mt-1 font-display">{{ biz.name }}</div>
-    <div class="text-[10px] tracking-[0.2em] uppercase text-[#C69A3E] mb-1">Stock Ledger</div>
+    <div class="font-semibold mt-1 font-display">StoreTrack</div>
+    <div class="text-[10px] tracking-[0.2em] uppercase text-[#C69A3E] mb-1">Production to commerce</div>
     <h1 class="text-xl font-semibold font-display text-[#8f172d] mb-4">Sign In</h1>
     {% if form.errors %}
       <div class="text-sm bg-rose-50 text-rose-700 border border-rose-200 rounded-md px-3 py-2 mb-3">Incorrect username or password.</div>
@@ -43,6 +43,7 @@
       </label>
       <button type="submit" class="w-full bg-[#8f172d] text-white rounded-md py-2 text-sm font-medium hover:bg-[#4D1C25] shadow-[0_-2px_4px_#000000d2]">Sign In</button>
     </form>
+    <p class="text-xs text-center text-stone-500 mt-4">Starting a new business workspace? <a class="text-[#8f172d] underline" href="{% url 'signup' %}">Sign up</a></p>
   </div>
 </div>
 </body>

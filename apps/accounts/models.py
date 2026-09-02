@@ -116,6 +116,37 @@ class RoleModulePermission(models.Model):
         ]
 
 
+class BusinessModuleAccess(models.Model):
+    """Business-level module entitlement boundary.
+
+    All modules are enabled today. A future plan/pricing layer can update
+    these rows without rewriting role or per-user permissions. Missing rows
+    intentionally mean enabled, preserving access for pre-SaaS tenants.
+    """
+    SOURCE_DEFAULT = "default"
+    SOURCE_LEGACY = "legacy"
+    SOURCE_PLAN = "plan"
+    SOURCE_CHOICES = [
+        (SOURCE_DEFAULT, "Vertical default"),
+        (SOURCE_LEGACY, "Legacy full access"),
+        (SOURCE_PLAN, "Subscription plan"),
+    ]
+
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="module_access")
+    module = models.CharField(max_length=30, choices=RoleModulePermission.MODULE_CHOICES)
+    enabled = models.BooleanField(default=True)
+    source = models.CharField(max_length=12, choices=SOURCE_CHOICES, default=SOURCE_DEFAULT)
+
+    class Meta:
+        ordering = ["module"]
+        constraints = [
+            models.UniqueConstraint(fields=["business", "module"], name="unique_business_module_access"),
+        ]
+
+    def __str__(self):
+        return f"{self.business} — {self.get_module_display()}"
+
+
 class UserBusiness(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="business_memberships")
     business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="user_memberships")

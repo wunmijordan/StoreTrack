@@ -5,15 +5,20 @@ from decimal import Decimal
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST
 from django.core import serializers
 from django.db.models import Q, Sum
 from django.http import HttpResponse, JsonResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from openpyxl import Workbook
 
 from .models import Business, FinancialTransaction
 from .forms import BusinessForm
+from .services import audit
+from accounts.models import BusinessModuleAccess, UserBusiness
+from accounts.services import is_business_admin, seed_business_modules
 from inventory.models import RawMaterial, FinishedGood, RecipeItem, ProductionMaterial, StockMovement, StockAdjustment, OperationalSupplyDispense
 from procurement.models import PurchaseOrder, PurchaseOrderItem, RawMaterialCostSnapshot, SupplierPayment
 from production.models import Order, OrderItem, ProductionBatch
@@ -1326,15 +1331,53 @@ def dashboard(request):
 
 @login_required
 def reports(request):
-    biz = request.business
+    return render(request, "core/reports.html")
+
+
+@login_required
+def business_settings(request):
+    if not is_business_admin(request.user, request.business):
+        return render(request, "403.html", status=403)
+    seed_business_modules(request.business)
     if request.method == "POST":
-        form = BusinessForm(request.POST, instance=biz)
+        form = BusinessForm(request.POST, instance=request.business)
         if form.is_valid():
-            form.save()
-            messages.success(request, "Settings updated.")
+            business = form.save()
+            audit(
+                business, request.user, "update", business,
+                "Business preferences updated",
+                {"vertical": business.vertical, "accent_color": business.accent_color},
+            )
+            messages.success(request, "Business preferences updated.")
+            return redirect("business_settings")
     else:
-        form = BusinessForm(instance=biz)
-    return render(request, "core/reports.html", {"settings_form": form})
+        form = BusinessForm(instance=request.business)
+    modules = request.business.module_access.order_by("module")
+    return render(request, "core/business_settings.html", {"form": form, "business_modules": modules})
+
+
+@login_required
+@require_POST
+def switch_business(request):
+    try:
+        business_id = int(request.POST.get("business_id", ""))
+    except (TypeError, ValueError):
+        return render(request, "403.html", status=403)
+    if request.user.is_superuser:
+        allowed = Business.objects.filter(pk=business_id).exists()
+    else:
+        allowed = UserBusiness.objects.filter(
+            user=request.user, business_id=business_id, active=True
+        ).exists()
+    if not allowed:
+        return render(request, "403.html", status=403)
+    request.session["active_business_id"] = business_id
+    next_url = request.POST.get("next") or "dashboard"
+    if next_url != "dashboard" and not url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        next_url = "dashboard"
+    return redirect(next_url)
 
 
 def _csv_response(filename, header, rows):
@@ -1388,7 +1431,7 @@ def _production_rows():
     rows = []
     for o in Order.objects.filter(status="completed").prefetch_related("items__finished_good"):
         for item in o.items.all():
-            rows.append([o.completed_date, o.get_order_type_display(), o.transaction_type, o.unpaid_description, o.customer_name, item.finished_good.name, item.total_units, item.line_total])
+            rows.append([o.completed_date, o.display_order_type, o.transaction_type, o.unpaid_description, o.customer_name, item.finished_good.name, item.total_units, item.line_total])
     return rows
 
 
@@ -1397,7 +1440,7 @@ def _sales_rows(qs=None):
     rows = []
     for s in qs.prefetch_related("items__finished_good"):
         items = ", ".join(f"{i.finished_good.name} x{i.total_units}" for i in s.items.all())
-        rows.append([s.date, s.customer, items, s.total, s.transaction_type, s.unpaid_description, s.payment_method, s.get_source_display()])
+        rows.append([s.date, s.customer, items, s.total, s.transaction_type, s.unpaid_description, s.payment_method, s.display_source])
     return rows
 
 

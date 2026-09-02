@@ -2,9 +2,10 @@ from decimal import Decimal
 
 from django.test import TestCase
 
-from core.models import Business
+from core.models import Business, CashAccount
 from inventory.models import FinishedGood, FinishedGoodChannelPrice
-from .models import Customer, CustomerProductPrice
+from .forms import SaleForm
+from .models import Customer, CustomerProductPrice, Sale
 
 
 class CustomerProductPriceTests(TestCase):
@@ -39,3 +40,44 @@ class CustomerProductPriceTests(TestCase):
         )
         self.assertEqual(self.good.selling_price_for("online", self.customer), Decimal("125.00"))
         self.assertEqual(self.good.selling_price_for("distribution", self.customer), Decimal("90.00"))
+
+
+class RestaurantSaleFormTests(TestCase):
+    def setUp(self):
+        self.restaurant = Business.objects.create(
+            name="Restaurant", slug="restaurant", vertical=Business.VERTICAL_RESTAURANT,
+            restaurant_table_service=True,
+        )
+        self.account = CashAccount.objects.create(
+            business=self.restaurant, name="Till", account_type="cash"
+        )
+
+    def data(self, **overrides):
+        data = {
+            "date": "2026-09-02",
+            "customer": "Walk-in",
+            "service_mode": Sale.SERVICE_DINE_IN,
+            "table_reference": "",
+            "transaction_type": "paid",
+            "payment_method": "Cash",
+            "account": self.account.pk,
+        }
+        data.update(overrides)
+        return data
+
+    def test_dine_in_requires_table_reference_when_table_service_enabled(self):
+        form = SaleForm(self.data(), business=self.restaurant)
+        self.assertFalse(form.is_valid())
+        self.assertIn("table_reference", form.errors)
+
+    def test_takeaway_does_not_require_table_reference(self):
+        form = SaleForm(
+            self.data(service_mode=Sale.SERVICE_TAKEAWAY), business=self.restaurant
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_non_restaurant_keeps_legacy_sale_form(self):
+        bakery = Business.objects.create(name="Bakery", slug="legacy-bakery")
+        form = SaleForm(business=bakery)
+        self.assertNotIn("service_mode", form.fields)
+        self.assertNotIn("table_reference", form.fields)

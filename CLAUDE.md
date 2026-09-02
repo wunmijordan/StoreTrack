@@ -1,8 +1,8 @@
 # StoreTrack — Agent Instructions
 
 Read this before editing the repo. It's the scaled-down sibling of the
-ChurchForce foundation doc: same shape, far fewer moving parts, because this
-is a single-business inventory/production/sales tool, not a multitenant SaaS.
+ChurchForce foundation doc: same shape, far fewer moving parts. It is a
+multi-business, multi-vertical inventory/production/sales SaaS foundation.
 
 See also `docs/ARCHITECTURE.md` for the fuller structural writeup.
 
@@ -11,7 +11,7 @@ See also `docs/ARCHITECTURE.md` for the fuller structural writeup.
 - Django 5.2, project package `storetrack/`
 - Domain apps live under `apps/`, added to `sys.path` in `storetrack/settings.py`
   so `INSTALLED_APPS` uses plain names (`inventory`, not `apps.inventory`)
-- SQLite, one database, no routing
+- SQLite, one shared database, membership/session tenant routing
 - Server-rendered templates (no separate frontend build, no JS framework)
 - No Redis, Channels, Cloudinary, or background scheduler — nothing here needs
   them yet. If a future feature does, follow the same pattern ChurchForce
@@ -19,13 +19,15 @@ See also `docs/ARCHITECTURE.md` for the fuller structural writeup.
 
 ## 2. The Business (tenant) pattern
 
-`core.models.Business` is the tenant root — one row today. Most data belongs
+`core.models.Business` is the tenant root. Most data belongs
 to a business through `core.models.BusinessOwnedModel`, which mirrors
 `ChurchOwnedModel`:
 
-- `BusinessMiddleware` resolves the business (currently: the only one) and
-  attaches `request.business`, and sets it in a contextvar
-  (`core.context`) for the scoped manager to read.
+- `BusinessMiddleware` resolves the business from the authenticated user's
+  active `UserBusiness` memberships and session selection, attaches
+  `request.business`, and sets it in `core.context` for scoped managers.
+- Global superusers may select any Business. Ordinary users can select only an
+  active membership; users without one receive no tenant data.
 - `BusinessOwnedModel.objects` is a scoped manager — it filters by the
   current business. This is a real filter, not decoration: verified with two
   business rows in the same table during development.
@@ -100,14 +102,11 @@ After editing:
 
 ## 7. Not built yet (by design)
 
-These exist in ChurchForce and were deliberately left out here because
-there's currently one business and no need for them. If/when they're
-needed, follow ChurchForce's pattern for the equivalent piece rather than
-inventing a new approach:
+These remain deliberately deferred:
 
-- Real tenant _routing_ (subdomain/path/custom-domain resolution) — today
-  `Business.default()` just returns the one row. Multi-location would need
-  a `TenantMiddleware`-style resolver here.
-- Role/permission tiers — today everyone who can log in can do everything.
+- Host/subdomain/custom-domain tenant routing. Current routing is membership
+  plus an `active_business_id` session key.
+- Subscription plans and prices. `BusinessModuleAccess` is the entitlement
+  boundary and currently enables every module for every business.
 - A dedicated-database path for a "white-label" business.
 - Any AI/automation skill registry.

@@ -88,7 +88,7 @@ def sale_form(request):
     stock right away. For a customer order or a physical store restock
     (production needed first), use the Orders page instead."""
     if request.method == "POST":
-        form = SaleForm(request.POST)
+        form = SaleForm(request.POST, business=request.business)
         formset = SaleItemFormSet(request.POST, instance=Sale())
         if form.is_valid() and formset.is_valid():
             # Defence in depth: the form queryset already restricts choices,
@@ -161,7 +161,7 @@ def sale_form(request):
             messages.success(request, "Sale recorded.")
             return redirect("sales_list")
     else:
-        form = SaleForm(initial={"date": today(), "customer": "Walk-in"})
+        form = SaleForm(initial={"date": today(), "customer": "Walk-in"}, business=request.business)
         formset = SaleItemFormSet(instance=Sale())
     prices = {str(g.pk): f"{g.selling_price_for('physical_store')}" for g in FinishedGood.objects.filter(stock__isnull=False, reorder_level__gt=0).prefetch_related("channel_prices")}
     return render(request, "sales/sale_form.html", {"form": form, "formset": formset, "prices": prices})

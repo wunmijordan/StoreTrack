@@ -53,7 +53,7 @@ class CustomerPaymentForm(Base):
         self.sales_payload={}
         for s in sales:
             paid=s.payments.aggregate(v=Sum("amount"))["v"] or 0
-            self.sales_payload.setdefault(s.customer,[]).append({"id":s.pk,"label":f"Sale #{s.pk} — {s.get_source_display()} — outstanding {s.total-paid:,.2f}","outstanding":float(s.total-paid)})
+            self.sales_payload.setdefault(s.customer,[]).append({"id":s.pk,"label":f"Sale #{s.pk} — {s.display_source} — outstanding {s.total-paid:,.2f}","outstanding":float(s.total-paid)})
         self.fields["customer"].widget.attrs["data-customer-sales"]="1"
     def clean(self):
         c=super().clean(); sale=c.get("sale"); amount=c.get("amount")

@@ -3,7 +3,7 @@
 {% block content %}
 <div class="flex items-center gap-2 mb-1">
   <h2 class="text-xl font-semibold font-display text-[#8f172d]">Order #{{ order.display_number }}</h2>
-  <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium border {% if order.order_type == 'distribution' or order.order_type == 'online' %}bg-sky-50 text-sky-800 border-sky-300{% else %}bg-violet-50 text-violet-800 border-violet-300{% endif %}">{{ order.get_order_type_display }}</span>
+  <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium border {% if order.order_type == 'distribution' or order.order_type == 'online' %}bg-sky-50 text-sky-800 border-sky-300{% else %}bg-violet-50 text-violet-800 border-violet-300{% endif %}">{{ order.display_order_type }}</span>
   <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium border capitalize
     {% if order.status == 'pending' %}bg-amber-50 text-amber-800 border-amber-300
     {% elif order.status == 'approved' %}bg-sky-50 text-sky-800 border-sky-300
@@ -20,7 +20,7 @@
 <p class="text-sm text-stone-500 mb-4">
   {% if order.order_type == 'distribution' %}For {{ order.customer_name }} — Distribution sale will be recorded once completed.
   {% elif order.order_type == 'online' %}{% if order.customer_name %}For {{ order.customer_name }} — {% endif %}Online sale will be recorded once completed.
-  {% else %}Physical Store production — <b>{{ order.get_production_destination_display }}</b>. {% if order.production_destination == "store" %}Completed production adds to Shelf Stock.{% else %}Completed production does not enter Shelf Stock. Purpose: <b>{{ order.non_stock_purpose }}</b>.{% endif %} Direct sales and all payment details are handled in the Sales form.{% endif %}
+  {% else %}{{ vertical_ui.stock_location }} production — <b>{{ order.get_production_destination_display }}</b>. {% if order.production_destination == "store" %}Completed production adds to available stock.{% else %}Completed production does not enter stock. Purpose: <b>{{ order.non_stock_purpose }}</b>.{% endif %} Direct sales and all payment details are handled in the Sales form.{% endif %}
 </p>
 
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] mb-8 overflow-x-auto overflow-y-auto max-h-[28rem]">

@@ -1,10 +1,52 @@
 from django import forms
 from django.contrib.auth import password_validation
-from django.utils.text import slugify
+from core.models import Business
 from .models import CustomUser, Role, RoleModulePermission, UserBusiness, UserModulePermission
 from .services import ensure_permissions, is_business_admin, seed_business_roles
 
 CLS = "w-full rounded-md border border-[#D9CFB4] bg-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#8f172d]/30 focus:border-[#8f172d]"
+
+
+class BusinessSignupForm(forms.Form):
+    business_name = forms.CharField(max_length=120, label="Business name")
+    vertical = forms.ChoiceField(choices=Business.VERTICAL_CHOICES, label="Business type")
+    fullname = forms.CharField(max_length=160, label="Your full name")
+    username = forms.CharField(max_length=80)
+    email = forms.EmailField()
+    phone = forms.CharField(max_length=30, required=False)
+    password1 = forms.CharField(widget=forms.PasswordInput, label="Password")
+    password2 = forms.CharField(widget=forms.PasswordInput, label="Confirm password")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.widget.attrs["class"] = CLS
+
+    def clean_username(self):
+        username = (self.cleaned_data.get("username") or "").strip()
+        if CustomUser.objects.filter(username__iexact=username).exists():
+            raise forms.ValidationError("That username is already in use. Sign in if it belongs to you.")
+        return username
+
+    def clean_email(self):
+        email = (self.cleaned_data.get("email") or "").strip().lower()
+        if CustomUser.objects.filter(email__iexact=email).exists():
+            raise forms.ValidationError("An account already uses this email. Sign in instead.")
+        return email
+
+    def clean(self):
+        cleaned = super().clean()
+        password = cleaned.get("password1")
+        if password and password != cleaned.get("password2"):
+            self.add_error("password2", "The passwords do not match.")
+        if password:
+            candidate = CustomUser(
+                username=cleaned.get("username", ""),
+                fullname=cleaned.get("fullname", ""),
+                email=cleaned.get("email", ""),
+            )
+            password_validation.validate_password(password, candidate)
+        return cleaned
 
 
 class UserForm(forms.ModelForm):

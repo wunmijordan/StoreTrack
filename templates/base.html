@@ -17,37 +17,68 @@
     [x-cloak] { display: none !important; }
     .field-client-invalid { border-color: #e11d48 !important; box-shadow: 0 0 0 1px rgba(225,29,72,.15); }
     .field-has-error input, .field-has-error select, .field-has-error textarea { border-color: #e11d48 !important; }
-    @media (min-width: 1024px) {
-      .desktop-sidebar { position: fixed; inset: 0 auto 0 0; width: 14rem; height: 100vh; overflow-y: auto; scrollbar-width: none; z-index: 50; }
-      .desktop-sidebar::-webkit-scrollbar { width: 0; height: 0; }
+    .tenant-sidebar { background: color-mix(in srgb, var(--accent) 55%, #211D1A); }
+    .text-\[\#8f172d\], .text-\[\#8F172D\] { color: var(--accent) !important; }
+    .bg-\[\#8f172d\], .bg-\[\#8F172D\] { background-color: var(--accent) !important; }
+    .border-\[\#8f172d\], .border-\[\#8F172D\] { border-color: var(--accent) !important; }
+    .accent-\[\#8f172d\] { accent-color: var(--accent) !important; }
+    .focus\:border-\[\#8f172d\]:focus { border-color: var(--accent) !important; }
+    .peer:checked ~ .peer-checked\:bg-\[\#8f172d\] { background-color: var(--accent) !important; }
+    .peer:checked ~ .peer-checked\:border-\[\#8f172d\] { border-color: var(--accent) !important; }
+    .hover\:bg-\[\#4D1C25\]:hover { background-color: color-mix(in srgb, var(--accent) 70%, #211D1A) !important; }
+    @media (min-width: 768px) {
+      .desktop-sidebar { position: fixed; inset: 0 auto 0 0; width: 14rem; height: 100dvh; overflow: hidden; z-index: 50; }
+      .desktop-sidebar-nav { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: transparent transparent; }
+      .desktop-sidebar-nav:hover, .desktop-sidebar-nav:focus-within, .desktop-sidebar-nav:active { scrollbar-color: rgba(255,255,255,.25) transparent; }
+      .desktop-sidebar-nav::-webkit-scrollbar { width: 5px; }
+      .desktop-sidebar-nav::-webkit-scrollbar-track { background: transparent; }
+      .desktop-sidebar-nav::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; }
+      .desktop-sidebar-nav:hover::-webkit-scrollbar-thumb, .desktop-sidebar-nav:focus-within::-webkit-scrollbar-thumb, .desktop-sidebar-nav:active::-webkit-scrollbar-thumb { background: rgba(255,255,255,.25); }
+      .desktop-sidebar-nav::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
       .desktop-main { margin-left: 14rem; min-height: 100vh; }
     }
   </style>
 </head>
-<body class="min-h-screen flex">
+<body class="min-h-screen flex" style="--accent: {{ biz.accent_color|default:'#8F172D' }}">
 
   {% if user.is_authenticated %}
-  <aside class="desktop-sidebar hidden md:flex flex-col bg-[#4D1C25] text-[#FAF6EF] min-h-screen">
-    <div class="px-5 py-5 border-b border-white/10">
+  <aside class="desktop-sidebar tenant-sidebar hidden md:flex flex-col text-[#FAF6EF]">
+    <div class="shrink-0 px-5 py-5 border-b border-white/10">
       <a href="{% url 'dashboard' %}" class="font-semibold mt-1 font-display">{{ biz.name }}</a>
-      <div class="text-[10px] tracking-[0.2em] uppercase text-[#C69A3E]">Stock Ledger</div>
+      <div class="text-[10px] tracking-[0.2em] uppercase text-[#C69A3E]">{{ biz.tagline|default:vertical_ui.platform_label }}</div>
+      {% if available_businesses|length > 1 %}
+      <form action="{% url 'switch_business' %}" method="post" class="mt-3">
+        {% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}">
+        <select name="business_id" onchange="this.form.submit()" aria-label="Active business" class="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-[11px] text-white">
+          {% for business in available_businesses %}<option class="text-stone-900" value="{{ business.pk }}" {% if business.pk == biz.pk %}selected{% endif %}>{{ business.name }}</option>{% endfor %}
+        </select>
+      </form>
+      {% endif %}
     </div>
-    <nav class="flex-1 py-3 text-sm">
+    <nav class="desktop-sidebar-nav flex-1 min-h-0 py-3 text-sm">
       {% include "_nav_links.html" with row_class="block px-5 py-2.5" %}
     </nav>
-    <form action="{% url 'logout' %}" method="post" class="px-5 py-3 border-t border-white/10">
+    <form action="{% url 'logout' %}" method="post" class="shrink-0 px-5 py-3 border-t border-white/10">
       {% csrf_token %}
       <button class="text-[11px] text-[#9DB5A6] hover:text-white">Log Out ({{ user.fullname|default:user.username }})</button>
     </form>
   </aside>
 
-  <div class="md:hidden fixed top-0 inset-x-0 z-40 bg-[#4D1C25] text-[#FAF6EF]">
+  <div class="tenant-sidebar md:hidden fixed top-0 inset-x-0 z-40 text-[#FAF6EF]">
     <div class="flex items-center justify-between px-4 py-3">
       <a href="{% url 'dashboard' %}" class="font-semibold font-display">{{ biz.name }}</a>
       <label for="mobile-nav-toggle" class="cursor-pointer">☰</label>
     </div>
     <input type="checkbox" id="mobile-nav-toggle" class="hidden peer">
-    <nav class="hidden peer-checked:block bg-[#4D1C25] text-sm">
+    <nav class="tenant-sidebar hidden peer-checked:block text-sm">
+      {% if available_businesses|length > 1 %}
+      <form action="{% url 'switch_business' %}" method="post" class="px-4 py-3 border-t border-white/10">
+        {% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}">
+        <select name="business_id" onchange="this.form.submit()" aria-label="Active business" class="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-xs text-white">
+          {% for business in available_businesses %}<option class="text-stone-900" value="{{ business.pk }}" {% if business.pk == biz.pk %}selected{% endif %}>{{ business.name }}</option>{% endfor %}
+        </select>
+      </form>
+      {% endif %}
       {% include "_nav_links.html" with row_class="block px-5 py-3 border-t border-white/10" %}
       <form action="{% url 'logout' %}" method="post" class="px-5 py-3 border-t border-white/10">
         {% csrf_token %}

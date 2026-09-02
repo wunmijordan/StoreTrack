@@ -145,11 +145,14 @@ def purchase_order_pdf(order):
 
 
 def production_order_pdf(order):
+    from .verticals import vertical_config
+
     symbol = order.business.currency_symbol
     story = []
     is_customer_order = order.order_type in ("distribution", "online")
     channel_label = dict(order.TYPE_CHOICES).get(order.order_type, order.order_type).upper()
-    counterparty = order.customer_name if is_customer_order else "Physical Store"
+    stock_location = vertical_config(order.business)["stock_location"]
+    counterparty = order.customer_name if is_customer_order else stock_location
     _header(story, order.business, "PRODUCTION ORDER", f"Production Order #{order.display_number}", order.date, "Customer" if is_customer_order else "For", counterparty)
     rows = []
     for item in order.items.select_related("finished_good"):
@@ -166,9 +169,9 @@ def production_order_pdf(order):
     story.append(Spacer(1, 5 * mm))
     if is_customer_order:
         story.append(Paragraph(f"Sales channel: <b>{channel_label}</b>", styles["body"]))
-        story.append(Paragraph(f"Customer order type: {order.get_order_type_display()}", styles["body"]))
+        story.append(Paragraph(f"Customer order type: {order.display_order_type}", styles["body"]))
     else:
-        story.append(Paragraph("Sales channel: <b>PHYSICAL STORE</b>", styles["body"]))
+        story.append(Paragraph(f"Sales channel: <b>{stock_location.upper()}</b>", styles["body"]))
         destination = order.get_production_destination_display() if hasattr(order, "get_production_destination_display") else "Store replenishment"
         story.append(Paragraph(f"Production destination: <b>{destination}</b>", styles["body"]))
     story.append(Paragraph(f"Status: {order.get_status_display()}", styles["body"]))
@@ -241,7 +244,11 @@ def sale_invoice_pdf(sale):
     _table(story, ["Finished good", "Quantity", "Unit price", "Line total"], rows, [70*mm, 35*mm, 35*mm, 40*mm], sale.total, symbol)
     styles = _styles()
     story.append(Spacer(1, 5 * mm))
-    story.append(Paragraph(f"Source: {sale.get_source_display()}", styles["body"]))
+    story.append(Paragraph(f"Source: {sale.display_source}", styles["body"]))
+    if sale.service_mode:
+        story.append(Paragraph(f"Service: {sale.get_service_mode_display()}", styles["body"]))
+    if sale.table_reference:
+        story.append(Paragraph(f"Table / reference: {sale.table_reference}", styles["body"]))
     story.append(Paragraph(f"Transaction: <b>{sale.get_transaction_type_display()}</b>", styles["body"]))
     if sale.transaction_type == "unpaid" and sale.unpaid_description:
         story.append(Paragraph(f"Unpaid reason: {sale.unpaid_description}", styles["small"]))

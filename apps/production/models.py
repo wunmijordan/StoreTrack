@@ -86,6 +86,12 @@ class Order(BusinessOwnedModel):
     def display_number(self):
         return self.order_number or self.pk
 
+    @property
+    def display_order_type(self):
+        from core.verticals import vertical_config
+        choices = dict(vertical_config(self.business)["order_types"])
+        return choices.get(self.order_type, self.get_order_type_display())
+
     def __str__(self):
         who = self.customer_name if self.order_type in ("distribution", "online") else "Physical store"
         return f"Order #{self.display_number} — {who}"

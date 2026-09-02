@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load core_extras %}
 {% block content %}
-<div class="mb-4"><h2 class="text-xl font-semibold font-display text-[#8f172d]">Production Batches</h2><p class="text-sm text-stone-500">One row per production order. Open an order to see each product batch and its traceability.</p></div>
+<div class="mb-4"><h2 class="text-xl font-semibold font-display text-[#8f172d]">{{ vertical_ui.batches }}</h2><p class="text-sm text-stone-500">One row per production order. Open an order to see each product batch and its traceability.</p></div>
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] overflow-x-auto">
 <table class="min-w-max w-full text-sm">
   <thead class="bg-[#F0EAD9] text-stone-600 text-xs">
@@ -11,7 +11,7 @@
   {% for o in orders %}
     <tr class="border-t border-[#E7DFCC] align-top">
       <td class="px-3 py-2 font-mono text-xs"><a href="{% url 'order_detail' o.pk %}" class="text-[#8f172d] hover:underline">#{{ o.pk }}</a></td>
-      <td class="px-3 py-2 text-xs">{{ o.get_order_type_display }}</td>
+      <td class="px-3 py-2 text-xs">{{ o.display_order_type }}</td>
       <td class="px-3 py-2 font-mono text-xs">{{ o.date }}</td>
       <td class="px-3 py-2 text-xs">
         {% for i in o.items.all %}{{ i.finished_good.name }}{% if not forloop.last %}, {% endif %}{% endfor %}

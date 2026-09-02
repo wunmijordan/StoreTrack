@@ -1,11 +1,61 @@
 from django.contrib import messages
+from django.contrib.auth import login as auth_login
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.text import slugify
-from .forms import UserForm, PermissionMatrixForm, RoleForm, RolePermissionForm
-from .models import CustomUser, Role, RoleModulePermission, UserBusiness
-from .services import ensure_permissions, is_business_admin, seed_business_roles, user_has_permission
+from core.models import Business
+from .forms import BusinessSignupForm, UserForm, PermissionMatrixForm, RoleForm, RolePermissionForm
+from .models import BusinessModuleAccess, CustomUser, Role, RoleModulePermission, UserBusiness
+from .services import ensure_permissions, is_business_admin, seed_business_modules, seed_business_roles, user_has_permission
+
+
+def _unique_business_slug(name):
+    base = (slugify(name) or "business")[:52]
+    candidate = base
+    number = 2
+    while Business.objects.filter(slug=candidate).exists():
+        suffix = f"-{number}"
+        candidate = f"{base[:60 - len(suffix)]}{suffix}"
+        number += 1
+    return candidate
+
+
+def signup(request):
+    """Create a tenant and its first Business Admin atomically."""
+    if request.user.is_authenticated:
+        return redirect("dashboard")
+    if request.method == "POST":
+        form = BusinessSignupForm(request.POST)
+        if form.is_valid():
+            with transaction.atomic():
+                business = Business.objects.create(
+                    name=form.cleaned_data["business_name"].strip(),
+                    slug=_unique_business_slug(form.cleaned_data["business_name"]),
+                    vertical=form.cleaned_data["vertical"],
+                )
+                roles = seed_business_roles(business)
+                seed_business_modules(business, source=BusinessModuleAccess.SOURCE_DEFAULT)
+                user = CustomUser.objects.create_user(
+                    username=form.cleaned_data["username"],
+                    password=form.cleaned_data["password1"],
+                    fullname=form.cleaned_data["fullname"].strip(),
+                    email=form.cleaned_data["email"],
+                    phone=form.cleaned_data["phone"].strip(),
+                )
+                membership = UserBusiness.objects.create(
+                    user=user,
+                    business=business,
+                    role=roles[CustomUser.ROLE_BUSINESS_ADMIN],
+                )
+                ensure_permissions(membership)
+            auth_login(request, user)
+            request.session["active_business_id"] = business.pk
+            messages.success(request, f"Welcome to {business.name}. Your Business Admin account is ready.")
+            return redirect("dashboard")
+    else:
+        form = BusinessSignupForm()
+    return render(request, "accounts/signup.html", {"form": form})
 
 
 def can_manage(request):
@@ -50,8 +100,15 @@ def users_list(request):
 def user_form(request, pk=None):
     if not can_manage(request):
         return render(request, "403.html", status=403)
-    obj = get_object_or_404(CustomUser, pk=pk) if pk else None
-    membership = UserBusiness.objects.filter(user=obj, business=request.business).select_related("role").first() if obj else None
+    membership = (
+        get_object_or_404(
+            UserBusiness.objects.select_related("user", "role"),
+            user_id=pk,
+            business=request.business,
+        )
+        if pk else None
+    )
+    obj = membership.user if membership else None
     if request.method == "POST":
         form = UserForm(request.POST, instance=obj, business=request.business, actor=request.user, membership=membership)
         if form.is_valid():

@@ -6,6 +6,7 @@ from .models import Order, OrderItem, ProductionBatch, ProductionQualityCheck, P
 from inventory.models import FinishedGood
 from sales.models import Customer
 from core.models import CashAccount
+from core.verticals import vertical_config
 
 INPUT_CLS = "w-full rounded-md border border-[#D9CFB4] bg-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#8f172d]/30 focus:border-[#8f172d]"
 
@@ -28,14 +29,23 @@ class OrderForm(StyledModelForm):
             "production_destination": forms.Select(),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, business=None, **kwargs):
+        self.business = business
         super().__init__(*args, **kwargs)
+        if business:
+            config = vertical_config(business)
+            self.fields["order_type"].choices = config["order_types"]
+            stock_location = config["stock_location"]
+            self.fields["production_destination"].choices = [
+                ("store", f"{stock_location} replenishment — add to {stock_location} stock"),
+                ("non_stock", f"Non-stock purpose — do not add to {stock_location} stock"),
+            ]
         self.fields["customer"].queryset = Customer.objects.filter(active=True).order_by("name")
         self.fields["production_destination"].required = False
         self.fields["non_stock_purpose"].required = False
         self.fields["customer"].required = False
         self.fields["customer"].label = "Customer (from Customer list)"
-        self.fields["customer"].help_text = "Required for Distribution. Optional for Online orders."
+        self.fields["customer"].help_text = "Required for distribution/catering/wholesale orders. Optional for online orders."
         self.fields["customer_name"].required = False
         self.fields["customer_name"].label = "Customer name (optional)"
         self.fields["customer_region"].required = False
@@ -72,7 +82,7 @@ class OrderForm(StyledModelForm):
         # name, region and group are all optional while the rest of the order
         # workflow (pricing, payment status, approval and fulfilment) is unchanged.
         if order_type == "distribution" and not customer:
-            self.add_error("customer", "Select a customer from the customer master for a Distribution order.")
+            self.add_error("customer", "Select a customer from the customer master for this customer order.")
         if order_type == "physical_store":
             cleaned["customer"] = None
             cleaned["customer_name"] = ""
@@ -282,7 +292,7 @@ class ProductionReconciliationForm(forms.Form):
             ).exclude(pk=target_batch.pk).select_related("order", "finished_good")
             self.fields["source_batch"].queryset = candidates
             self.fields["source_batch"].label_from_instance = lambda obj: (
-                f"{obj.batch_number} — {obj.order.get_order_type_display()} — "
+                f"{obj.batch_number} — {obj.order.display_order_type} — "
                 f"{obj.available_surplus_units:.2f} available"
             )
 
@@ -419,7 +429,7 @@ class ProductionRunForm(StyledModelForm):
         if not self.is_bound and current_ids:
             self.initial["orders"] = current_ids
         self.fields["orders"].label_from_instance = lambda o: (
-            f"Order #{o.display_number} · {o.get_order_type_display()} · "
+            f"Order #{o.display_number} · {o.display_order_type} · "
             f"{(o.customer_name or 'Physical Store')} · "
             + ", ".join(
                 f"{i.finished_good.name} ({i.production_total_units:g})"
@@ -443,4 +453,3 @@ class ProductionRunForm(StyledModelForm):
             ProductionRunOrder(production_run=production_run, order=o)
             for o in selected if o.pk not in existing
         ])
-

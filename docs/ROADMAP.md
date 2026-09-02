@@ -391,16 +391,16 @@ Avoid AI/forecasting complexity until enough clean historical data exists.
 
 ## 10. Multi-business / multi-location architecture
 
-The existing BusinessOwnedModel/scoped manager is groundwork, not full
-multi-tenancy.
+Multi-business SaaS routing by authenticated membership and session selection
+is implemented, including public Business Admin signup, per-business branding,
+vertical profiles, business-level module entitlements, and tenant-safe scoped
+queries. SQLite remains the supported PythonAnywhere deployment database.
 
-If StoreTrack becomes SaaS:
+Remaining scale work includes:
 
-- real tenant routing
-- business/location selection
-- user-to-business membership
-- role/permission tiers
-- tenant-safe reporting/export
+- optional subdomain/custom-domain routing
+- first-class locations and inventory transfers within a business
+- subscription plans/prices that manage `BusinessModuleAccess`
 - possibly dedicated databases for enterprise isolation
 
 should be added deliberately.
@@ -482,8 +482,8 @@ should remain the business system of record.
 15. Customer/supplier statements
 16. Returns
 17. Forecasting
-18. Roles/permissions
-19. Real tenant/location routing
+18. Subscription plans and pricing
+19. Tenant location/inventory-transfer routing
 
 ### Later / optional
 
