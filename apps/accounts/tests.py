@@ -125,6 +125,7 @@ class BusinessSettingsAccessTests(TestCase):
             "name": "New Name",
             "vertical": Business.VERTICAL_RESTAURANT,
             "currency_symbol": "$",
+            "background_color": "#173B45",
             "accent_color": "#126E82",
             "tagline": "Kitchen control",
             "restaurant_table_service": "on",
@@ -134,6 +135,7 @@ class BusinessSettingsAccessTests(TestCase):
         self.assertEqual(self.business.name, "New Name")
         self.assertEqual(self.business.slug, "bakery")
         self.assertEqual(self.business.accent_color, "#126E82")
+        self.assertEqual(self.business.background_color, "#173B45")
         self.assertEqual(self.business.vertical, Business.VERTICAL_RESTAURANT)
 
     def test_non_admin_cannot_open_business_preferences(self):

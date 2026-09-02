@@ -13,6 +13,12 @@ from django.db.models.functions import TruncDate
 from .forms import RawMaterialForm, FinishedGoodForm, FinishedGoodChannelPriceFormSet, RecipeItemFormSet, ProductionMaterialFormSet
 from .models import RawMaterial, FinishedGood, StockMovement, OperationalSupplyDispense, InventoryLocation
 from core.services import audit
+from core.pdf_fonts import (
+    PDF_BODY_BOLD_FONT,
+    PDF_BODY_FONT,
+    PDF_DISPLAY_FONT,
+    PDF_MONO_MEDIUM_FONT,
+)
 from .services import default_location, record_raw_material_movement
 
 
@@ -27,10 +33,10 @@ def _raw_material_stock_breakdown_markup(material):
     usage_unit = escape(str(material.usage_unit or ""))
     purchase_label = f"{purchase_unit}{'' if whole == 1 else 's'}"
     return (
-        f"<font name='Courier'>{whole}</font> "
-        f"<font color='#A8A29E' size='7'><i>{purchase_label}</i></font>, "
-        f"<font name='Courier'>{num(remainder)}</font> "
-        f"<font color='#A8A29E' size='7'><i>{usage_unit}</i></font>"
+        f"<font name='{PDF_MONO_MEDIUM_FONT}'>{whole}</font> "
+        f"<font color='#78716C' size='9'><b><i>{purchase_label}</i></b></font>, "
+        f"<font name='{PDF_MONO_MEDIUM_FONT}'>{num(remainder)}</font> "
+        f"<font color='#78716C' size='9'><b><i>{usage_unit}</i></b></font>"
     )
 
 
@@ -118,7 +124,10 @@ def raw_material_inventory_pdf(request):
 
     materials = list(RawMaterial.objects.all().order_by("name"))
     business = request.business
-    accent = colors.HexColor("#8f172d")
+    background = colors.HexColor(business.background_color or "#4D1C25")
+    background_text = colors.HexColor(business.background_text_color)
+    accent = colors.HexColor(business.accent_color or "#8F172D")
+    accent_text = colors.HexColor(business.button_text_color)
     paper = landscape(A4)
     buffer = BytesIO()
     response = HttpResponse(content_type="application/pdf")
@@ -132,13 +141,14 @@ def raw_material_inventory_pdf(request):
         author=business.name,
     )
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle("StockTitle", parent=styles["Title"], fontName="Helvetica-Bold", fontSize=19, leading=22, textColor=colors.white, spaceAfter=2)
-    subtitle_style = ParagraphStyle("StockSubtitle", parent=styles["Normal"], fontName="Helvetica", fontSize=9, leading=12, textColor=colors.HexColor("#F7E8EC"))
-    section_style = ParagraphStyle("StockSection", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=11, leading=14, textColor=accent)
-    small = ParagraphStyle("StockSmall", parent=styles["Normal"], fontName="Helvetica", fontSize=8, leading=10, textColor=colors.HexColor("#57534E"))
+    title_style = ParagraphStyle("StockTitle", parent=styles["Title"], fontName=PDF_DISPLAY_FONT, fontSize=22, leading=25, textColor=background_text, spaceAfter=2)
+    subtitle_style = ParagraphStyle("StockSubtitle", parent=styles["Normal"], fontName=PDF_BODY_BOLD_FONT, fontSize=11, leading=14, textColor=background_text)
+    section_style = ParagraphStyle("StockSection", parent=styles["Heading2"], fontName=PDF_DISPLAY_FONT, fontSize=14, leading=17, textColor=accent)
+    small = ParagraphStyle("StockSmall", parent=styles["Normal"], fontName=PDF_BODY_FONT, fontSize=9, leading=12, textColor=colors.HexColor("#57534E"))
     small_right = ParagraphStyle("StockSmallRight", parent=small, alignment=TA_RIGHT)
-    cell = ParagraphStyle("StockCell", parent=styles["Normal"], fontName="Helvetica", fontSize=8.5, leading=10.5, textColor=colors.HexColor("#292524"))
-    cell_bold = ParagraphStyle("StockCellBold", parent=cell, fontName="Helvetica-Bold")
+    cell = ParagraphStyle("StockCell", parent=styles["Normal"], fontName=PDF_BODY_FONT, fontSize=9.5, leading=12, textColor=colors.HexColor("#292524"))
+    cell_bold = ParagraphStyle("StockCellBold", parent=cell, fontName=PDF_BODY_BOLD_FONT, fontSize=10)
+    header_cell = ParagraphStyle("StockHeaderCell", parent=cell_bold, textColor=accent_text)
 
     low_count = sum(1 for m in materials if m.is_low)
     warning_count = sum(1 for m in materials if (not m.is_low and m.is_warning))
@@ -146,17 +156,17 @@ def raw_material_inventory_pdf(request):
 
     header = Table([[Paragraph(escape(str(business.name)), title_style)], [Paragraph("Raw Material Inventory - Procurement Stock Snapshot", subtitle_style)]], colWidths=[paper[0] - 26 * mm])
     header.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), accent),
+        ("BACKGROUND", (0, 0), (-1, -1), background),
         ("LEFTPADDING", (0, 0), (-1, -1), 12), ("RIGHTPADDING", (0, 0), (-1, -1), 12),
         ("TOPPADDING", (0, 0), (-1, 0), 10), ("BOTTOMPADDING", (0, 0), (-1, 0), 0),
         ("TOPPADDING", (0, 1), (-1, 1), 2), ("BOTTOMPADDING", (0, 1), (-1, 1), 10),
     ]))
 
     summary_data = [[
-        Paragraph(f"<b>{len(materials)}</b><br/><font size=7>Total materials</font>", cell),
-        Paragraph(f"<b>{sufficient_count}</b><br/><font size=7>Sufficient</font>", cell),
-        Paragraph(f"<b>{warning_count}</b><br/><font size=7>Warning</font>", cell),
-        Paragraph(f"<b>{low_count}</b><br/><font size=7>Low / reorder</font>", cell),
+        Paragraph(f"<b>{len(materials)}</b><br/><font size=9>Total materials</font>", cell),
+        Paragraph(f"<b>{sufficient_count}</b><br/><font size=9>Sufficient</font>", cell),
+        Paragraph(f"<b>{warning_count}</b><br/><font size=9>Warning</font>", cell),
+        Paragraph(f"<b>{low_count}</b><br/><font size=9>Low / reorder</font>", cell),
         Paragraph(f"Generated: {timezone.localtime().strftime('%d %b %Y, %H:%M')}", small_right),
     ]]
     summary = Table(summary_data, colWidths=[35*mm, 35*mm, 35*mm, 35*mm, paper[0]-26*mm-140*mm])
@@ -170,15 +180,14 @@ def raw_material_inventory_pdf(request):
     ]))
 
     table_data = [[
-        Paragraph("Material", cell_bold), Paragraph("Category", cell_bold),
-        Paragraph("Current stock", cell_bold), Paragraph("Reorder threshold", cell_bold),
-        Paragraph("Status", cell_bold),
+        Paragraph("Material", header_cell), Paragraph("Category", header_cell),
+        Paragraph("Current stock", header_cell), Paragraph("Reorder threshold", header_cell),
+        Paragraph("Status", header_cell),
     ]]
     row_statuses = []
     for m in materials:
         factor = m.total_conversion_factor or Decimal("1")
         purchase_unit = m.purchase_unit or m.usage_unit
-        purchase_stock = (m.stock / factor) if factor else m.stock
         reorder_purchase = (m.reorder_level / factor) if factor else m.reorder_level
         if m.is_low:
             status = "LOW"
@@ -197,7 +206,7 @@ def raw_material_inventory_pdf(request):
         current = _raw_material_stock_breakdown_markup(m)
         threshold = f"{reorder_purchase:.3f} {safe_purchase_unit}"
         if purchase_unit != m.usage_unit or factor != 1:
-            threshold += f"<br/><font size=7 color='#78716C'>{m.reorder_level:.2f} {safe_usage_unit} total</font>"
+            threshold += f"<br/><font size=9 color='#78716C'><b>{m.reorder_level:.2f} {safe_usage_unit} total</b></font>"
         table_data.append([
             Paragraph(escape(str(m.name)), cell_bold),
             Paragraph(escape(str(m.get_category_display())), cell),
@@ -209,8 +218,8 @@ def raw_material_inventory_pdf(request):
 
     stock_table = Table(table_data, repeatRows=1, colWidths=[65*mm, 46*mm, 55*mm, 55*mm, 35*mm])
     ts = [
-        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#F0EAD9")),
-        ("TEXTCOLOR", (0,0), (-1,0), colors.HexColor("#57534E")),
+        ("BACKGROUND", (0,0), (-1,0), accent),
+        ("TEXTCOLOR", (0,0), (-1,0), accent_text),
         ("GRID", (0,0), (-1,-1), 0.35, colors.HexColor("#DED6C5")),
         ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
         ("LEFTPADDING", (0,0), (-1,-1), 6), ("RIGHTPADDING", (0,0), (-1,-1), 6),

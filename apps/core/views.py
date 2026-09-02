@@ -1346,7 +1346,11 @@ def business_settings(request):
             audit(
                 business, request.user, "update", business,
                 "Business preferences updated",
-                {"vertical": business.vertical, "accent_color": business.accent_color},
+                {
+                    "vertical": business.vertical,
+                    "background_color": business.background_color,
+                    "accent_color": business.accent_color,
+                },
             )
             messages.success(request, "Business preferences updated.")
             return redirect("business_settings")

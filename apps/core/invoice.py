@@ -1,6 +1,5 @@
 from decimal import Decimal
 from io import BytesIO
-from pathlib import Path
 
 from django.http import HttpResponse
 from reportlab.lib import colors
@@ -8,35 +7,9 @@ from reportlab.lib.enums import TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-
-_FONT = "Helvetica"
-_FONT_BOLD = "Helvetica-Bold"
-
-
-def _register_unicode_font():
-    """Prefer a Unicode font so currency symbols such as ₦ render correctly."""
-    global _FONT, _FONT_BOLD
-    candidates = [
-        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
-        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
-        Path("/usr/share/fonts/dejavu/DejaVuSans.ttf"),
-    ]
-    regular = next((p for p in candidates if p.name == "DejaVuSans.ttf" and p.exists()), None)
-    bold = next((p for p in candidates if p.name == "DejaVuSans-Bold.ttf" and p.exists()), None)
-    if regular and bold:
-        try:
-            pdfmetrics.registerFont(TTFont("StoreTrackSans", str(regular)))
-            pdfmetrics.registerFont(TTFont("StoreTrackSansBold", str(bold)))
-            _FONT, _FONT_BOLD = "StoreTrackSans", "StoreTrackSansBold"
-        except Exception:
-            pass
-
-
-_register_unicode_font()
+from .pdf_fonts import PDF_BODY_FONT, PDF_DISPLAY_FONT
 
 
 def _money(value, symbol):
@@ -51,11 +24,11 @@ def _date(value):
 def _styles():
     styles = getSampleStyleSheet()
     return {
-        "title": ParagraphStyle("invoice_title", parent=styles["Title"], fontName=_FONT_BOLD, fontSize=18, leading=22, spaceAfter=4),
-        "subtitle": ParagraphStyle("invoice_subtitle", parent=styles["Normal"], fontName=_FONT, fontSize=14, textColor=colors.HexColor("#8f172d"), leading=12),
-        "body": ParagraphStyle("invoice_body", parent=styles["Normal"], fontName=_FONT, fontSize=9, leading=12),
-        "right": ParagraphStyle("invoice_right", parent=styles["Normal"], fontName=_FONT, fontSize=9, leading=12, alignment=TA_RIGHT),
-        "small": ParagraphStyle("invoice_small", parent=styles["Normal"], fontName=_FONT, fontSize=7.5, textColor=colors.HexColor("#666666"), leading=10),
+        "title": ParagraphStyle("invoice_title", parent=styles["Title"], fontName=PDF_DISPLAY_FONT, fontSize=18, leading=22, spaceAfter=4),
+        "subtitle": ParagraphStyle("invoice_subtitle", parent=styles["Normal"], fontName=PDF_DISPLAY_FONT, fontSize=14, textColor=colors.HexColor("#8f172d"), leading=17),
+        "body": ParagraphStyle("invoice_body", parent=styles["Normal"], fontName=PDF_BODY_FONT, fontSize=9, leading=12),
+        "right": ParagraphStyle("invoice_right", parent=styles["Normal"], fontName=PDF_BODY_FONT, fontSize=9, leading=12, alignment=TA_RIGHT),
+        "small": ParagraphStyle("invoice_small", parent=styles["Normal"], fontName=PDF_BODY_FONT, fontSize=7.5, textColor=colors.HexColor("#666666"), leading=10),
     }
 
 

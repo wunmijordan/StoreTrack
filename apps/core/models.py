@@ -28,6 +28,13 @@ class Business(models.Model):
         max_length=7,
         default="#8F172D",
         validators=[RegexValidator(r"^#[0-9A-Fa-f]{6}$", "Use a six-digit hex colour such as #8F172D.")],
+        help_text="Used for primary buttons, links, headings, and action highlights.",
+    )
+    background_color = models.CharField(
+        max_length=7,
+        default="#4D1C25",
+        validators=[RegexValidator(r"^#[0-9A-Fa-f]{6}$", "Use a six-digit hex colour such as #4D1C25.")],
+        help_text="Used for persistent branded backgrounds such as the navigation area.",
     )
     tagline = models.CharField(max_length=100, blank=True, default="")
     restaurant_table_service = models.BooleanField(
@@ -44,6 +51,24 @@ class Business(models.Model):
     @property
     def is_restaurant(self):
         return self.vertical == self.VERTICAL_RESTAURANT
+
+    @staticmethod
+    def _contrast_color(value):
+        """Return a readable black/white foreground for a configured hex colour."""
+        try:
+            red, green, blue = (int(value[index:index + 2], 16) for index in (1, 3, 5))
+        except (TypeError, ValueError):
+            return "#FFFFFF"
+        luminance = (red * 299 + green * 587 + blue * 114) / 1000
+        return "#211D1A" if luminance > 150 else "#FFFFFF"
+
+    @property
+    def button_text_color(self):
+        return self._contrast_color(self.accent_color)
+
+    @property
+    def background_text_color(self):
+        return self._contrast_color(self.background_color)
 
     @classmethod
     def default(cls):

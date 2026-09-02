@@ -17,15 +17,15 @@
     [x-cloak] { display: none !important; }
     .field-client-invalid { border-color: #e11d48 !important; box-shadow: 0 0 0 1px rgba(225,29,72,.15); }
     .field-has-error input, .field-has-error select, .field-has-error textarea { border-color: #e11d48 !important; }
-    .tenant-sidebar { background: color-mix(in srgb, var(--accent) 55%, #211D1A); }
-    .text-\[\#8f172d\], .text-\[\#8F172D\] { color: var(--accent) !important; }
-    .bg-\[\#8f172d\], .bg-\[\#8F172D\] { background-color: var(--accent) !important; }
-    .border-\[\#8f172d\], .border-\[\#8F172D\] { border-color: var(--accent) !important; }
-    .accent-\[\#8f172d\] { accent-color: var(--accent) !important; }
-    .focus\:border-\[\#8f172d\]:focus { border-color: var(--accent) !important; }
-    .peer:checked ~ .peer-checked\:bg-\[\#8f172d\] { background-color: var(--accent) !important; }
-    .peer:checked ~ .peer-checked\:border-\[\#8f172d\] { border-color: var(--accent) !important; }
-    .hover\:bg-\[\#4D1C25\]:hover { background-color: color-mix(in srgb, var(--accent) 70%, #211D1A) !important; }
+    .tenant-sidebar { background: var(--tenant-background); color: var(--tenant-background-contrast); }
+    .text-\[\#8f172d\], .text-\[\#8F172D\] { color: var(--tenant-button) !important; }
+    .bg-\[\#8f172d\], .bg-\[\#8F172D\] { background-color: var(--tenant-button) !important; color: var(--tenant-button-contrast) !important; }
+    .border-\[\#8f172d\], .border-\[\#8F172D\] { border-color: var(--tenant-button) !important; }
+    .accent-\[\#8f172d\] { accent-color: var(--tenant-button) !important; }
+    .focus\:border-\[\#8f172d\]:focus { border-color: var(--tenant-button) !important; }
+    .peer:checked ~ .peer-checked\:bg-\[\#8f172d\] { background-color: var(--tenant-button) !important; color: var(--tenant-button-contrast) !important; }
+    .peer:checked ~ .peer-checked\:border-\[\#8f172d\] { border-color: var(--tenant-button) !important; }
+    .hover\:bg-\[\#4D1C25\]:hover { background-color: color-mix(in srgb, var(--tenant-button) 70%, #211D1A) !important; }
     .sidebar-nav-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: transparent transparent; }
     .sidebar-nav-scroll:hover, .sidebar-nav-scroll:focus-within, .sidebar-nav-scroll:active { scrollbar-color: rgba(255,255,255,.25) transparent; }
     .sidebar-nav-scroll::-webkit-scrollbar { width: 5px; }
@@ -33,24 +33,37 @@
     .sidebar-nav-scroll::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; }
     .sidebar-nav-scroll:hover::-webkit-scrollbar-thumb, .sidebar-nav-scroll:focus-within::-webkit-scrollbar-thumb, .sidebar-nav-scroll:active::-webkit-scrollbar-thumb { background: rgba(255,255,255,.25); }
     .sidebar-nav-scroll::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
-    .mobile-nav-panel { max-height: 50dvh; overflow: hidden; }
+    .mobile-nav-panel {
+      position: absolute;
+      inset: 100% 0 auto;
+      max-height: 50dvh;
+      overflow: hidden;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-100%);
+      transition: transform 180ms ease-out, opacity 120ms ease-out;
+    }
+    .mobile-nav-panel[data-open="true"] { opacity: 1; pointer-events: auto; transform: translateY(0); }
+    @media (prefers-reduced-motion: reduce) {
+      .mobile-nav-panel { transition: none; }
+    }
     @media (min-width: 768px) {
       .desktop-sidebar { position: fixed; inset: 0 auto 0 0; width: 14rem; height: 100dvh; overflow: hidden; z-index: 50; }
       .desktop-main { margin-left: 14rem; min-height: 100vh; }
     }
   </style>
 </head>
-<body class="min-h-screen flex" style="--accent: {{ biz.accent_color|default:'#8F172D' }}">
+<body class="min-h-screen flex" style="--tenant-background: {{ biz.background_color|default:'#4D1C25' }}; --tenant-background-contrast: {{ biz.background_text_color|default:'#FFFFFF' }}; --tenant-button: {{ biz.accent_color|default:'#8F172D' }}; --tenant-button-contrast: {{ biz.button_text_color|default:'#FFFFFF' }}">
 
   {% if user.is_authenticated %}
-  <aside class="desktop-sidebar tenant-sidebar hidden md:flex flex-col text-[#FAF6EF]">
+  <aside class="desktop-sidebar tenant-sidebar hidden md:flex flex-col">
     <div class="shrink-0 px-5 py-5 border-b border-white/10">
       <a href="{% url 'dashboard' %}" class="font-semibold mt-1 font-display">{{ biz.name }}</a>
       <div class="text-[10px] tracking-[0.2em] uppercase text-[#C69A3E]">{{ biz.tagline|default:vertical_ui.platform_label }}</div>
       {% if available_businesses|length > 1 %}
       <form action="{% url 'switch_business' %}" method="post" class="mt-3">
         {% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}">
-        <select name="business_id" onchange="this.form.submit()" aria-label="Active business" class="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-[11px] text-white">
+        <select name="business_id" onchange="this.form.submit()" aria-label="Active business" class="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-[11px]">
           {% for business in available_businesses %}<option class="text-stone-900" value="{{ business.pk }}" {% if business.pk == biz.pk %}selected{% endif %}>{{ business.name }}</option>{% endfor %}
         </select>
       </form>
@@ -65,16 +78,16 @@
     </form>
   </aside>
 
-  <div id="mobile-nav-shell" class="tenant-sidebar md:hidden fixed top-0 inset-x-0 z-40 text-[#FAF6EF]">
-    <div class="flex items-center justify-between px-4 py-3">
+  <div id="mobile-nav-shell" class="tenant-sidebar md:hidden fixed top-0 inset-x-0 z-40">
+    <div class="relative z-10 flex items-center justify-between px-4 py-3 tenant-sidebar">
       <a href="{% url 'dashboard' %}" class="font-semibold font-display">{{ biz.name }}</a>
       <button type="button" id="mobile-nav-button" aria-controls="mobile-nav-panel" aria-expanded="false" aria-label="Toggle navigation" class="cursor-pointer p-1 text-xl leading-none"><span aria-hidden="true">☰</span></button>
     </div>
-    <div id="mobile-nav-panel" class="tenant-sidebar mobile-nav-panel flex flex-col text-sm border-t border-white/10" hidden>
+    <div id="mobile-nav-panel" class="tenant-sidebar mobile-nav-panel flex flex-col text-sm border-t border-white/10" data-open="false" aria-hidden="true" inert>
       {% if available_businesses|length > 1 %}
       <form action="{% url 'switch_business' %}" method="post" class="shrink-0 px-4 py-3">
         {% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}">
-        <select name="business_id" onchange="this.form.submit()" aria-label="Active business" class="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-xs text-white">
+        <select name="business_id" onchange="this.form.submit()" aria-label="Active business" class="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-xs">
           {% for business in available_businesses %}<option class="text-stone-900" value="{{ business.pk }}" {% if business.pk == biz.pk %}selected{% endif %}>{{ business.name }}</option>{% endfor %}
         </select>
       </form>
@@ -109,7 +122,9 @@
       if (!shell || !button || !panel) return;
 
       const setOpen = (open) => {
-        panel.hidden = !open;
+        panel.dataset.open = open ? 'true' : 'false';
+        panel.setAttribute('aria-hidden', open ? 'false' : 'true');
+        panel.inert = !open;
         button.setAttribute('aria-expanded', open ? 'true' : 'false');
       };
 
