@@ -21,7 +21,7 @@ class StyledModelForm(forms.ModelForm):
 class OrderForm(StyledModelForm):
     class Meta:
         model = Order
-        fields = ["date", "order_type", "production_destination", "non_stock_purpose", "customer", "customer_name", "customer_region", "customer_group", "customer_payment_status", "customer_payment_method", "customer_payment_account",
+        fields = ["date", "order_type", "is_market_stock", "production_destination", "non_stock_purpose", "customer", "customer_name", "customer_region", "customer_group", "customer_payment_status", "customer_payment_method", "customer_payment_account",
                   "transaction_type", "unpaid_description", "payment_method", "account", "notes"]
         widgets = {
             "date": forms.DateInput(attrs={"type": "date"}),
@@ -45,7 +45,10 @@ class OrderForm(StyledModelForm):
         self.fields["non_stock_purpose"].required = False
         self.fields["customer"].required = False
         self.fields["customer"].label = "Customer (from Customer list)"
-        self.fields["customer"].help_text = "Required for distribution/catering/wholesale orders. Optional for online orders."
+        self.fields["customer"].help_text = "Required for an assigned distribution/catering/wholesale order; optional for market-stock and online orders."
+        self.fields["is_market_stock"].required = False
+        self.fields["is_market_stock"].label = "Produce for market stock (no customer assigned yet)"
+        self.fields["is_market_stock"].widget.attrs["class"] = "h-4 w-4 rounded border-[#D9CFB4] accent-[#8f172d]"
         self.fields["customer_name"].required = False
         self.fields["customer_name"].label = "Customer name (optional)"
         self.fields["customer_region"].required = False
@@ -53,13 +56,18 @@ class OrderForm(StyledModelForm):
         self.fields["customer_group"].required = False
         self.fields["customer_group"].label = "Group (optional)"
         self.fields["payment_method"].required = False
+        self.fields["transaction_type"].required = False
         accounts = CashAccount.objects.filter(active=True).order_by("name")
         self.fields["account"].queryset = accounts
         self.fields["customer_payment_account"].queryset = accounts
         self.fields["customer_payment_account"].required = False
         self.fields["account"].required = False
         selected_type = (self.data.get("order_type") if self.data else None) or self.initial.get("order_type") or getattr(self.instance, "order_type", None)
-        if selected_type in ("distribution", "online"):
+        selected_market_stock = (
+            self.data.get("is_market_stock") in ("1", "true", "True", "on", "yes")
+            if self.is_bound else bool(getattr(self.instance, "is_market_stock", False))
+        )
+        if selected_type in ("distribution", "online") and not (selected_type == "distribution" and selected_market_stock):
             self.fields["transaction_type"].required = False
             self.fields["unpaid_description"].required = False
             self.fields["account"].required = False
@@ -69,7 +77,7 @@ class OrderForm(StyledModelForm):
             self.fields["customer_payment_method"].required = False
         else:
             self.fields["customer_payment_status"].required = False
-            self.fields["production_destination"].required = True
+            self.fields["production_destination"].required = selected_type == "physical_store"
             self.fields["customer_payment_method"].required = False
             self.fields["customer_payment_account"].required = False
 
@@ -77,20 +85,21 @@ class OrderForm(StyledModelForm):
         cleaned = super().clean()
         order_type = cleaned.get("order_type")
         customer = cleaned.get("customer")
-        # Distribution retains the existing customer-master requirement.
-        # Online orders may come from an ad-hoc web buyer, so customer master,
-        # name, region and group are all optional while the rest of the order
-        # workflow (pricing, payment status, approval and fulfilment) is unchanged.
-        if order_type == "distribution" and not customer:
+        market_stock = order_type == "distribution" and bool(cleaned.get("is_market_stock"))
+        cleaned["is_market_stock"] = market_stock
+        # Assigned Distribution demand retains the customer-master requirement.
+        # Market-stock Distribution demand is deliberately unassigned and only
+        # becomes a sale later through the normal Sales workflow.
+        if order_type == "distribution" and not market_stock and not customer:
             self.add_error("customer", "Select a customer from the customer master for this customer order.")
-        if order_type == "physical_store":
+        if order_type == "physical_store" or market_stock:
             cleaned["customer"] = None
             cleaned["customer_name"] = ""
             cleaned["customer_region"] = ""
             cleaned["customer_group"] = ""
-        if order_type == "physical_store":
-            # Physical Store Orders are never payment records. Direct sale
-            # payment is captured only when the product is sold from Sales.
+        if order_type == "physical_store" or market_stock:
+            # Physical Store and unassigned market-stock production are never
+            # payment records. Payment is captured only when stock is sold.
             cleaned["transaction_type"] = "paid"
             cleaned["unpaid_description"] = ""
             cleaned["customer_payment_status"] = "paid"
@@ -98,11 +107,14 @@ class OrderForm(StyledModelForm):
             cleaned["customer_payment_account"] = None
             cleaned["payment_method"] = ""
             cleaned["account"] = None
-            if not cleaned.get("production_destination"):
-                cleaned["production_destination"] = "store"
-            if cleaned.get("production_destination") == "non_stock" and not (cleaned.get("non_stock_purpose") or "").strip():
-                self.add_error("non_stock_purpose", "Enter the specific purpose for this non-stock production.")
-            elif cleaned.get("production_destination") == "store":
+            if order_type == "physical_store":
+                if not cleaned.get("production_destination"):
+                    cleaned["production_destination"] = "store"
+                if cleaned.get("production_destination") == "non_stock" and not (cleaned.get("non_stock_purpose") or "").strip():
+                    self.add_error("non_stock_purpose", "Enter the specific purpose for this non-stock production.")
+                elif cleaned.get("production_destination") == "store":
+                    cleaned["non_stock_purpose"] = ""
+            else:
                 cleaned["non_stock_purpose"] = ""
         else:
             if cleaned.get("customer_payment_status") == "paid" and not cleaned.get("customer_payment_account"):
@@ -152,10 +164,15 @@ class OrderItemFormSetBase(BaseInlineFormSet):
     finished good, including products with reorder_level=0. Distribution and
     Online orders also retain the full finished-good catalogue.
     """
-    def __init__(self, *args, store_replenishment=False, order_type=None, **kwargs):
+    def __init__(self, *args, store_replenishment=False, market_stock=False, order_type=None, **kwargs):
         self.order_type = order_type or getattr(kwargs.get("instance"), "order_type", None)
+        self.market_stock = bool(market_stock)
         super().__init__(*args, **kwargs)
-        if store_replenishment:
+        if self.market_stock:
+            allowed = FinishedGood.objects.filter(stock__isnull=False).order_by("name")
+            for form in self.forms:
+                form.fields["finished_good"].queryset = allowed
+        elif store_replenishment:
             allowed = FinishedGood.objects.filter(
                 stock__isnull=False,
                 reorder_level__gt=0,

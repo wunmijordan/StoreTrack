@@ -149,10 +149,11 @@ def production_order_pdf(order):
 
     symbol = order.business.currency_symbol
     story = []
-    is_customer_order = order.order_type in ("distribution", "online")
+    is_customer_order = order.is_customer_order
+    is_market_stock = order.is_market_stock_order
     channel_label = dict(order.TYPE_CHOICES).get(order.order_type, order.order_type).upper()
     stock_location = vertical_config(order.business)["stock_location"]
-    counterparty = order.customer_name if is_customer_order else stock_location
+    counterparty = order.customer_name if is_customer_order else ("Market stock / future customers" if is_market_stock else stock_location)
     _header(story, order.business, "PRODUCTION ORDER", f"Production Order #{order.display_number}", order.date, "Customer" if is_customer_order else "For", counterparty)
     rows = []
     for item in order.items.select_related("finished_good"):
@@ -161,15 +162,19 @@ def production_order_pdf(order):
             f"{item.batch_qty:,.2f}",
             f"{item.piece_qty:,.2f}",
             f"{item.total_units:,.2f} {item.finished_good.unit}",
-            _money(item.price, symbol) if order.order_type != "physical_store" else "—",
-            _money(item.line_total, symbol) if order.order_type != "physical_store" else "—",
+            _money(item.price, symbol) if is_customer_order else "—",
+            _money(item.line_total, symbol) if is_customer_order else "—",
         ])
-    _table(story, ["Finished good", "Batches", "Pieces", "Total units", "Price", "Line total"], rows, [42*mm, 22*mm, 22*mm, 34*mm, 28*mm, 32*mm], order.total if order.order_type != "physical_store" else None, symbol)
+    _table(story, ["Finished good", "Batches", "Pieces", "Total units", "Price", "Line total"], rows, [42*mm, 22*mm, 22*mm, 34*mm, 28*mm, 32*mm], order.total if is_customer_order else None, symbol)
     styles = _styles()
     story.append(Spacer(1, 5 * mm))
     if is_customer_order:
         story.append(Paragraph(f"Sales channel: <b>{channel_label}</b>", styles["body"]))
         story.append(Paragraph(f"Customer order type: {order.display_order_type}", styles["body"]))
+    elif is_market_stock:
+        story.append(Paragraph(f"Production channel: <b>{channel_label}</b>", styles["body"]))
+        story.append(Paragraph("Production destination: <b>AVAILABLE FINISHED-GOODS STOCK</b>", styles["body"]))
+        story.append(Paragraph("No customer sale or payment is created until these goods are sold.", styles["body"]))
     else:
         story.append(Paragraph(f"Sales channel: <b>{stock_location.upper()}</b>", styles["body"]))
         destination = order.get_production_destination_display() if hasattr(order, "get_production_destination_display") else "Store replenishment"

@@ -26,15 +26,16 @@
     .peer:checked ~ .peer-checked\:bg-\[\#8f172d\] { background-color: var(--accent) !important; }
     .peer:checked ~ .peer-checked\:border-\[\#8f172d\] { border-color: var(--accent) !important; }
     .hover\:bg-\[\#4D1C25\]:hover { background-color: color-mix(in srgb, var(--accent) 70%, #211D1A) !important; }
+    .sidebar-nav-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: transparent transparent; }
+    .sidebar-nav-scroll:hover, .sidebar-nav-scroll:focus-within, .sidebar-nav-scroll:active { scrollbar-color: rgba(255,255,255,.25) transparent; }
+    .sidebar-nav-scroll::-webkit-scrollbar { width: 5px; }
+    .sidebar-nav-scroll::-webkit-scrollbar-track { background: transparent; }
+    .sidebar-nav-scroll::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; }
+    .sidebar-nav-scroll:hover::-webkit-scrollbar-thumb, .sidebar-nav-scroll:focus-within::-webkit-scrollbar-thumb, .sidebar-nav-scroll:active::-webkit-scrollbar-thumb { background: rgba(255,255,255,.25); }
+    .sidebar-nav-scroll::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+    .mobile-nav-panel { max-height: 50dvh; overflow: hidden; }
     @media (min-width: 768px) {
       .desktop-sidebar { position: fixed; inset: 0 auto 0 0; width: 14rem; height: 100dvh; overflow: hidden; z-index: 50; }
-      .desktop-sidebar-nav { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: transparent transparent; }
-      .desktop-sidebar-nav:hover, .desktop-sidebar-nav:focus-within, .desktop-sidebar-nav:active { scrollbar-color: rgba(255,255,255,.25) transparent; }
-      .desktop-sidebar-nav::-webkit-scrollbar { width: 5px; }
-      .desktop-sidebar-nav::-webkit-scrollbar-track { background: transparent; }
-      .desktop-sidebar-nav::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; }
-      .desktop-sidebar-nav:hover::-webkit-scrollbar-thumb, .desktop-sidebar-nav:focus-within::-webkit-scrollbar-thumb, .desktop-sidebar-nav:active::-webkit-scrollbar-thumb { background: rgba(255,255,255,.25); }
-      .desktop-sidebar-nav::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
       .desktop-main { margin-left: 14rem; min-height: 100vh; }
     }
   </style>
@@ -55,7 +56,7 @@
       </form>
       {% endif %}
     </div>
-    <nav class="desktop-sidebar-nav flex-1 min-h-0 py-3 text-sm">
+    <nav class="desktop-sidebar-nav sidebar-nav-scroll flex-1 min-h-0 py-3 text-sm">
       {% include "_nav_links.html" with row_class="block px-5 py-2.5" %}
     </nav>
     <form action="{% url 'logout' %}" method="post" class="shrink-0 px-5 py-3 border-t border-white/10">
@@ -64,27 +65,28 @@
     </form>
   </aside>
 
-  <div class="tenant-sidebar md:hidden fixed top-0 inset-x-0 z-40 text-[#FAF6EF]">
+  <div id="mobile-nav-shell" class="tenant-sidebar md:hidden fixed top-0 inset-x-0 z-40 text-[#FAF6EF]">
     <div class="flex items-center justify-between px-4 py-3">
       <a href="{% url 'dashboard' %}" class="font-semibold font-display">{{ biz.name }}</a>
-      <label for="mobile-nav-toggle" class="cursor-pointer">☰</label>
+      <button type="button" id="mobile-nav-button" aria-controls="mobile-nav-panel" aria-expanded="false" aria-label="Toggle navigation" class="cursor-pointer p-1 text-xl leading-none"><span aria-hidden="true">☰</span></button>
     </div>
-    <input type="checkbox" id="mobile-nav-toggle" class="hidden peer">
-    <nav class="tenant-sidebar hidden peer-checked:block text-sm">
+    <div id="mobile-nav-panel" class="tenant-sidebar mobile-nav-panel flex flex-col text-sm border-t border-white/10" hidden>
       {% if available_businesses|length > 1 %}
-      <form action="{% url 'switch_business' %}" method="post" class="px-4 py-3 border-t border-white/10">
+      <form action="{% url 'switch_business' %}" method="post" class="shrink-0 px-4 py-3">
         {% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}">
         <select name="business_id" onchange="this.form.submit()" aria-label="Active business" class="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-xs text-white">
           {% for business in available_businesses %}<option class="text-stone-900" value="{{ business.pk }}" {% if business.pk == biz.pk %}selected{% endif %}>{{ business.name }}</option>{% endfor %}
         </select>
       </form>
       {% endif %}
-      {% include "_nav_links.html" with row_class="block px-5 py-3 border-t border-white/10" %}
-      <form action="{% url 'logout' %}" method="post" class="px-5 py-3 border-t border-white/10">
+      <nav class="mobile-sidebar-nav sidebar-nav-scroll flex-1 min-h-0">
+        {% include "_nav_links.html" with row_class="block px-5 py-3 border-t border-white/10" %}
+      </nav>
+      <form action="{% url 'logout' %}" method="post" class="shrink-0 px-5 py-3 border-t border-white/10">
         {% csrf_token %}
         <button class="text-[11px] text-[#9DB5A6]">Log Out ({{ user.fullname|default:user.username }})</button>
       </form>
-    </nav>
+    </div>
   </div>
   {% endif %}
 
@@ -100,6 +102,34 @@
   </main>
 
   <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      const shell = document.getElementById('mobile-nav-shell');
+      const button = document.getElementById('mobile-nav-button');
+      const panel = document.getElementById('mobile-nav-panel');
+      if (!shell || !button || !panel) return;
+
+      const setOpen = (open) => {
+        panel.hidden = !open;
+        button.setAttribute('aria-expanded', open ? 'true' : 'false');
+      };
+
+      button.addEventListener('click', () => {
+        setOpen(button.getAttribute('aria-expanded') !== 'true');
+      });
+      document.addEventListener('click', (event) => {
+        if (button.getAttribute('aria-expanded') === 'true' && !shell.contains(event.target)) {
+          setOpen(false);
+        }
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && button.getAttribute('aria-expanded') === 'true') {
+          setOpen(false);
+          button.focus();
+        }
+      });
+      panel.querySelectorAll('a').forEach((link) => link.addEventListener('click', () => setOpen(false)));
+    });
+
     document.addEventListener("DOMContentLoaded", function () {
       // 1. Get DOM references (only executable on the inventory page)
       const rawRadio = document.getElementById('radio-raw');

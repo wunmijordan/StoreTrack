@@ -67,6 +67,7 @@ def _price_map():
             # customer agreement -> exact channel price -> product default.
             "default": f"{g.selling_price}",
             "channel_prices": channel_prices,
+            "stock_tracked": g.stock is not None,
             "physical_store_valid": g.stock is not None and g.reorder_level is not None and g.reorder_level > 0,
         }
     customer_overrides = {}
@@ -97,6 +98,7 @@ def order_form(request, pk=None):
         formset = OrderItemFormSet(
             request.POST, instance=obj if obj else Order(),
             store_replenishment=store_replenishment,
+            market_stock=request.POST.get("order_type") == "distribution" and request.POST.get("is_market_stock") in ("1", "true", "True", "on", "yes"),
             order_type=request.POST.get("order_type"),
         )
         has_items = formset.is_valid() and any(
@@ -110,7 +112,12 @@ def order_form(request, pk=None):
             order.business = request.business
             if obj is None:
                 order.created_by = request.user
-            if order.customer:
+            if order.is_market_stock_order:
+                order.customer = None
+                order.customer_name = ""
+                order.customer_region = ""
+                order.customer_group = ""
+            elif order.customer:
                 # A selected master customer remains authoritative for the
                 # historical customer snapshot and customer-specific pricing.
                 order.customer_name = order.customer.name
@@ -126,7 +133,7 @@ def order_form(request, pk=None):
                 order.customer_name = ""
                 order.customer_region = ""
                 order.customer_group = ""
-            if order.order_type == "physical_store":
+            if order.order_type == "physical_store" or order.is_market_stock_order:
                 # Physical Store Orders are production/restock requests only.
                 # Direct sales, payment method and cash account belong to the
                 # Sales form, not this order workflow.
@@ -178,6 +185,7 @@ def order_form(request, pk=None):
         )
         formset = OrderItemFormSet(
             instance=obj, store_replenishment=store_replenishment,
+            market_stock=bool(obj and obj.is_market_stock_order),
             order_type=(obj.order_type if obj else "distribution"),
         )
     prices = _price_map()
@@ -197,6 +205,7 @@ def order_recreate(request, pk):
         new_order = Order.objects.create(
             business=source.business, created_by=request.user, date=today(),
             order_type=source.order_type,
+            is_market_stock=source.is_market_stock,
             production_destination=source.production_destination,
             non_stock_purpose=source.non_stock_purpose,
             customer=source.customer, customer_name=source.customer_name,
@@ -641,6 +650,8 @@ def order_complete(request, pk):
         return redirect("orders_list")
 
     items = list(order.items.select_related("finished_good"))
+    customer_order = order.is_customer_order
+    market_stock_order = order.is_market_stock_order
     run_link = order.production_run_links.select_related("production_run").first()
     production_run = run_link.production_run if run_link and run_link.production_run.status in ("approved", "completed") else None
     completion_forms = []
@@ -657,7 +668,7 @@ def order_complete(request, pk):
             prefix=f"item-{item.pk}",
             planned_units=item.production_total_units,
             required_units=item.total_units,
-            customer_order=order.order_type in ("distribution", "online"),
+            customer_order=customer_order,
             initial={
                 "produced_units": f"{Decimal(item.production_total_units).quantize(Decimal('0.01')):.2f}",
                 "batch_number": default_batch,
@@ -669,7 +680,7 @@ def order_complete(request, pk):
                 prefix=f"offcut-{item.pk}",
                 form_kwargs={"business": order.business},
             )
-            if order.order_type in ("distribution", "online") else None
+            if customer_order else None
         )
         completion_forms.append((item, form, offcut_formset))
 
@@ -748,12 +759,12 @@ def order_complete(request, pk):
                         wastage_units=wastage,
                         wastage_reason=form.cleaned_data.get("wastage_reason", ""),
                         shortage_flag=(
-                            order.order_type in ("distribution", "online")
+                            customer_order
                             and form.cleaned_data.get("flag_shortage", False)
                         ),
                         shortage_reason=(
                             form.cleaned_data.get("shortage_reason", "")
-                            if order.order_type in ("distribution", "online")
+                            if customer_order
                             else ""
                         ),
                         excess_stock_units=form.cleaned_data.get("excess_to_stock") or Decimal("0"),
@@ -773,8 +784,12 @@ def order_complete(request, pk):
                     good = item.finished_good
                     planned = Decimal(item.production_total_units)
                     ordered = Decimal(item.total_units)
-                    customer_committed = min(saleable, ordered) if order.order_type in ("distribution", "online") else Decimal("0")
-                    destination_committed = min(saleable, planned) if order.order_type == "physical_store" else customer_committed
+                    customer_committed = min(saleable, ordered) if customer_order else Decimal("0")
+                    destination_committed = (
+                        min(saleable, planned)
+                        if order.order_type == "physical_store" or market_stock_order
+                        else customer_committed
+                    )
                     planned_surplus_stock = batch.planned_surplus_stock_units
                     excess_stock = batch.excess_stock_units
                     excess_non_stock = batch.excess_non_stock_units
@@ -788,10 +803,16 @@ def order_complete(request, pk):
                         )
 
                     if destination_committed > 0:
-                        if order.order_type == "physical_store" and order.production_destination == "store":
+                        if (
+                            order.order_type == "physical_store" and order.production_destination == "store"
+                        ) or market_stock_order:
                             record_finished_good_movement(
                                 good, destination_committed, StockMovement.FG_PRODUCTION,
-                                note=f"Planned store production — batch {batch.batch_number}",
+                                note=(
+                                    f"Unassigned Distribution production retained for future sales — batch {batch.batch_number}"
+                                    if market_stock_order
+                                    else f"Planned store production — batch {batch.batch_number}"
+                                ),
                                 reference=batch.batch_number, affects_stock=True, unit_value=snapshot.unit_cost,
                             )
                         else:
@@ -804,7 +825,7 @@ def order_complete(request, pk):
                                 ),
                                 reference=batch.batch_number, affects_stock=False, unit_value=snapshot.unit_cost,
                             )
-                            if order.order_type in ("distribution", "online"):
+                            if customer_order:
                                 good.total_delivered_to_customers += customer_committed
 
                     if planned_surplus_stock > 0:
@@ -877,7 +898,7 @@ def order_complete(request, pk):
                         )
 
                     update_fields = ["total_produced"]
-                    if order.order_type in ("distribution", "online"):
+                    if customer_order:
                         update_fields.append("total_delivered_to_customers")
                     good.save(update_fields=update_fields)
 
@@ -890,7 +911,7 @@ def order_complete(request, pk):
                         production_run.completed_date = order.completed_date
                         production_run.save(update_fields=["status", "completed_date", "updated_at"])
 
-                if order.order_type in ("distribution", "online"):
+                if customer_order:
                     from sales.models import Sale, SaleItem
                     sale = Sale.objects.create(
                         business=order.business,
@@ -936,8 +957,9 @@ def order_complete(request, pk):
                     order.business, request.user, "complete", order, f"Order #{order.display_number} completed",
                     {
                         "channel": order.order_type,
-                        "customer_payment_status": order.customer_payment_status if order.order_type in ("distribution", "online") else None,
-                        "customer": (order.customer.name if order.customer else order.customer_name) if order.order_type in ("distribution", "online") else None,
+                        "market_stock": market_stock_order,
+                        "customer_payment_status": order.customer_payment_status if customer_order else None,
+                        "customer": (order.customer.name if order.customer else order.customer_name) if customer_order else None,
                         "planned_offcut_to_stock": str(sum((f.cleaned_data.get("planned_surplus_stock_units") or Decimal("0") for _, f, _ in completion_forms), Decimal("0"))),
                         "planned_offcut_to_customer": str(sum((f.cleaned_data.get("planned_surplus_customer_units") or Decimal("0") for _, f, _ in completion_forms), Decimal("0"))),
                         "planned_offcut_allocations": audit_allocations,
@@ -1126,7 +1148,7 @@ def order_reverse(request, pk):
     for batch in batches:
         good = batch.finished_good
         qty = batch.planned_surplus_stock_units + batch.excess_stock_units
-        if order.order_type == "physical_store" and order.production_destination == "store":
+        if (order.order_type == "physical_store" and order.production_destination == "store") or order.is_market_stock_order:
             qty += min(batch.saleable_units, batch.planned_units)
         if qty > 0:
             stock_to_remove[good.pk] = stock_to_remove.get(good.pk, Decimal("0")) + qty
@@ -1150,13 +1172,13 @@ def order_reverse(request, pk):
         for batch in order.production_batches.select_for_update().select_related("finished_good"):
             good = batch.finished_good
             remove_from_stock = batch.planned_surplus_stock_units + batch.excess_stock_units
-            if order.order_type == "physical_store" and order.production_destination == "store":
+            if (order.order_type == "physical_store" and order.production_destination == "store") or order.is_market_stock_order:
                 remove_from_stock += min(batch.saleable_units, batch.planned_units)
             if remove_from_stock > 0:
                 record_finished_good_movement(good, -remove_from_stock, StockMovement.ADJUSTMENT, note=f"Reversal of finished-good stock from order #{order.display_number} — batch {batch.batch_number}", reference=f"REV-{batch.batch_number}", affects_stock=True, unit_value=batch.unit_cost)
             good.total_produced = max(Decimal("0"), Decimal(good.total_produced or 0) - batch.saleable_units)
             delivered = Decimal("0")
-            if order.order_type in ("distribution", "online"):
+            if order.is_customer_order:
                 delivered += min(batch.saleable_units, batch.ordered_units or batch.planned_units)
             delivered += batch.planned_surplus_customer_units
             if delivered:

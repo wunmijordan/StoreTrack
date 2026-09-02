@@ -16,6 +16,24 @@ from core.services import audit
 from .services import default_location, record_raw_material_movement
 
 
+def _raw_material_stock_breakdown_markup(material):
+    """ReportLab equivalent of the Inventory screen's stock breakdown."""
+    from xml.sax.saxutils import escape
+    from core.templatetags.core_extras import num
+
+    breakdown = material.stock_breakdown
+    whole, remainder = breakdown if breakdown is not None else (0, material.stock)
+    purchase_unit = escape(str(material.purchase_unit or ""))
+    usage_unit = escape(str(material.usage_unit or ""))
+    purchase_label = f"{purchase_unit}{'' if whole == 1 else 's'}"
+    return (
+        f"<font name='Courier'>{whole}</font> "
+        f"<font color='#A8A29E' size='7'><i>{purchase_label}</i></font>, "
+        f"<font name='Courier'>{num(remainder)}</font> "
+        f"<font color='#A8A29E' size='7'><i>{usage_unit}</i></font>"
+    )
+
+
 
 @login_required
 def operational_supply_dispense(request):
@@ -176,9 +194,7 @@ def raw_material_inventory_pdf(request):
             fg = colors.HexColor("#166534")
         safe_purchase_unit = escape(str(purchase_unit))
         safe_usage_unit = escape(str(m.usage_unit))
-        current = f"{purchase_stock:.3f} {safe_purchase_unit}"
-        if purchase_unit != m.usage_unit or factor != 1:
-            current += f"<br/><font size=7 color='#78716C'>{m.stock:.3f} {safe_usage_unit} total</font>"
+        current = _raw_material_stock_breakdown_markup(m)
         threshold = f"{reorder_purchase:.3f} {safe_purchase_unit}"
         if purchase_unit != m.usage_unit or factor != 1:
             threshold += f"<br/><font size=7 color='#78716C'>{m.reorder_level:.2f} {safe_usage_unit} total</font>"

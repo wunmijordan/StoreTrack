@@ -11,14 +11,17 @@
     {% elif order.status == 'reversed' %}bg-amber-50 text-amber-800 border-amber-300
     {% else %}bg-stone-100 text-stone-500 border-stone-300{% endif %}">{{ order.get_status_display }}</span>
 </div>
-{% if order.order_type == 'distribution' or order.order_type == 'online' %}
+{% if order.is_customer_order %}
 <div class="flex flex-wrap gap-2 mb-3"><span class="px-2 py-1 rounded-full text-[11px] font-semibold {% if order.customer_payment_status == 'paid' %}bg-emerald-50 text-emerald-800 border border-emerald-200{% else %}bg-amber-50 text-amber-800 border border-amber-200{% endif %}">{% if order.customer_payment_status == 'paid' %}Received{% else %}Customer receivable{% endif %}</span></div>
+{% elif order.is_market_stock_order %}
+<div class="flex flex-wrap gap-2 mb-3"><span class="px-2 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">Market stock · no customer sale yet</span></div>
 {% endif %}
 {% if production_run %}
 <div class="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">This order belongs to shared production run <a href="{% url 'production_run_detail' production_run.pk %}" class="font-semibold text-[#8f172d] hover:underline">{{ production_run.run_number }}</a>. {% if production_run.status == 'draft' %}Approve the shared run so all member orders are released together using their normal proportional recipe requirements.{% else %}Its customer, channel, pricing and completion logic remain independent inside the shared manufacturing event.{% endif %}</div>
 {% endif %}
 <p class="text-sm text-stone-500 mb-4">
-  {% if order.order_type == 'distribution' %}For {{ order.customer_name }} — Distribution sale will be recorded once completed.
+  {% if order.is_market_stock_order %}Unassigned {{ order.display_order_type }} — completed saleable units enter available finished-goods stock for marketing to new or existing customers. A sale and payment are recorded later through Sales.
+  {% elif order.order_type == 'distribution' %}For {{ order.customer_name }} — Distribution sale will be recorded once completed.
   {% elif order.order_type == 'online' %}{% if order.customer_name %}For {{ order.customer_name }} — {% endif %}Online sale will be recorded once completed.
   {% else %}{{ vertical_ui.stock_location }} production — <b>{{ order.get_production_destination_display }}</b>. {% if order.production_destination == "store" %}Completed production adds to available stock.{% else %}Completed production does not enter stock. Purpose: <b>{{ order.non_stock_purpose }}</b>.{% endif %} Direct sales and all payment details are handled in the Sales form.{% endif %}
 </p>
@@ -44,7 +47,7 @@
       {% endfor %}
     </tbody>
   </table>
-  {% if order.order_type == 'distribution' or order.order_type == 'online' %}
+  {% if order.is_customer_order %}
   <div class="text-right text-sm font-semibold">Total: {{ order.total|money:biz.currency_symbol }}</div>
   {% endif %}
   {% if order.notes %}<p class="text-xs text-stone-500 mt-2">Notes: {{ order.notes }}</p>{% endif %}

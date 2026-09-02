@@ -34,6 +34,16 @@
     </div>
 
     {% include "_field.html" with field=form.date %}
+    <div id="distribution-market-wrap" class="hidden mb-3 rounded-md border border-sky-200 bg-sky-50/70 px-3 py-3">
+      <label class="flex items-start gap-2 cursor-pointer {% if form.is_market_stock.errors %}field-has-error{% endif %}">
+        {{ form.is_market_stock }}
+        <span>
+          <span class="block text-xs font-medium text-sky-900">{{ form.is_market_stock.label }}</span>
+          <span class="block text-[11px] text-sky-700 mt-0.5">Use this for Distribution production intended for marketing or future demand. Completion adds the saleable output to available finished-goods stock; it does not create a customer sale, receivable, or payment.</span>
+          {% for error in form.is_market_stock.errors %}<span class="block text-[11px] text-rose-600 mt-0.5">{{ error }}</span>{% endfor %}
+        </span>
+      </label>
+    </div>
     <div id="customer-fields" class="grid grid-cols-1 gap-3">
       {% include "_field.html" with field=form.customer %}
       <p id="customer-master-hint" class="text-[11px] text-stone-400">Customer contact, region, group, credit terms and history are maintained in the Customer master. The order keeps a snapshot of the customer's name/region/group for historical documents.</p>
@@ -123,18 +133,24 @@
     const purposeWrap = document.getElementById('non-stock-purpose-wrap');
     const purpose = document.querySelector('[name="non_stock_purpose"]');
     const customerSelect = document.querySelector('[name="customer"]');
+    const marketWrap = document.getElementById('distribution-market-wrap');
+    const marketStockField = document.querySelector('[name="is_market_stock"]');
+    const isMarketStock = type === 'distribution' && Boolean(marketStockField?.checked);
     const onlineSnapshot = document.getElementById('online-customer-snapshot');
     const masterHint = document.getElementById('customer-master-hint');
+    if (marketWrap) marketWrap.style.display = type === 'distribution' ? 'block' : 'none';
     if (type === 'distribution' || type === 'online') {
-      custFields.style.display = 'grid';
+      custFields.style.display = isMarketStock ? 'none' : 'grid';
       destinationWrap.style.display = 'none';
-      customerPaymentFields.style.display = 'grid';
+      customerPaymentFields.style.display = isMarketStock ? 'none' : 'grid';
       if (onlineSnapshot) onlineSnapshot.style.display = type === 'online' ? 'block' : 'none';
-      if (customerSelect) customerSelect.required = type === 'distribution';
+      if (customerSelect) customerSelect.required = type === 'distribution' && !isMarketStock;
       if (masterHint) masterHint.textContent = type === 'online'
         ? 'Selecting a Customer-list record is optional for Online orders. When selected, customer-specific pricing and the master name/region/group snapshot continue to apply.'
-        : 'Distribution orders retain the Customer-list requirement, including customer-specific pricing and customer history.';
-      hint.textContent = type === 'online'
+        : 'Assigned Distribution orders retain the Customer-list requirement, including customer-specific pricing and customer history.';
+      hint.textContent = isMarketStock
+        ? 'Unassigned Distribution production — completed saleable units enter general finished-goods stock for later marketing and sale. No customer or payment is recorded now.'
+        : type === 'online'
         ? 'Online customer order — customer name, region and group may be omitted. Pricing still resolves customer agreement (when a master customer is selected), then Online channel price, then default price.'
         : 'Distribution order — select a Customer-list record. A Received payment can be recorded now; a Receivable has no payment method/account until Finance records the payment.';
       toggleCustomerPaymentFields();
@@ -161,6 +177,10 @@
   }
 
   document.querySelector('[name="production_destination"]')?.addEventListener('change', toggleOrderType);
+  document.querySelector('[name="is_market_stock"]')?.addEventListener('change', () => {
+    toggleOrderType();
+    refreshPrices();
+  });
 
   function toggleCustomerPaymentFields() {
     const status = document.querySelector('[name="customer_payment_status"]')?.value;
@@ -184,6 +204,7 @@
 
   function syncProductChoices() {
     const storeOnly = storeReplenishmentSelected();
+    const marketStock = currentChannel() === 'distribution' && Boolean(document.querySelector('[name="is_market_stock"]')?.checked);
     document.querySelectorAll('#order-rows select[name$="-finished_good"]').forEach((select) => {
       const selected = select.value;
       const currentOptions = Array.from(select.options);
@@ -195,7 +216,7 @@
       select.appendChild(placeholder);
       ids.forEach((id) => {
         const row = PRICES[id];
-        if (storeOnly && !row.physical_store_valid) return;
+        if ((storeOnly && !row.physical_store_valid) || (marketStock && !row.stock_tracked)) return;
         const option = document.createElement('option');
         option.value = id;
         option.textContent = row.name;

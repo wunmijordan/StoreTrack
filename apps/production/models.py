@@ -27,6 +27,13 @@ class Order(BusinessOwnedModel):
     date = models.DateField()
     order_number = models.PositiveBigIntegerField(editable=False)
     order_type = models.CharField(max_length=15, choices=TYPE_CHOICES, default="physical_store")
+    is_market_stock = models.BooleanField(
+        default=False,
+        help_text=(
+            "Distribution orders only: produce without assigning a customer and retain "
+            "the completed goods as available stock for future sales."
+        ),
+    )
     production_destination = models.CharField(
         max_length=12, choices=DESTINATION_CHOICES, default="store",
         help_text="Physical Store orders only: choose whether completed production enters Shelf Stock or is for a non-stock purpose.",
@@ -92,8 +99,26 @@ class Order(BusinessOwnedModel):
         choices = dict(vertical_config(self.business)["order_types"])
         return choices.get(self.order_type, self.get_order_type_display())
 
+    @property
+    def is_market_stock_order(self):
+        """True only for explicitly unassigned Distribution production.
+
+        The stored flag defaults to False so pre-existing customer orders keep
+        their historical completion, sale and payment behaviour.
+        """
+        return self.order_type == "distribution" and self.is_market_stock
+
+    @property
+    def is_customer_order(self):
+        return self.order_type in ("distribution", "online") and not self.is_market_stock_order
+
     def __str__(self):
-        who = self.customer_name if self.order_type in ("distribution", "online") else "Physical store"
+        if self.is_market_stock_order:
+            who = "Market stock"
+        elif self.order_type in ("distribution", "online"):
+            who = self.customer_name
+        else:
+            who = "Physical store"
         return f"Order #{self.display_number} — {who}"
 
     @property
