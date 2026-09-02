@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.crypto import get_random_string
@@ -75,6 +76,7 @@ def order_form(request, pk=None):
         formset = OrderItemFormSet(
             request.POST, instance=obj if obj else Order(),
             store_replenishment=store_replenishment,
+            order_type=request.POST.get("order_type"),
         )
         has_items = formset.is_valid() and any(
             f.cleaned_data and not f.cleaned_data.get("DELETE") for f in formset.forms
@@ -127,6 +129,9 @@ def order_form(request, pk=None):
             items = formset.save(commit=False)
             for item in items:
                 item.price = item.finished_good.selling_price_for(order.order_type, order.customer)
+                if order.order_type == "physical_store":
+                    item.production_batch_qty = Decimal("0")
+                    item.production_piece_qty = Decimal("0")
                 item.save()
             for deleted in formset.deleted_objects:
                 deleted.delete()
@@ -140,7 +145,10 @@ def order_form(request, pk=None):
         store_replenishment = bool(
             obj and obj.order_type == "physical_store" and obj.production_destination == "store"
         )
-        formset = OrderItemFormSet(instance=obj, store_replenishment=store_replenishment)
+        formset = OrderItemFormSet(
+            instance=obj, store_replenishment=store_replenishment,
+            order_type=(obj.order_type if obj else "distribution"),
+        )
     prices = _price_map()
     return render(request, "production/order_form.html", {"form": form, "formset": formset, "prices": prices, "obj": obj})
 
@@ -163,7 +171,7 @@ def _material_release_plan(order, post_data=None):
     for item in items:
         good = item.finished_good
         upb = good.units_per_batch or Decimal("1")
-        multiplier = item.batch_qty + (item.piece_qty / upb)
+        multiplier = item.effective_production_batch_qty + (item.effective_production_piece_qty / upb)
         per_material = {}
         links = [(link, True) for link in good.recipe_items.all()]
         links += [(link, False) for link in good.production_materials.all()]
@@ -311,8 +319,8 @@ def _create_production_cost_snapshot(order, item, batch):
     production_date = batch.production_date
     upb = good.units_per_batch or Decimal("1")
     links = list(good.recipe_items.select_related("raw_material")) + list(good.production_materials.select_related("raw_material"))
-    piece_factor = item.piece_qty / upb
-    total_batch_multiplier = item.batch_qty + piece_factor
+    piece_factor = item.effective_production_piece_qty / upb
+    total_batch_multiplier = item.effective_production_batch_qty + piece_factor
     released_usages = list(item.material_usages.select_related("raw_material"))
     total_cost = Decimal("0")
     sources = set()
@@ -368,9 +376,14 @@ def order_complete(request, pk):
             (item, ProductionCompletionForm(
                 request.POST or None,
                 prefix=f"item-{item.pk}",
-                planned_units=item.total_units,
+                planned_units=item.production_total_units,
+                required_units=item.total_units,
                 customer_order=order.order_type in ("distribution", "online"),
-                initial={"produced_units": item.total_units, "batch_number": default_batch},
+                initial={
+                    "produced_units": f"{Decimal(item.production_total_units).quantize(Decimal('0.01')):.2f}",
+                    "batch_number": default_batch,
+                    "planned_offcut_to_stock": item.planned_overproduction_units,
+                },
             ))
         )
 
@@ -392,7 +405,12 @@ def order_complete(request, pk):
                         production_date=order.completed_date,
                         batch_number=form.cleaned_data["batch_number"],
                         expiry_date=form.cleaned_data.get("expiry_date"),
-                        planned_units=item.total_units,
+                        planned_units=item.production_total_units,
+                        ordered_units=item.total_units,
+                        planned_surplus_stock_units=form.cleaned_data.get("planned_surplus_stock_units") or Decimal("0"),
+                        planned_surplus_customer_units=form.cleaned_data.get("planned_surplus_customer_units") or Decimal("0"),
+                        planned_surplus_customer=form.cleaned_data.get("planned_offcut_customer"),
+                        planned_surplus_customer_channel=form.cleaned_data.get("planned_offcut_channel") or "",
                         produced_units=produced,
                         wastage_units=wastage,
                         wastage_reason=form.cleaned_data.get("wastage_reason", ""),
@@ -420,8 +438,12 @@ def order_complete(request, pk):
                     )
                     snapshot = _create_production_cost_snapshot(order, item, batch)
                     good = item.finished_good
-                    planned = Decimal(item.total_units)
-                    committed = min(saleable, planned)
+                    planned = Decimal(item.production_total_units)
+                    ordered = Decimal(item.total_units)
+                    customer_committed = min(saleable, ordered) if order.order_type in ("distribution", "online") else Decimal("0")
+                    destination_committed = min(saleable, planned) if order.order_type == "physical_store" else customer_committed
+                    planned_surplus_stock = batch.planned_surplus_stock_units
+                    planned_surplus_customer = batch.planned_surplus_customer_units
                     excess_stock = batch.excess_stock_units
                     excess_non_stock = batch.excess_non_stock_units
                     good.total_produced += saleable
@@ -437,16 +459,16 @@ def order_complete(request, pk):
                     # order's original destination. Excess is handled
                     # separately below so it cannot silently inflate customer
                     # deliveries or shelf stock.
-                    if committed > 0:
+                    if destination_committed > 0:
                         if order.order_type == "physical_store" and order.production_destination == "store":
                             record_finished_good_movement(
-                                good, committed, StockMovement.FG_PRODUCTION,
+                                good, destination_committed, StockMovement.FG_PRODUCTION,
                                 note=f"Planned store production — batch {batch.batch_number}",
                                 reference=batch.batch_number, affects_stock=True, unit_value=snapshot.unit_cost,
                             )
                         else:
                             record_finished_good_movement(
-                                good, committed, StockMovement.FG_PRODUCTION,
+                                good, destination_committed, StockMovement.FG_PRODUCTION,
                                 note=(
                                     f"Non-stock production ({order.non_stock_purpose}) — batch {batch.batch_number}"
                                     if order.order_type == "physical_store" and order.production_destination == "non_stock"
@@ -455,7 +477,43 @@ def order_complete(request, pk):
                                 reference=batch.batch_number, affects_stock=False, unit_value=snapshot.unit_cost,
                             )
                             if order.order_type in ("distribution", "online"):
-                                good.total_delivered_to_customers += committed
+                                good.total_delivered_to_customers += customer_committed
+
+                    if planned_surplus_stock > 0:
+                        record_finished_good_movement(
+                            good, planned_surplus_stock, StockMovement.FG_PRODUCTION,
+                            note=f"Planned customer-order offcut retained in Physical Store stock — batch {batch.batch_number}",
+                            reference=batch.batch_number, affects_stock=True, unit_value=snapshot.unit_cost,
+                        )
+
+                    if planned_surplus_customer > 0:
+                        from sales.models import Sale, SaleItem
+                        customer = batch.planned_surplus_customer
+                        channel = batch.planned_surplus_customer_channel
+                        price = good.selling_price_for(channel, customer=customer)
+                        upb = good.units_per_batch or Decimal("1")
+                        alloc_batches = (planned_surplus_customer // upb) if upb else Decimal("0")
+                        alloc_pieces = planned_surplus_customer - (alloc_batches * upb)
+                        offcut_sale = Sale.objects.create(
+                            business=order.business, date=order.completed_date,
+                            customer=customer.name, customer_master=customer,
+                            transaction_type="unpaid",
+                            unpaid_description=f"Planned production offcut from order #{order.pk} — receivable",
+                            account=None, payment_method="Transfer",
+                            source=f"{channel}_order", linked_order=order, created_by=request.user,
+                        )
+                        SaleItem.objects.create(
+                            sale=offcut_sale, finished_good=good, batch_qty=alloc_batches, piece_qty=alloc_pieces,
+                            discount=Decimal("0"), price=price, unit_cost=snapshot.unit_cost, production_batch=batch,
+                        )
+                        batch.planned_surplus_sale = offcut_sale
+                        batch.save(update_fields=["planned_surplus_sale", "updated_at"])
+                        record_finished_good_movement(
+                            good, planned_surplus_customer, StockMovement.FG_PRODUCTION,
+                            note=f"Planned offcut allocated to {customer.name} via {channel.title()} — batch {batch.batch_number}",
+                            reference=batch.batch_number, affects_stock=False, unit_value=snapshot.unit_cost,
+                        )
+                        good.total_delivered_to_customers += planned_surplus_customer
 
                     if excess_stock > 0:
                         record_finished_good_movement(
@@ -517,6 +575,9 @@ def order_complete(request, pk):
                         "channel": order.order_type,
                         "customer_payment_status": order.customer_payment_status if order.order_type in ("distribution", "online") else None,
                         "customer": (order.customer.name if order.customer else order.customer_name) if order.order_type in ("distribution", "online") else None,
+                        "planned_offcut_to_stock": str(sum((f.cleaned_data.get("planned_surplus_stock_units") or Decimal("0") for _, f in completion_forms), Decimal("0"))),
+                        "planned_offcut_to_customer": str(sum((f.cleaned_data.get("planned_surplus_customer_units") or Decimal("0") for _, f in completion_forms), Decimal("0"))),
+                        "planned_offcut_customers": [f.cleaned_data["planned_offcut_customer"].name for _, f in completion_forms if f.cleaned_data.get("planned_offcut_customer")],
                         "excess_to_stock": str(sum((f.cleaned_data.get("excess_to_stock") or Decimal("0") for _, f in completion_forms), Decimal("0"))),
                         "excess_to_non_stock": str(sum((f.cleaned_data.get("excess_to_non_stock") or Decimal("0") for _, f in completion_forms), Decimal("0"))),
                         "non_stock_excess_purposes": [
@@ -541,11 +602,11 @@ def production_batches(request):
     # One row per production order. Products/batches are nested under the
     # order so multi-product orders are not fragmented into separate rows.
     from django.db.models import Prefetch
-    batches_qs = ProductionBatch.objects.select_related(
+    batches_qs = ProductionBatch.objects.filter(is_reversed=False).select_related(
         "finished_good", "quality_check"
     ).prefetch_related("sale_items__sale")
     orders = Order.objects.filter(
-        production_batches__isnull=False
+        production_batches__isnull=False, production_batches__is_reversed=False
     ).distinct().select_related("customer").prefetch_related(
         "items__finished_good",
         Prefetch("production_batches", queryset=batches_qs),
@@ -595,7 +656,10 @@ def production_batch_reconcile(request, pk):
             target = ProductionBatch.objects.select_for_update().select_related("finished_good", "order").get(pk=batch.pk)
             source_good = FinishedGood.objects.select_for_update().get(pk=source.finished_good_id)
             outgoing = sum((r.quantity for r in source.reconciliation_out.all()), Decimal("0"))
-            retained_surplus = max(Decimal("0"), source.excess_stock_units - outgoing)
+            retained_surplus = max(
+                Decimal("0"),
+                source.planned_surplus_stock_units + source.excess_stock_units - outgoing,
+            )
             live_stock = max(Decimal("0"), Decimal(source_good.stock or 0))
             live_available = min(retained_surplus, live_stock)
             if quantity > live_available:
@@ -670,11 +734,105 @@ def production_batch_qc(request, pk):
     return render(request, "production/batch_detail.html", {"batch": batch, "qc_form": form})
 
 @login_required
+def order_reverse(request, pk):
+    order = get_object_or_404(Order.objects.prefetch_related("material_usages__raw_material", "production_batches__finished_good"), pk=pk)
+    if request.method != "POST":
+        return redirect("order_detail", pk=pk)
+    if order.status != "completed":
+        messages.error(request, "Only completed orders can be reversed.")
+        return redirect("order_detail", pk=pk)
+    reason = (request.POST.get("reason") or "").strip()
+    if not reason:
+        messages.error(request, "Give a reason for reversing this completed order.")
+        return redirect("order_detail", pk=pk)
+
+    batches = list(order.production_batches.select_related("finished_good", "planned_surplus_sale"))
+    batch_ids = [b.pk for b in batches]
+    if ProductionBatchReconciliation.objects.filter(Q(source_batch_id__in=batch_ids) | Q(target_batch_id__in=batch_ids)).exists():
+        messages.error(request, "This order cannot be reversed automatically because one of its batches has already been used in shortage reconciliation. Reverse/reconcile that downstream allocation first.")
+        return redirect("order_detail", pk=pk)
+
+    from sales.models import Sale
+    related_sales = Sale.objects.filter(Q(linked_order=order) | Q(items__production_batch_id__in=batch_ids)).distinct().prefetch_related("payments")
+    if any(sale.payments.exists() for sale in related_sales):
+        messages.error(request, "This order cannot be reversed automatically because a linked sale already has customer payments. Reverse those payments first.")
+        return redirect("order_detail", pk=pk)
+
+    stock_to_remove = {}
+    for batch in batches:
+        good = batch.finished_good
+        qty = batch.planned_surplus_stock_units + batch.excess_stock_units
+        if order.order_type == "physical_store" and order.production_destination == "store":
+            qty += min(batch.saleable_units, batch.planned_units)
+        if qty > 0:
+            stock_to_remove[good.pk] = stock_to_remove.get(good.pk, Decimal("0")) + qty
+    for good_id, qty in stock_to_remove.items():
+        good = FinishedGood.objects.get(pk=good_id)
+        if good.stock is None or Decimal(good.stock) < qty:
+            messages.error(request, f"Cannot reverse: {good.name} needs {qty:.2f} units available in shelf stock, but only {Decimal(good.stock or 0):.2f} remain. Restore/reconcile downstream stock usage first.")
+            return redirect("order_detail", pk=pk)
+
+    with transaction.atomic():
+        order = Order.objects.select_for_update().get(pk=pk)
+        if order.status != "completed":
+            messages.error(request, "Order status changed before reversal could be applied.")
+            return redirect("order_detail", pk=pk)
+        raw_totals = {}
+        for usage in order.material_usages.select_related("raw_material"):
+            raw_totals.setdefault(usage.raw_material_id, [usage.raw_material, Decimal("0")])[1] += usage.actual_quantity
+        for material, qty in raw_totals.values():
+            if qty > 0:
+                record_raw_material_movement(material, qty, StockMovement.ADJUSTMENT, note=f"Reversal of raw-material release for order #{order.pk}", reference=f"REV-ORDER-{order.pk}")
+        for batch in order.production_batches.select_for_update().select_related("finished_good"):
+            good = batch.finished_good
+            remove_from_stock = batch.planned_surplus_stock_units + batch.excess_stock_units
+            if order.order_type == "physical_store" and order.production_destination == "store":
+                remove_from_stock += min(batch.saleable_units, batch.planned_units)
+            if remove_from_stock > 0:
+                record_finished_good_movement(good, -remove_from_stock, StockMovement.ADJUSTMENT, note=f"Reversal of finished-good stock from order #{order.pk} — batch {batch.batch_number}", reference=f"REV-{batch.batch_number}", affects_stock=True, unit_value=batch.unit_cost)
+            good.total_produced = max(Decimal("0"), Decimal(good.total_produced or 0) - batch.saleable_units)
+            delivered = Decimal("0")
+            if order.order_type in ("distribution", "online"):
+                delivered += min(batch.saleable_units, batch.ordered_units or batch.planned_units)
+            delivered += batch.planned_surplus_customer_units
+            if delivered:
+                good.total_delivered_to_customers = max(Decimal("0"), Decimal(good.total_delivered_to_customers or 0) - delivered)
+                good.save(update_fields=["total_produced", "total_delivered_to_customers"])
+            else:
+                good.save(update_fields=["total_produced"])
+            batch.is_reversed = True
+            batch.save(update_fields=["is_reversed", "updated_at"])
+        txs = FinancialTransaction.objects.select_for_update().filter(business=order.business, reference=f"ORDER-{order.pk}", reversed=False)
+        for tx in txs:
+            reverse_type = FinancialTransaction.OUTFLOW if tx.transaction_type == FinancialTransaction.INCOME else FinancialTransaction.INCOME
+            FinancialTransaction.objects.create(business=tx.business, created_by=request.user, date=today(), transaction_type=reverse_type, amount=tx.amount, category=f"Reversal: {tx.category}"[:80], description=f"Reversal of {tx.description}"[:255], payment_method=tx.payment_method, reference=f"REV-{tx.reference}"[:80], account=tx.account, reversal_of=tx)
+            tx.reversed = True
+            tx.save(update_fields=["reversed", "updated_at"])
+        Sale.objects.filter(Q(linked_order=order) | Q(items__production_batch_id__in=batch_ids)).distinct().delete()
+        order.status = "reversed"
+        order.reversed_at = timezone.now()
+        order.reversed_by = request.user
+        order.reversed_reason = reason
+        order.save(update_fields=["status", "reversed_at", "reversed_by", "reversed_reason", "updated_at"])
+        audit(order.business, request.user, "reverse", order, f"Completed order #{order.pk} reversed", {"reason": reason})
+    messages.success(request, "Order reversed. Raw materials and reversible stock/cash effects have been restored. The reversed order can now be deleted if you no longer need it.")
+    return redirect("order_detail", pk=pk)
+
+
+@login_required
 def order_delete(request, pk):
     order = get_object_or_404(Order, pk=pk)
-    if request.method == "POST" and order.status in ("pending", "rejected"):
+    if request.method == "POST" and order.status in ("pending", "rejected", "reversed"):
+        if order.status == "reversed":
+            deleted_id = order.pk
+            reason = order.reversed_reason
+            order.production_batches.all().delete()
+            order.cost_snapshots.all().delete()
+            audit(order.business, request.user, "delete", None, f"Reversed order #{deleted_id} permanently deleted", {"order_id": deleted_id, "reversal_reason": reason})
         order.delete()
         messages.success(request, "Removed.")
+    else:
+        messages.error(request, "Only pending, rejected, or already-reversed orders can be deleted.")
     return redirect("orders_list")
 
 @login_required

@@ -214,6 +214,11 @@
         else if (el.tagName !== 'SELECT') { el.value = ''; }
         else { el.selectedIndex = 0; }
       });
+      // A cloned row must be wired as a NEW row. Event-binding markers from
+      // the template row would otherwise prevent dynamic price/unit handlers
+      // from attaching to the clone.
+      newRow.querySelectorAll('[data-wired]').forEach((el) => el.removeAttribute('data-wired'));
+      newRow.removeAttribute('data-wired');
       // Clear any calculated/display-only values carried over from the
       // template row (for example a raw material's usage unit).
       newRow.querySelectorAll('.unit-display').forEach((el) => {

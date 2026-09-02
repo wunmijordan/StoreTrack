@@ -54,15 +54,17 @@
     </div>
 
     <span class="block text-xs font-medium text-stone-600 mb-1">Products</span>
-    <p class="text-[11px] text-stone-400 mb-1">Enter exact batches and/or loose pieces — production makes exactly this, no rounding up. Price fills in from the applicable customer price, channel price, or product default price.</p>
+    <p class="text-[11px] text-stone-400 mb-1">For customer orders, <b>Ordered</b> is what the customer requested and is what gets invoiced. Use <b>Produce</b> only when you intentionally want a round production run/offcut; leave both Produce fields at 0 to make exactly the order. Planned offcut is allocated at completion between Physical Store stock and/or an interested Distribution/Online customer. Price fills from customer price, channel price, then default price.</p>
     {{ formset.management_form }}
     <div class="border border-[#E7DFCC] rounded-md overflow-hidden">
       <div class="overflow-x-auto">
-        <table class="w-full min-w-[680px] text-sm">
+        <table class="w-full min-w-[900px] text-sm">
           <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
             <th class="text-left px-2 py-1.5">Product</th>
-            <th class="text-right px-2 py-1.5 w-20">Batches</th>
-            <th class="text-right px-2 py-1.5 w-20">Pieces</th>
+            <th class="text-right px-2 py-1.5 w-20">Ordered<br>batches</th>
+            <th class="text-right px-2 py-1.5 w-20">Ordered<br>pieces</th>
+            <th class="text-right px-2 py-1.5 w-20 production-plan-col">Produce<br>batches</th>
+            <th class="text-right px-2 py-1.5 w-20 production-plan-col">Produce<br>pieces</th>
             <th class="text-right px-2 py-1.5 w-24">Discount</th>
             <th class="text-right px-2 py-1.5 w-28">Price/Unit</th>
             <th class="w-10"></th>
@@ -70,9 +72,11 @@
           <tbody id="order-rows">
             {% for f in formset %}
             <tr {% if forloop.first %}data-formset-row{% endif %} class="border-t border-[#E7DFCC]" data-row>
-              <td class="px-2 py-1.5">{{ f.id }}{{ f.finished_good }}{% for error in f.finished_good.errors %}<div class="text-[11px] text-rose-600 mt-0.5">{{ error }}</div>{% endfor %}</td>
+              <td class="px-2 py-1.5">{{ f.id }}{{ f.finished_good }}{% for error in f.finished_good.errors %}<div class="text-[11px] text-rose-600 mt-0.5">{{ error }}</div>{% endfor %}{% for error in f.non_field_errors %}<div class="text-[11px] text-rose-600 mt-0.5">{{ error }}</div>{% endfor %}</td>
               <td class="px-2 py-1.5">{{ f.batch_qty }}{% for error in f.batch_qty.errors %}<div class="text-[11px] text-rose-600 mt-0.5">{{ error }}</div>{% endfor %}</td>
               <td class="px-2 py-1.5">{{ f.piece_qty }}{% for error in f.piece_qty.errors %}<div class="text-[11px] text-rose-600 mt-0.5">{{ error }}</div>{% endfor %}</td>
+              <td class="px-2 py-1.5 production-plan-col">{{ f.production_batch_qty }}{% for error in f.production_batch_qty.errors %}<div class="text-[11px] text-rose-600 mt-0.5">{{ error }}</div>{% endfor %}</td>
+              <td class="px-2 py-1.5 production-plan-col">{{ f.production_piece_qty }}{% for error in f.production_piece_qty.errors %}<div class="text-[11px] text-rose-600 mt-0.5">{{ error }}</div>{% endfor %}</td>
               <td class="px-2 py-1.5">{{ f.discount }}{% for error in f.discount.errors %}<div class="text-[11px] text-rose-600 mt-0.5">{{ error }}</div>{% endfor %}</td>
               <td class="px-2 py-1.5 text-right text-xs text-stone-500 font-mono price-display">—</td>
               <td class="px-2 py-1.5 text-center">
@@ -146,6 +150,12 @@
         if (purpose) purpose.required = nonStock;
       }
       hint.textContent = 'Physical Store Order — not a direct sale. Store replenishment enters Shelf Stock. A non-stock purpose does not enter Shelf Stock and requires a specific purpose. Any paid sale is recorded only in the Sales form.';
+    }
+    document.querySelectorAll('.production-plan-col').forEach((el) => {
+      el.style.display = type === 'physical_store' ? 'none' : '';
+    });
+    if (type === 'physical_store') {
+      document.querySelectorAll('#order-rows input[name$="-production_batch_qty"], #order-rows input[name$="-production_piece_qty"]').forEach((el) => { el.value = '0'; });
     }
     syncProductChoices();
   }
@@ -250,11 +260,21 @@
   }
   function wireRows() {
     document.querySelectorAll('#order-rows tr[data-row]').forEach((row) => {
-      const select = row.querySelector('select');
-      if (!select || select.dataset.wired) return;
-      select.dataset.wired = '1';
-      select.addEventListener('change', refreshPrices);
+      // Django's generic formset cloner clears inputs. Order quantities and
+      // discounts are intentionally zero-based, so new rows should be valid
+      // without forcing the user to type 0 into every numeric cell.
+      ['batch_qty', 'piece_qty', 'production_batch_qty', 'production_piece_qty', 'discount'].forEach((suffix) => {
+        const input = row.querySelector(`input[name$="-${suffix}"]`);
+        if (input && input.value === '') input.value = '0';
+      });
+      const select = row.querySelector('select[name$="-finished_good"]');
+      if (select && !select.dataset.wired) {
+        select.dataset.wired = '1';
+        select.addEventListener('change', refreshPrices);
+      }
     });
+    const type = currentChannel();
+    document.querySelectorAll('.production-plan-col').forEach((el) => { el.style.display = type === 'physical_store' ? 'none' : ''; });
     refreshPrices();
   }
   document.querySelectorAll('input[name="order_type"]').forEach(el => el.addEventListener('change', () => { toggleOrderType(); refreshPrices(); }));

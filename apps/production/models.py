@@ -14,7 +14,7 @@ class Order(BusinessOwnedModel):
     TYPE_CHOICES = [("distribution", "Distribution Order"), ("online", "Online Order"), ("physical_store", "Physical Store Order")]
     STATUS_CHOICES = [
         ("pending", "Pending"), ("approved", "Approved"),
-        ("completed", "Completed"), ("rejected", "Rejected"),
+        ("completed", "Completed"), ("rejected", "Rejected"), ("reversed", "Reversed"),
     ]
     PAYMENT_CHOICES = [("Cash", "Cash"), ("Card", "Card"), ("Transfer", "Transfer")]
     TRANSACTION_CHOICES = [("paid", "Paid"), ("unpaid", "Unpaid")]
@@ -56,6 +56,9 @@ class Order(BusinessOwnedModel):
     notes = models.TextField(blank=True)
     approved_date = models.DateField(null=True, blank=True)
     completed_date = models.DateField(null=True, blank=True)
+    reversed_at = models.DateTimeField(null=True, blank=True)
+    reversed_reason = models.CharField(max_length=255, blank=True, default="")
+    reversed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="reversed_production_orders")
 
     class Meta:
         ordering = ["-date", "-id"]
@@ -83,13 +86,15 @@ class Order(BusinessOwnedModel):
         for item in self.items.select_related("finished_good"):
             good = item.finished_good
             upb = good.units_per_batch or Decimal("1")
-            per_piece_factor = item.piece_qty / upb
+            production_batches = item.effective_production_batch_qty
+            production_pieces = item.effective_production_piece_qty
+            per_piece_factor = production_pieces / upb
 
             links = list(good.recipe_items.select_related("raw_material"))
             links += list(good.production_materials.select_related("raw_material"))
 
             for link in links:
-                qty = link.qty_per_batch * item.batch_qty
+                qty = link.qty_per_batch * production_batches
                 qty += link.qty_per_batch * per_piece_factor
                 mat = link.raw_material
                 current = needed.get(mat.id)
@@ -116,6 +121,14 @@ class OrderItem(TimestampedModel):
     finished_good = models.ForeignKey("inventory.FinishedGood", on_delete=models.PROTECT)
     batch_qty = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     piece_qty = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    production_batch_qty = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0, blank=True,
+        help_text="Optional production plan. Leave 0/blank to produce exactly the ordered quantity.",
+    )
+    production_piece_qty = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0, blank=True,
+        help_text="Optional loose pieces in the production plan. Leave 0/blank to produce exactly the ordered quantity.",
+    )
     discount = models.DecimalField(max_digits=12, decimal_places=2, default=0, blank=True)
     price = models.DecimalField(max_digits=12, decimal_places=2, default=0,
         help_text="Snapshot of the product's selling price at order time — set automatically.")
@@ -127,6 +140,27 @@ class OrderItem(TimestampedModel):
     def total_units(self):
         upb = self.finished_good.units_per_batch or Decimal("1")
         return self.batch_qty * upb + self.piece_qty
+
+    @property
+    def has_explicit_production_plan(self):
+        return (self.production_batch_qty or Decimal("0")) > 0 or (self.production_piece_qty or Decimal("0")) > 0
+
+    @property
+    def effective_production_batch_qty(self):
+        return self.production_batch_qty if self.has_explicit_production_plan else self.batch_qty
+
+    @property
+    def effective_production_piece_qty(self):
+        return self.production_piece_qty if self.has_explicit_production_plan else self.piece_qty
+
+    @property
+    def production_total_units(self):
+        upb = self.finished_good.units_per_batch or Decimal("1")
+        return self.effective_production_batch_qty * upb + self.effective_production_piece_qty
+
+    @property
+    def planned_overproduction_units(self):
+        return max(Decimal("0"), self.production_total_units - self.total_units)
 
     @property
     def line_total(self):
@@ -171,6 +205,19 @@ class ProductionBatch(BusinessOwnedModel):
     batch_number = models.CharField(max_length=60)
     expiry_date = models.DateField(null=True, blank=True)
     planned_units = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    ordered_units = models.DecimalField(
+        max_digits=14, decimal_places=2, default=0,
+        help_text="Customer/requested quantity kept separately from the production target.",
+    )
+    planned_surplus_stock_units = models.DecimalField(
+        max_digits=14, decimal_places=2, default=0,
+        help_text="Saleable planned overproduction retained as general Physical Store stock.",
+    )
+    planned_surplus_customer_units = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    planned_surplus_customer = models.ForeignKey("sales.Customer", null=True, blank=True, on_delete=models.SET_NULL, related_name="planned_offcut_batches")
+    planned_surplus_customer_channel = models.CharField(max_length=20, blank=True, default="")
+    planned_surplus_sale = models.ForeignKey("sales.Sale", null=True, blank=True, on_delete=models.SET_NULL, related_name="planned_offcut_batches")
+    is_reversed = models.BooleanField(default=False)
     produced_units = models.DecimalField(max_digits=14, decimal_places=2, default=0, help_text="Gross units produced before wastage/rejection.")
     wastage_units = models.DecimalField(max_digits=14, decimal_places=2, default=0, help_text="Units lost, rejected or otherwise not saleable.")
     wastage_reason = models.CharField(max_length=255, blank=True, default="")
@@ -213,7 +260,8 @@ class ProductionBatch(BusinessOwnedModel):
 
     @property
     def shortage_units(self):
-        return max(Decimal("0"), self.planned_units - self.saleable_units)
+        required = self.ordered_units or self.planned_units
+        return max(Decimal("0"), required - self.saleable_units)
 
     @property
     def reconciled_units(self):
@@ -225,14 +273,21 @@ class ProductionBatch(BusinessOwnedModel):
 
     @property
     def excess_units(self):
+        """Unplanned saleable output above the explicit production target."""
         return max(Decimal("0"), self.saleable_units - self.planned_units)
+
+    @property
+    def total_surplus_units(self):
+        """All saleable output above the customer/requested quantity."""
+        required = self.ordered_units or self.planned_units
+        return max(Decimal("0"), self.saleable_units - required)
 
     @property
     def available_surplus_units(self):
         """Excess units deliberately retained in shelf stock and still
         available to satisfy a shortage from any production channel."""
         outgoing = sum((r.quantity for r in self.reconciliation_out.all()), Decimal("0"))
-        retained = max(Decimal("0"), self.excess_stock_units - outgoing)
+        retained = max(Decimal("0"), self.planned_surplus_stock_units + self.excess_stock_units - outgoing)
         physical_stock = max(Decimal("0"), Decimal(self.finished_good.stock or 0))
         return min(retained, physical_stock)
 

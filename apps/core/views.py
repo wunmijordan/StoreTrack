@@ -841,12 +841,15 @@ def _finished_good_search_detail(good):
             finished_good=good,
             order__order_type=channel,
             order__status="completed",
+            is_reversed=False,
         ).prefetch_related("reconciliation_in", "reconciliation_out")
         units = sum((b.saleable_units for b in batches_qs), Decimal("0"))
         shortages = sum((b.shortage_units for b in batches_qs), Decimal("0"))
         reconciled = sum((b.reconciled_units for b in batches_qs), Decimal("0"))
-        excess_units = sum((b.excess_units for b in batches_qs), Decimal("0"))
-        excess_stock_units = sum((b.excess_stock_units for b in batches_qs), Decimal("0"))
+        planned_offcut_units = sum((b.planned_surplus_stock_units + b.planned_surplus_customer_units for b in batches_qs), Decimal("0"))
+        additional_excess_units = sum((b.excess_units for b in batches_qs), Decimal("0"))
+        excess_units = sum((b.total_surplus_units for b in batches_qs), Decimal("0"))
+        excess_stock_units = sum((b.planned_surplus_stock_units + b.excess_stock_units for b in batches_qs), Decimal("0"))
         excess_non_stock_units = sum((b.excess_non_stock_units for b in batches_qs), Decimal("0"))
         channel_rows.append({
             "channel": channel_names[channel],
@@ -855,6 +858,8 @@ def _finished_good_search_detail(good):
             "shortage_units": _decimal(shortages),
             "reconciled_units": _decimal(reconciled),
             "outstanding_shortage_units": _decimal(max(Decimal("0"), shortages - reconciled)),
+            "planned_offcut_units": _decimal(planned_offcut_units),
+            "additional_excess_units": _decimal(additional_excess_units),
             "excess_units": _decimal(excess_units),
             "excess_stock_units": _decimal(excess_stock_units),
             "excess_non_stock_units": _decimal(excess_non_stock_units),
@@ -868,13 +873,16 @@ def _finished_good_search_detail(good):
             finished_good=good,
             production_date__range=(start, today()),
             order__status="completed",
+            is_reversed=False,
         ).prefetch_related("reconciliation_in", "reconciliation_out")
         produced = sum((b.saleable_units for b in batch_qs), Decimal("0"))
         production_events = batch_qs.count()
         shortage_units = sum((b.shortage_units for b in batch_qs), Decimal("0"))
         reconciled_units = sum((b.reconciled_units for b in batch_qs), Decimal("0"))
-        excess_units = sum((b.excess_units for b in batch_qs), Decimal("0"))
-        excess_stock_units = sum((b.excess_stock_units for b in batch_qs), Decimal("0"))
+        planned_offcut_units = sum((b.planned_surplus_stock_units + b.planned_surplus_customer_units for b in batch_qs), Decimal("0"))
+        additional_excess_units = sum((b.excess_units for b in batch_qs), Decimal("0"))
+        excess_units = sum((b.total_surplus_units for b in batch_qs), Decimal("0"))
+        excess_stock_units = sum((b.planned_surplus_stock_units + b.excess_stock_units for b in batch_qs), Decimal("0"))
         excess_non_stock_units = sum((b.excess_non_stock_units for b in batch_qs), Decimal("0"))
         sold_units = Decimal("0")
         revenue = Decimal("0")
@@ -908,6 +916,8 @@ def _finished_good_search_detail(good):
             "shortage_units": _decimal(shortage_units),
             "reconciled_units": _decimal(reconciled_units),
             "outstanding_shortage_units": _decimal(max(Decimal("0"), shortage_units - reconciled_units)),
+            "planned_offcut_units": _decimal(planned_offcut_units),
+            "additional_excess_units": _decimal(additional_excess_units),
             "excess_units": _decimal(excess_units),
             "excess_stock_units": _decimal(excess_stock_units),
             "excess_non_stock_units": _decimal(excess_non_stock_units),

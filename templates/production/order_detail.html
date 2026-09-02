@@ -8,6 +8,7 @@
     {% if order.status == 'pending' %}bg-amber-50 text-amber-800 border-amber-300
     {% elif order.status == 'approved' %}bg-sky-50 text-sky-800 border-sky-300
     {% elif order.status == 'completed' %}bg-emerald-50 text-emerald-800 border-emerald-300
+    {% elif order.status == 'reversed' %}bg-amber-50 text-amber-800 border-amber-300
     {% else %}bg-stone-100 text-stone-500 border-stone-300{% endif %}">{{ order.get_status_display }}</span>
 </div>
 {% if order.order_type == 'distribution' or order.order_type == 'online' %}
@@ -22,7 +23,7 @@
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] mb-8 overflow-x-auto overflow-y-auto max-h-[28rem]">
   <table class="min-w-max w-full text-sm">
     <thead class="bg-[#F0EAD9] text-stone-600 text-md text-middle"><tr>
-      <th class="px-2 py-1.5">Product</th><th class="px-2 py-1.5">Batches</th><th class="px-2 py-1.5">Pieces</th><th class="px-2 py-1.5">Total Units</th><th class="px-2 py-1.5">Price</th><th class="px-2 py-1.5">Discount</th><th class="px-2 py-1.5">Line Total</th>
+      <th class="px-2 py-1.5">Product</th><th class="px-2 py-1.5">Ordered batches</th><th class="px-2 py-1.5">Ordered pieces</th><th class="px-2 py-1.5">Ordered / requested units</th><th class="px-2 py-1.5">Production target</th><th class="px-2 py-1.5">Planned offcut</th><th class="px-2 py-1.5">Price</th><th class="px-2 py-1.5">Discount</th><th class="px-2 py-1.5">Line Total</th>
     </tr></thead>
     <tbody>
       {% for i in order.items.all %}
@@ -31,6 +32,8 @@
         <td class="px-2 py-1.5 text-right font-mono">{{ i.batch_qty|num }}</td>
         <td class="px-2 py-1.5 text-right font-mono">{{ i.piece_qty|num }}</td>
         <td class="px-2 py-1.5 text-right font-mono font-medium">{{ i.total_units|num }}</td>
+        <td class="px-2 py-1.5 text-right font-mono">{{ i.production_total_units|num }}</td>
+        <td class="px-2 py-1.5 text-right font-mono {% if i.planned_overproduction_units > 0 %}text-emerald-700{% endif %}">{{ i.planned_overproduction_units|num }}</td>
         <td class="px-2 py-1.5 text-right font-mono">{{ i.price|money:biz.currency_symbol }}</td>
         <td class="px-2 py-1.5 text-right font-mono">{{ i.discount|money:biz.currency_symbol }}</td>
         <td class="px-2 py-1.5 text-right font-mono">{{ i.line_total|money:biz.currency_symbol }}</td>
@@ -45,7 +48,7 @@
 </div>
 
 {% if batches %}
-<div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg p-4 mb-4 max-w-4xl"><div class="flex items-center justify-between mb-2"><h3 class="font-semibold text-stone-700">Production batches</h3><a href="{% url 'production_batches' %}" class="text-xs text-[#8f172d] hover:underline">All batches</a></div><div class="space-y-2">{% for b in batches %}<div class="flex flex-wrap items-center justify-between gap-2 text-xs border-t border-[#E7DFCC] pt-2"><span><a href="{% url 'production_batch_detail' b.pk %}" class="font-mono text-[#8f172d] hover:underline">{{ b.batch_number }}</a> · {{ b.finished_good.name }}</span><span>Saleable {{ b.saleable_units|num }} · Yield {{ b.yield_percent|num }}% · {% if b.excess_units > 0 %}Excess {{ b.excess_units|num }} (stock {{ b.excess_stock_units|num }}, non-stock {{ b.excess_non_stock_units|num }}) · {% endif %}{% if b.shortage_flag %}Shortage {{ b.outstanding_shortage_units|num }} outstanding · {% endif %}{{ b.quality_check.get_status_display }}</span></div>{% endfor %}</div></div>
+<div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg p-4 mb-4 max-w-4xl"><div class="flex items-center justify-between mb-2"><h3 class="font-semibold text-stone-700">Production batches</h3><a href="{% url 'production_batches' %}" class="text-xs text-[#8f172d] hover:underline">All batches</a></div><div class="space-y-2">{% for b in batches %}<div class="flex flex-wrap items-center justify-between gap-2 text-xs border-t border-[#E7DFCC] pt-2"><span><a href="{% url 'production_batch_detail' b.pk %}" class="font-mono text-[#8f172d] hover:underline">{{ b.batch_number }}</a> · {{ b.finished_good.name }}</span><span>Saleable {{ b.saleable_units|num }} · Yield {{ b.yield_percent|num }}% · {% if b.planned_surplus_stock_units > 0 or b.planned_surplus_customer_units > 0 %}Planned offcut: {{ b.planned_surplus_stock_units|num }} stock{% if b.planned_surplus_customer_units > 0 %}, {{ b.planned_surplus_customer_units|num }} to {{ b.planned_surplus_customer }} ({{ b.planned_surplus_customer_channel|title }}){% endif %} · {% endif %}{% if b.excess_units > 0 %}Additional excess {{ b.excess_units|num }} (stock {{ b.excess_stock_units|num }}, non-stock {{ b.excess_non_stock_units|num }}) · {% endif %}{% if b.shortage_flag %}Shortage {{ b.outstanding_shortage_units|num }} outstanding · {% endif %}{{ b.quality_check.get_status_display }}</span></div>{% endfor %}</div></div>
 {% endif %}
 
 {% if order.status == 'pending' and flexible_usages %}
@@ -55,7 +58,7 @@
   <div class="space-y-2">
     {% for row in flexible_usages %}
     <div class="grid grid-cols-1 sm:grid-cols-[1fr_9rem_auto] gap-2 items-end border-t border-amber-200 pt-2">
-      <div class="text-xs"><b>{{ row.good.name }}</b> · {{ row.material.name }}<div class="text-[10px] text-amber-600">Recipe: {{ row.planned_per_batch|num }} {{ row.usage_unit }} / batch · order equivalent {{ row.multiplier|num }} batch(es)</div></div>
+      <div class="text-xs"><b>{{ row.good.name }}</b> · {{ row.material.name }}<div class="text-[10px] text-amber-600">Recipe: {{ row.planned_per_batch|num }} {{ row.usage_unit }} / batch · production equivalent {{ row.multiplier|num }} batch(es)</div></div>
       <label class="text-[10px] text-amber-700">Actual qty / batch<input form="approve-order-form" type="number" min="0" step="0.01" name="{{ row.input_name }}" value="{{ row.actual_per_batch }}" class="mt-1 w-full rounded-md border border-amber-300 bg-white px-2 py-1.5 text-sm font-mono"></label>
       <span class="text-[10px] text-amber-600 pb-2">{{ row.usage_unit }}</span>
     </div>
@@ -88,6 +91,10 @@
 </div>
 {% endif %}
 
+{% if order.status == 'reversed' %}
+<div class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><div class="font-semibold">This completed order has been reversed.</div><div class="text-xs mt-1">Reason: {{ order.reversed_reason }}{% if order.reversed_by %} · By {{ order.reversed_by }}{% endif %}{% if order.reversed_at %} · {{ order.reversed_at|date:"d M Y H:i" }}{% endif %}</div></div>
+{% endif %}
+
 <div class="flex gap-2">
   <a href="{% url 'order_invoice' order.pk %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] hover:bg-[#E7DFCC] border border-[#D9CFB4]">Download PDF</a>
   {% if order.status == 'pending' %}
@@ -102,9 +109,15 @@
   {% if order.status == 'approved' %}
   <a href="{% url 'order_complete' order.pk %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#16332A]">Complete Production</a>
   {% endif %}
-  {% if order.status == 'pending' or order.status == 'rejected' %}
-  <form method="post" action="{% url 'order_delete' order.pk %}" onsubmit="return confirm('Delete this order?');">{% csrf_token %}
-    <button type="submit" class="px-3.5 py-2 text-sm rounded-md text-stone-500 hover:bg-stone-100">Delete</button>
+  {% if order.status == 'completed' %}
+  <form method="post" action="{% url 'order_reverse' order.pk %}" class="flex gap-2 items-center" onsubmit="return confirm('Reverse this completed order? This will restore raw materials and reverse eligible stock/cash effects.');">{% csrf_token %}
+    <input name="reason" required placeholder="Reason for reversal" class="rounded-md border border-[#D9CFB4] bg-white px-2.5 py-1.5 text-sm">
+    <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200">Reverse Order</button>
+  </form>
+  {% endif %}
+  {% if order.status == 'pending' or order.status == 'rejected' or order.status == 'reversed' %}
+  <form method="post" action="{% url 'order_delete' order.pk %}" onsubmit="return confirm('{% if order.status == 'reversed' %}Permanently delete this already-reversed order and its trace records?{% else %}Delete this order?{% endif %}');">{% csrf_token %}
+    <button type="submit" class="px-3.5 py-2 text-sm rounded-md text-stone-500 hover:bg-stone-100">{% if order.status == 'reversed' %}Delete Reversed Order{% else %}Delete{% endif %}</button>
   </form>
   {% endif %}
   <a href="{% url 'orders_list' %}" class="px-3.5 py-2 text-sm rounded-md text-stone-500 hover:bg-stone-100">Back to Orders</a>

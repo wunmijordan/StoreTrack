@@ -1,6 +1,7 @@
 from decimal import Decimal
 from django import forms
 from django.forms import BaseInlineFormSet, inlineformset_factory
+from django.db.models import Q
 from .models import Order, OrderItem, ProductionBatch, ProductionQualityCheck
 from inventory.models import FinishedGood
 from sales.models import Customer
@@ -114,7 +115,24 @@ class OrderForm(StyledModelForm):
 class OrderItemForm(StyledModelForm):
     class Meta:
         model = OrderItem
-        fields = ["finished_good", "batch_qty", "piece_qty", "discount"]
+        fields = ["finished_good", "batch_qty", "piece_qty", "production_batch_qty", "production_piece_qty", "discount"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name in ("batch_qty", "piece_qty", "production_batch_qty", "production_piece_qty", "discount"):
+            self.fields[name].required = False
+            self.fields[name].widget.attrs.update({"min": "0", "step": "0.01"})
+        self.fields["production_batch_qty"].label = "Produce batches"
+        self.fields["production_piece_qty"].label = "Produce pieces"
+
+    def clean(self):
+        cleaned = super().clean()
+        for name in ("batch_qty", "piece_qty", "production_batch_qty", "production_piece_qty", "discount"):
+            if cleaned.get(name) is None:
+                cleaned[name] = Decimal("0")
+        if cleaned.get("finished_good") and cleaned["batch_qty"] <= 0 and cleaned["piece_qty"] <= 0:
+            self.add_error("piece_qty", "Enter at least one ordered batch or piece.")
+        return cleaned
 
 
 class OrderItemFormSetBase(BaseInlineFormSet):
@@ -124,7 +142,8 @@ class OrderItemFormSetBase(BaseInlineFormSet):
     finished good, including products with reorder_level=0. Distribution and
     Online orders also retain the full finished-good catalogue.
     """
-    def __init__(self, *args, store_replenishment=False, **kwargs):
+    def __init__(self, *args, store_replenishment=False, order_type=None, **kwargs):
+        self.order_type = order_type or getattr(kwargs.get("instance"), "order_type", None)
         super().__init__(*args, **kwargs)
         if store_replenishment:
             allowed = FinishedGood.objects.filter(
@@ -134,6 +153,31 @@ class OrderItemFormSetBase(BaseInlineFormSet):
             for form in self.forms:
                 form.fields["finished_good"].queryset = allowed
 
+    def clean(self):
+        super().clean()
+        if any(self.errors):
+            return
+        for form in self.forms:
+            data = getattr(form, "cleaned_data", None) or {}
+            if data.get("DELETE") or not data.get("finished_good"):
+                continue
+            good = data["finished_good"]
+            upb = good.units_per_batch or Decimal("1")
+            ordered = (data.get("batch_qty") or Decimal("0")) * upb + (data.get("piece_qty") or Decimal("0"))
+            plan_batches = data.get("production_batch_qty") or Decimal("0")
+            plan_pieces = data.get("production_piece_qty") or Decimal("0")
+            production_plan = plan_batches * upb + plan_pieces
+            if self.order_type == "physical_store":
+                # A physical-store order already is a production request; the
+                # separate plan is only meaningful for customer-order offcuts.
+                data["production_batch_qty"] = Decimal("0")
+                data["production_piece_qty"] = Decimal("0")
+            elif production_plan > 0 and production_plan < ordered:
+                form.add_error(
+                    "production_batch_qty",
+                    f"Production plan ({production_plan:.2f}) cannot be below the customer order ({ordered:.2f}). Leave both production-plan fields at 0 to produce exactly the order quantity.",
+                )
+
 
 OrderItemFormSet = inlineformset_factory(
     Order, OrderItem, form=OrderItemForm, formset=OrderItemFormSetBase,
@@ -142,8 +186,8 @@ OrderItemFormSet = inlineformset_factory(
 
 
 class ProductionCompletionForm(forms.Form):
-    produced_units = forms.DecimalField(max_digits=14, decimal_places=2, min_value=0, label="Gross units produced")
-    wastage_units = forms.DecimalField(max_digits=14, decimal_places=2, min_value=0, label="Wastage / rejected units", initial=0)
+    produced_units = forms.DecimalField(max_digits=14, decimal_places=2, min_value=0, label="Gross units produced", widget=forms.NumberInput(attrs={"step": "0.01", "min": "0"}))
+    wastage_units = forms.DecimalField(max_digits=14, decimal_places=2, min_value=0, label="Wastage / rejected units", initial=0, widget=forms.NumberInput(attrs={"step": "0.01", "min": "0"}))
     batch_number = forms.CharField(max_length=60, label="Batch number")
     expiry_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Expiry date")
     wastage_reason = forms.CharField(max_length=255, required=False, label="Wastage reason")
@@ -154,14 +198,24 @@ class ProductionCompletionForm(forms.Form):
     excess_to_stock = forms.DecimalField(max_digits=14, decimal_places=2, min_value=0, required=False, initial=0, label="Excess to Physical Store stock")
     excess_to_non_stock = forms.DecimalField(max_digits=14, decimal_places=2, min_value=0, required=False, initial=0, label="Excess to non-stock purpose")
     excess_non_stock_purpose = forms.CharField(max_length=255, required=False, label="Non-stock excess purpose")
+    planned_offcut_to_stock = forms.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0"), required=False, initial=0, label="Planned offcut to Physical Store")
+    planned_offcut_to_customer = forms.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0"), required=False, initial=0, label="Planned offcut to customer")
+    planned_offcut_customer = forms.ModelChoiceField(queryset=Customer.objects.none(), required=False, label="Interested customer")
+    planned_offcut_channel = forms.ChoiceField(choices=[("", "Select channel"), ("distribution", "Distribution"), ("online", "Online")], required=False, label="Customer channel")
 
-    def __init__(self, *args, planned_units=None, customer_order=False, **kwargs):
+    def __init__(self, *args, planned_units=None, required_units=None, customer_order=False, **kwargs):
         super().__init__(*args, **kwargs)
-        self.planned_units = Decimal(planned_units or 0)
+        self.planned_units = Decimal(planned_units or 0).quantize(Decimal("0.01"))
+        self.required_units = Decimal(required_units if required_units is not None else planned_units or 0).quantize(Decimal("0.01"))
         self.customer_order = bool(customer_order)
+        self.fields["planned_offcut_customer"].queryset = Customer.objects.filter(active=True).order_by("name")
         for f in self.fields.values():
             f.widget.attrs["class"] = INPUT_CLS
-        self.fields["produced_units"].help_text = f"Planned output: {self.planned_units} units. Enter gross output before wastage/rejection."
+        self.fields["produced_units"].help_text = (
+            f"Production target: {self.planned_units:.2f} units"
+            + (f"; customer requires {self.required_units:.2f}." if self.customer_order else ".")
+            + " Enter gross output before wastage/rejection."
+        )
 
     def clean(self):
         cleaned = super().clean()
@@ -172,9 +226,29 @@ class ProductionCompletionForm(forms.Form):
         if wastage > 0 and not (cleaned.get("wastage_reason") or "").strip():
             self.add_error("wastage_reason", "Give a reason when wastage/rejected units are recorded.")
         cleaned["saleable_units"] = max(Decimal("0"), produced - wastage)
-        shortage = max(Decimal("0"), self.planned_units - cleaned["saleable_units"])
-        if self.customer_order and produced < self.planned_units:
-            self.add_error("produced_units", f"Gross output cannot be below the ordered quantity of {self.planned_units:.2f} units.")
+        shortage = max(Decimal("0"), self.required_units - cleaned["saleable_units"]) if self.customer_order else Decimal("0")
+        planned_surplus = (
+            max(Decimal("0"), min(cleaned["saleable_units"], self.planned_units) - self.required_units)
+            if self.customer_order else Decimal("0")
+        )
+        to_planned_stock = cleaned.get("planned_offcut_to_stock") or Decimal("0")
+        to_planned_customer = cleaned.get("planned_offcut_to_customer") or Decimal("0")
+        cleaned["planned_surplus_stock_units"] = to_planned_stock
+        cleaned["planned_surplus_customer_units"] = to_planned_customer
+        if planned_surplus > 0:
+            if (to_planned_stock + to_planned_customer) != planned_surplus:
+                self.add_error("planned_offcut_to_stock", f"Allocate the full planned offcut of {planned_surplus:.2f} units between Physical Store and an interested customer.")
+                self.add_error("planned_offcut_to_customer", f"Planned offcut allocation must total exactly {planned_surplus:.2f} units.")
+            if to_planned_customer > 0:
+                if not cleaned.get("planned_offcut_customer"):
+                    self.add_error("planned_offcut_customer", "Select the customer receiving this planned offcut.")
+                if cleaned.get("planned_offcut_channel") not in ("distribution", "online"):
+                    self.add_error("planned_offcut_channel", "Select Distribution or Online for the interested customer.")
+        else:
+            if to_planned_stock or to_planned_customer:
+                self.add_error("planned_offcut_to_stock", "There is no saleable planned offcut to allocate.")
+            cleaned["planned_offcut_customer"] = None
+            cleaned["planned_offcut_channel"] = ""
         if self.customer_order and shortage > 0 and not cleaned.get("flag_shortage"):
             self.add_error("flag_shortage", "Flag this shortage so it can be reconciled from available surplus production of the same product, regardless of channel.")
         if self.customer_order and shortage > 0 and not (cleaned.get("shortage_reason") or "").strip():
@@ -220,9 +294,10 @@ class ProductionReconciliationForm(forms.Form):
         self.target_batch = target_batch
         if target_batch is not None:
             candidates = ProductionBatch.objects.filter(
+                Q(planned_surplus_stock_units__gt=0) | Q(excess_stock_units__gt=0),
                 business=target_batch.business,
                 finished_good=target_batch.finished_good,
-                excess_stock_units__gt=0,
+                is_reversed=False,
             ).exclude(pk=target_batch.pk).select_related("order", "finished_good")
             self.fields["source_batch"].queryset = candidates
             self.fields["source_batch"].label_from_instance = lambda obj: (
