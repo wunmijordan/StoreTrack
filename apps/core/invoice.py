@@ -150,7 +150,7 @@ def production_order_pdf(order):
     is_customer_order = order.order_type in ("distribution", "online")
     channel_label = dict(order.TYPE_CHOICES).get(order.order_type, order.order_type).upper()
     counterparty = order.customer_name if is_customer_order else "Physical Store"
-    _header(story, order.business, "PRODUCTION ORDER", f"Production Order #{order.pk}", order.date, "Customer" if is_customer_order else "For", counterparty)
+    _header(story, order.business, "PRODUCTION ORDER", f"Production Order #{order.display_number}", order.date, "Customer" if is_customer_order else "For", counterparty)
     rows = []
     for item in order.items.select_related("finished_good"):
         rows.append([
@@ -247,7 +247,7 @@ def sale_invoice_pdf(sale):
         story.append(Paragraph(f"Unpaid reason: {sale.unpaid_description}", styles["small"]))
     story.append(Paragraph(f"Payment method: {sale.payment_method}", styles["body"]))
     if sale.linked_order_id:
-        story.append(Paragraph(f"Linked production order: #{sale.linked_order_id}", styles["body"]))
+        story.append(Paragraph(f"Linked production order: #{sale.linked_order.display_number}", styles["body"]))
     story.append(Spacer(1, 7 * mm))
     story.append(Paragraph("Thank you for your business.", styles["small"]))
     return _build(story, f"sales-invoice-{sale.pk}.pdf")

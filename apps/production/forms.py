@@ -1,8 +1,8 @@
 from decimal import Decimal
 from django import forms
-from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.db.models import Q
-from .models import Order, OrderItem, ProductionBatch, ProductionQualityCheck
+from django.forms.models import BaseInlineFormSet, inlineformset_factory
+from .models import Order, OrderItem, ProductionBatch, ProductionQualityCheck, ProductionRun
 from inventory.models import FinishedGood
 from sales.models import Customer
 from core.models import CashAccount
@@ -198,7 +198,10 @@ class ProductionCompletionForm(forms.Form):
     excess_to_stock = forms.DecimalField(max_digits=14, decimal_places=2, min_value=0, required=False, initial=0, label="Excess to Physical Store stock")
     excess_to_non_stock = forms.DecimalField(max_digits=14, decimal_places=2, min_value=0, required=False, initial=0, label="Excess to non-stock purpose")
     excess_non_stock_purpose = forms.CharField(max_length=255, required=False, label="Non-stock excess purpose")
-    planned_offcut_to_stock = forms.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0"), required=False, initial=0, label="Planned offcut to Physical Store")
+    planned_offcut_to_stock = forms.DecimalField(
+        max_digits=14, decimal_places=2, min_value=Decimal("0"), required=False, initial=0,
+        label="Uncommitted planned offcut to stock", widget=forms.HiddenInput(),
+    )
     planned_offcut_to_customer = forms.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0"), required=False, initial=0, label="Planned offcut to customer")
     planned_offcut_customer = forms.ModelChoiceField(queryset=Customer.objects.none(), required=False, label="Interested customer")
     planned_offcut_channel = forms.ChoiceField(choices=[("", "Select channel"), ("distribution", "Distribution"), ("online", "Online")], required=False, label="Customer channel")
@@ -231,22 +234,35 @@ class ProductionCompletionForm(forms.Form):
             max(Decimal("0"), min(cleaned["saleable_units"], self.planned_units) - self.required_units)
             if self.customer_order else Decimal("0")
         )
-        to_planned_stock = cleaned.get("planned_offcut_to_stock") or Decimal("0")
         to_planned_customer = cleaned.get("planned_offcut_to_customer") or Decimal("0")
-        cleaned["planned_surplus_stock_units"] = to_planned_stock
-        cleaned["planned_surplus_customer_units"] = to_planned_customer
         if planned_surplus > 0:
-            if (to_planned_stock + to_planned_customer) != planned_surplus:
-                self.add_error("planned_offcut_to_stock", f"Allocate the full planned offcut of {planned_surplus:.2f} units between Physical Store and an interested customer.")
-                self.add_error("planned_offcut_to_customer", f"Planned offcut allocation must total exactly {planned_surplus:.2f} units.")
+            if to_planned_customer > planned_surplus:
+                self.add_error(
+                    "planned_offcut_to_customer",
+                    f"Customer allocation cannot exceed the available planned offcut of {planned_surplus:.2f} units.",
+                )
+                to_planned_customer = planned_surplus
             if to_planned_customer > 0:
                 if not cleaned.get("planned_offcut_customer"):
                     self.add_error("planned_offcut_customer", "Select the customer receiving this planned offcut.")
                 if cleaned.get("planned_offcut_channel") not in ("distribution", "online"):
                     self.add_error("planned_offcut_channel", "Select Distribution or Online for the interested customer.")
+            else:
+                cleaned["planned_offcut_customer"] = None
+                cleaned["planned_offcut_channel"] = ""
+            # Any saleable planned offcut not already committed to another
+            # customer is real finished-goods inventory and is retained
+            # automatically in general stock. Production completion therefore
+            # never has to wait for a future customer allocation.
+            cleaned["planned_surplus_customer_units"] = to_planned_customer
+            cleaned["planned_surplus_stock_units"] = max(Decimal("0"), planned_surplus - to_planned_customer)
+            cleaned["planned_offcut_to_stock"] = cleaned["planned_surplus_stock_units"]
         else:
-            if to_planned_stock or to_planned_customer:
-                self.add_error("planned_offcut_to_stock", "There is no saleable planned offcut to allocate.")
+            if to_planned_customer:
+                self.add_error("planned_offcut_to_customer", "There is no saleable planned offcut to allocate.")
+            cleaned["planned_surplus_stock_units"] = Decimal("0")
+            cleaned["planned_surplus_customer_units"] = Decimal("0")
+            cleaned["planned_offcut_to_stock"] = Decimal("0")
             cleaned["planned_offcut_customer"] = None
             cleaned["planned_offcut_channel"] = ""
         if self.customer_order and shortage > 0 and not cleaned.get("flag_shortage"):
@@ -333,3 +349,66 @@ class ProductionQualityCheckForm(StyledModelForm):
         model = ProductionQualityCheck
         fields = ["status", "notes", "defects"]
         widgets = {"notes": forms.Textarea(attrs={"rows": 2}), "defects": forms.Textarea(attrs={"rows": 2})}
+
+
+class ProductionRunForm(StyledModelForm):
+    orders = forms.ModelMultipleChoiceField(
+        queryset=Order.objects.none(),
+        required=False,
+        label="Existing pending orders to include",
+        help_text=(
+            "Optionally attach pending orders that are already in StoreTrack. "
+            "After saving the run, you can also create new customer orders directly inside it."
+        ),
+        widget=forms.CheckboxSelectMultiple(),
+    )
+
+    class Meta:
+        model = ProductionRun
+        fields = ["date", "run_number", "notes"]
+        widgets = {
+            "date": forms.DateInput(attrs={"type": "date"}),
+            "notes": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        available = Order.objects.filter(status="pending")
+        current_ids = []
+        if self.instance and self.instance.pk:
+            current_ids = list(self.instance.orders.values_list("pk", flat=True))
+            available = Order.objects.filter(Q(status="pending") | Q(pk__in=current_ids))
+        occupied = ProductionRun.objects.exclude(pk=getattr(self.instance, "pk", None)).filter(
+            orders__isnull=False
+        ).values_list("orders__pk", flat=True)
+        self.fields["orders"].queryset = available.exclude(pk__in=occupied).select_related(
+            "customer"
+        ).prefetch_related("items__finished_good").order_by("date", "pk")
+        if not self.is_bound and current_ids:
+            self.initial["orders"] = current_ids
+        self.fields["orders"].label_from_instance = lambda o: (
+            f"Order #{o.display_number} · {o.get_order_type_display()} · "
+            f"{(o.customer_name or 'Physical Store')} · "
+            + ", ".join(
+                f"{i.finished_good.name} ({i.production_total_units:g})"
+                for i in o.items.all()
+            )
+        )
+
+    def clean_orders(self):
+        orders = self.cleaned_data.get("orders")
+        bad = [o.pk for o in orders if o.status != "pending"] if orders is not None else []
+        if bad:
+            raise forms.ValidationError("Only pending orders can be attached before materials are released.")
+        return orders
+
+    def save_order_links(self, production_run):
+        selected = list(self.cleaned_data.get("orders") or [])
+        production_run.order_links.exclude(order__in=selected).delete()
+        existing = set(production_run.order_links.values_list("order_id", flat=True))
+        from .models import ProductionRunOrder
+        ProductionRunOrder.objects.bulk_create([
+            ProductionRunOrder(production_run=production_run, order=o)
+            for o in selected if o.pk not in existing
+        ])
+

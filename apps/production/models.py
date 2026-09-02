@@ -1,6 +1,6 @@
 from decimal import Decimal
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from core.models import BusinessOwnedModel, TimestampedModel
 
 
@@ -25,6 +25,7 @@ class Order(BusinessOwnedModel):
     CUSTOMER_PAYMENT_CHOICES = [("paid", "Received"), ("unpaid", "Receivable")]
 
     date = models.DateField()
+    order_number = models.PositiveBigIntegerField(editable=False)
     order_type = models.CharField(max_length=15, choices=TYPE_CHOICES, default="physical_store")
     production_destination = models.CharField(
         max_length=12, choices=DESTINATION_CHOICES, default="store",
@@ -62,10 +63,32 @@ class Order(BusinessOwnedModel):
 
     class Meta:
         ordering = ["-date", "-id"]
+        constraints = [
+            models.UniqueConstraint(fields=["business", "order_number"], name="unique_order_number_per_business"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.order_number is None:
+            if not self.business_id:
+                raise ValueError("Order business must be set before allocating a business order number.")
+            with transaction.atomic():
+                sequence, _ = OrderNumberSequence.raw_objects.select_for_update().get_or_create(
+                    business_id=self.business_id,
+                    defaults={"next_number": 1, "created_by_id": self.created_by_id},
+                )
+                self.order_number = sequence.next_number
+                sequence.next_number += 1
+                sequence.save(update_fields=["next_number", "updated_at"])
+                return super().save(*args, **kwargs)
+        return super().save(*args, **kwargs)
+
+    @property
+    def display_number(self):
+        return self.order_number or self.pk
 
     def __str__(self):
         who = self.customer_name if self.order_type in ("distribution", "online") else "Physical store"
-        return f"Order #{self.id} — {who}"
+        return f"Order #{self.display_number} — {who}"
 
     @property
     def total(self):
@@ -114,6 +137,24 @@ class Order(BusinessOwnedModel):
                     "short": needed - mat.stock,
                 })
         return result
+
+
+class OrderNumberSequence(BusinessOwnedModel):
+    """Per-business visible production-order sequence.
+
+    The database primary key remains global and is never reset for tenant
+    numbering. `next_number` controls only the human-facing Order # within a
+    business, which makes the sequence safe for multi-tenant operation.
+    """
+    next_number = models.PositiveBigIntegerField(default=1)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["business"], name="unique_order_number_sequence_per_business"),
+        ]
+
+    def __str__(self):
+        return f"{self.business} — next Order #{self.next_number}"
 
 
 class OrderItem(TimestampedModel):
@@ -188,7 +229,76 @@ class OrderMaterialUsage(BusinessOwnedModel):
         ]
 
     def __str__(self):
-        return f"Order #{self.order_id} — {self.raw_material.name}: {self.actual_quantity}"
+        return f"Order #{self.order.display_number} — {self.raw_material.name}: {self.actual_quantity}"
+
+
+class ProductionRun(BusinessOwnedModel):
+    """Optional parent production event spanning several customer/store orders.
+
+    A shared run coordinates several commercial Orders as one production
+    exercise. Each member Order keeps its own customer/channel/pricing and its
+    normal proportional recipe requirement. Approval aggregates those exact
+    requirements and releases the combined quantities together.
+    """
+    STATUS_CHOICES = [
+        ("draft", "Draft"),
+        ("approved", "Approved / in production"),
+        ("completed", "Completed"),
+    ]
+
+    date = models.DateField()
+    run_number = models.CharField(max_length=60)
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default="draft")
+    notes = models.TextField(blank=True, default="")
+    approved_date = models.DateField(null=True, blank=True)
+    completed_date = models.DateField(null=True, blank=True)
+    orders = models.ManyToManyField(Order, through="ProductionRunOrder", related_name="production_runs")
+
+    class Meta:
+        ordering = ["-date", "-id"]
+        constraints = [
+            models.UniqueConstraint(fields=["business", "run_number"], name="unique_production_run_number_per_business")
+        ]
+
+    def __str__(self):
+        return self.run_number
+
+
+class ProductionRunOrder(TimestampedModel):
+    production_run = models.ForeignKey(ProductionRun, on_delete=models.CASCADE, related_name="order_links")
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="production_run_links")
+
+    class Meta:
+        ordering = ["order_id"]
+        constraints = [
+            models.UniqueConstraint(fields=["order"], name="order_in_at_most_one_production_run")
+        ]
+
+    def __str__(self):
+        return f"{self.production_run.run_number} — Order #{self.order.display_number}"
+
+
+class ProductionRunMaterial(BusinessOwnedModel):
+    """Legacy shared-material override rows retained for migration/history.
+
+    New Shared Production Runs do not use run-level material substitution.
+    They aggregate each OrderItem's normal proportional recipe/input usage.
+    This model remains only so existing databases/history created by the older
+    shared-run design remain readable without destructive schema changes.
+    """
+    production_run = models.ForeignKey(ProductionRun, on_delete=models.CASCADE, related_name="shared_materials")
+    raw_material = models.ForeignKey("inventory.RawMaterial", on_delete=models.PROTECT, related_name="shared_production_runs")
+    planned_quantity = models.DecimalField(max_digits=14, decimal_places=4, default=0)
+    actual_quantity = models.DecimalField(max_digits=14, decimal_places=4, default=0)
+
+    class Meta:
+        ordering = ["raw_material__name"]
+        constraints = [
+            models.UniqueConstraint(fields=["production_run", "raw_material"], name="unique_shared_material_per_production_run")
+        ]
+
+    def __str__(self):
+        return f"{self.production_run.run_number} — {self.raw_material.name}: {self.actual_quantity}"
 
 
 class ProductionBatch(BusinessOwnedModel):
@@ -199,6 +309,7 @@ class ProductionBatch(BusinessOwnedModel):
     quality inspection and any customer/shelf movement that follows.
     """
     order = models.ForeignKey(Order, on_delete=models.PROTECT, related_name="production_batches")
+    production_run = models.ForeignKey("ProductionRun", null=True, blank=True, on_delete=models.SET_NULL, related_name="production_batches")
     order_item = models.ForeignKey(OrderItem, on_delete=models.PROTECT, related_name="production_batches")
     finished_good = models.ForeignKey("inventory.FinishedGood", on_delete=models.PROTECT, related_name="production_batches")
     production_date = models.DateField()

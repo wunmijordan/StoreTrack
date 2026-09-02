@@ -30,7 +30,7 @@
         <td class="px-3 py-2 text-right font-mono">{{ s.total|money:biz.currency_symbol }}</td>
         <td class="px-3 py-2">
           <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium border {% if s.source == 'online_order' %}bg-fuchsia-50 text-fuchsia-800 border-fuchsia-300{% elif s.source == 'distribution_order' %}bg-sky-50 text-sky-800 border-sky-300{% else %}bg-violet-50 text-violet-800 border-violet-300{% endif %}">{{ s.get_source_display }}</span>
-          {% if s.linked_order %}<a href="{% url 'order_detail' s.linked_order_id %}" class="block text-[10px] text-stone-400 hover:underline mt-0.5">Order #{{ s.linked_order_id }}</a>{% endif %}
+          {% if s.linked_order %}<a href="{% url 'order_detail' s.linked_order_id %}" class="block text-[10px] text-stone-400 hover:underline mt-0.5">Order #{{ s.linked_order.display_number }}</a>{% endif %}
         </td>
         <td class="px-3 py-2 text-xs">
           {% if s.source == 'distribution_order' or s.source == 'online_order' %}

@@ -133,6 +133,7 @@
     <thead class="bg-[#F0EAD9] text-stone-600 text-md text-middle"><tr>
       <th class="px-3 py-2">Product</th>
       <th class="px-3 py-2">Stock (Physical Store)</th>
+      <th class="px-3 py-2" title="Traceable planned-offcut pool currently represented in live finished-goods stock.">Uncommitted Offcut*</th>
       <th class="px-3 py-2">Customer Orders</th>
       <th class="px-3 py-2">Total Made</th>
       <!--<th class="px-3 py-2">Reorder at</th>-->
@@ -174,6 +175,15 @@
             </span>
           {% endif %}
         </td>
+        <td class="px-3 py-2 text-right">
+          {% with offcut=g.uncommitted_planned_offcut_stock %}
+          {% if offcut > 0 %}
+            <span class="inline-block px-2 py-0.5 rounded-full text-xs font-mono font-medium border bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/10" title="Planned customer-order offcut currently identifiable in general finished-goods stock. It remains available for a future sale or shortage reconciliation.">{{ offcut|num }} {{ g.unit }}</span>
+          {% else %}
+            <span class="text-xs text-stone-400">—</span>
+          {% endif %}
+          {% endwith %}
+        </td>
         <td class="px-3 py-2 text-right font-mono text-sky-700">{{ g.total_delivered_to_customers|num }}</td>
         <td class="px-3 py-2 text-right font-mono text-stone-500">{{ g.total_produced|num }}</td>
         <!--<td class="px-3 py-2 text-right font-mono text-stone-500">{{ g.reorder_level|num }}</td>-->
@@ -188,6 +198,7 @@
     </tbody>
   </table>
 </div>
+<p class="mt-2 text-[10px] text-stone-400">* Uncommitted Offcut is a traceable planned-offcut pool: retained offcut less explicit reconciliations, capped by current physical stock. Ordinary shelf sales are not yet lot-source tagged, so this is intentionally conservative rather than a separate stock balance.</p>
 {% endif %}
 </div>
 

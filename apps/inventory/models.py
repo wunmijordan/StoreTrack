@@ -147,6 +147,25 @@ class FinishedGood(BusinessOwnedModel):
             return False
         return self.stock <= (self.reorder_level * Decimal("1.5"))
 
+    @property
+    def uncommitted_planned_offcut_stock(self):
+        """Best currently-identifiable planned offcut still sitting in stock.
+
+        Planned offcut enters the same FinishedGood shelf balance as ordinary
+        stock, so later POS sales do not identify which source was consumed.
+        We therefore report a conservative traceable amount: unreversed
+        planned-offcut stock less explicit shortage reconciliations, capped by
+        the product's live physical stock.
+        """
+        # inventory() prefetches these relations; using .all() preserves that
+        # cache instead of issuing one query per FinishedGood row.
+        batches = [batch for batch in self.production_batches.all() if not batch.is_reversed]
+        retained = Decimal("0")
+        for batch in batches:
+            outgoing = sum((row.quantity for row in batch.reconciliation_out.all()), Decimal("0"))
+            retained += max(Decimal("0"), Decimal(batch.planned_surplus_stock_units or 0) - outgoing)
+        return min(max(Decimal("0"), Decimal(self.stock or 0)), retained)
+
     def selling_price_for(self, channel, customer=None):
         """Resolve the selling price in this order:
         customer-specific price -> channel price -> legacy/default price.

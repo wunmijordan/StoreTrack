@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% load core_extras %}
+{% block content %}
+<div class="flex flex-wrap justify-between gap-3 mb-4">
+  <div>
+    <h2 class="text-xl font-semibold font-display text-[#8f172d]">Shared Run {{ run.run_number }}</h2>
+    <p class="text-sm text-stone-500">{{ run.date }} · {{ run.get_status_display }}</p>
+  </div>
+  <div class="flex flex-wrap gap-2">
+    {% if run.status == 'draft' %}
+      <a href="{% url 'production_run_edit' run.pk %}" class="px-3 py-2 text-sm rounded-md border border-[#D9CFB4]">Attach / remove existing orders</a>
+      <a href="{% url 'order_add' %}?run={{ run.pk }}" class="px-3 py-2 text-sm rounded-md bg-sky-700 text-white">+ Add New Customer Order</a>
+    {% endif %}
+    <a href="{% url 'production_runs' %}" class="px-3 py-2 text-sm text-stone-500">All runs</a>
+  </div>
+</div>
+
+<div class="rounded-lg border border-sky-200 bg-sky-50 p-4 mb-4 text-sm text-sky-900">
+  <b>Several commercial orders, one coordinated production approval.</b> Every order keeps its customer, channel, selling price, requested quantity and optional production target. Raw materials are still calculated proportionally from the registered product recipe: for example, 50 pieces from a 110-piece batch uses 50/110 of each configured batch input. The run only combines those requirements before release.
+</div>
+
+{% if plan_errors %}<div class="rounded-md border border-rose-200 bg-rose-50 p-3 mb-4 text-sm text-rose-700">{% for e in plan_errors %}<div>{{ e }}</div>{% endfor %}</div>{% endif %}
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+  <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg overflow-hidden">
+    <div class="px-4 py-3 bg-[#F0EAD9] font-semibold text-stone-700 flex justify-between"><span>Member orders & outputs</span><span class="text-xs font-normal">{{ run.orders.count }} order{{ run.orders.count|pluralize }}</span></div>
+    <div class="divide-y divide-[#E7DFCC]">
+      {% for o in run.orders.all %}
+        <div class="p-3">
+          <div class="flex justify-between gap-3"><a class="text-[#8f172d] font-medium hover:underline" href="{% url 'order_detail' o.pk %}">Order #{{ o.display_number }}</a><span class="text-xs">{{ o.get_order_type_display }} · {{ o.get_status_display }}</span></div>
+          <div class="text-xs text-stone-500 mt-1">{% if o.order_type == 'physical_store' %}Physical Store{% else %}{{ o.customer_name|default:'Unspecified customer' }}{% endif %}</div>
+          {% for i in o.items.all %}<div class="text-sm mt-1">{{ i.finished_good.name }} — requested {{ i.total_units|num }}, production target {{ i.production_total_units|num }}</div>{% endfor %}
+          {% if run.status == 'approved' and o.status == 'approved' %}<a href="{% url 'order_complete' o.pk %}" class="inline-block mt-2 text-xs px-2.5 py-1.5 rounded bg-[#8f172d] text-white">Complete this order's outputs</a>{% endif %}
+        </div>
+      {% empty %}
+        <div class="p-4 text-sm text-stone-500">No orders attached yet. Add existing Pending orders or create a new customer order directly in this run.</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg overflow-hidden">
+    <div class="px-4 py-3 bg-[#F0EAD9]"><div class="font-semibold text-stone-700">Calculated raw-material release</div><div class="text-xs text-stone-500 mt-0.5">Combined proportional requirement from all member order items.</div></div>
+    <table class="w-full text-sm"><thead><tr><th class="px-3 py-2 text-left">Material</th><th class="px-3 py-2 text-right">Quantity</th></tr></thead><tbody>
+      {% for s in material_summary %}<tr class="border-t border-[#E7DFCC]"><td class="px-3 py-2">{{ s.material.name }}</td><td class="px-3 py-2 text-right font-mono font-semibold">{{ s.quantity|num }} {{ s.material.usage_unit }}</td></tr>{% empty %}<tr class="border-t border-[#E7DFCC]"><td colspan="2" class="px-3 py-4 text-center text-stone-400">{% if run.status == 'draft' %}Attach orders to calculate requirements.{% else %}Material release was recorded at approval.{% endif %}</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+</div>
+
+{% if run.status == 'draft' and flexible_usages %}
+<div class="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+  <h3 class="text-sm font-semibold text-amber-900">Flexible recipe usage for this run</h3>
+  <p class="text-xs text-amber-700 mt-1 mb-2">These are the same flexible recipe controls used by individual order approval. Any override is applied to that product/order's own proportional multiplier.</p>
+  {% for row in flexible_usages %}<div class="grid grid-cols-[1fr_10rem] gap-3 border-t border-amber-200 py-2 items-end"><div class="text-xs"><b>Order #{{ row.item.order.display_number }} · {{ row.good.name }}</b> · {{ row.material.name }} · recipe {{ row.planned_per_batch|num }} {{ row.usage_unit }}/batch</div><label class="text-[10px]">Actual / batch<input form="approve-run-form" type="number" min="0" step="0.01" name="{{ row.input_name }}" value="{{ row.actual_per_batch }}" class="w-full rounded border border-amber-300 px-2 py-1"></label></div>{% endfor %}
+</div>
+{% endif %}
+
+{% if shortages %}<div class="bg-rose-50 border border-rose-200 rounded-lg p-4 mb-4 text-sm text-rose-700"><b>Insufficient raw material for this combined release:</b>{% for s in shortages %}<div>{{ s.name }} — needs {{ s.needed|num }} {{ s.usage_unit }}, has {{ s.have|num }}, short {{ s.short|num }}</div>{% endfor %}</div>{% endif %}
+
+{% if run.production_batches.all %}<div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg p-4 mb-4"><h3 class="font-semibold text-stone-700 mb-2">Output batches linked to this run</h3>{% for b in run.production_batches.all %}<div class="text-sm border-t border-[#E7DFCC] py-2"><a class="text-[#8f172d] hover:underline" href="{% url 'production_batch_detail' b.pk %}">{{ b.batch_number }}</a> · {{ b.finished_good.name }} · saleable {{ b.saleable_units|num }} · Order #{{ b.order.display_number }}</div>{% endfor %}</div>{% endif %}
+
+<div class="flex flex-wrap gap-2">
+{% if run.status == 'draft' %}
+  <form id="approve-run-form" method="post" action="{% url 'production_run_approve' run.pk %}">{% csrf_token %}<button class="px-3.5 py-2 rounded-md bg-[#8f172d] text-white text-sm font-medium">Approve Run — release combined materials</button></form>
+  {% if confirm_approve %}<form method="post" action="{% url 'production_run_approve' run.pk %}">{% csrf_token %}<input type="hidden" name="force" value="1">{% for row in flexible_usages %}<input type="hidden" name="{{ row.input_name }}" value="{{ row.actual_per_batch }}">{% endfor %}<button class="px-3.5 py-2 rounded-md bg-rose-600 text-white text-sm">Approve anyway (allow negative raw stock)</button></form>{% endif %}
+  <form method="post" action="{% url 'production_run_delete' run.pk %}" onsubmit="return confirm('Delete this draft production run? Orders themselves will remain.');">{% csrf_token %}<button class="px-3.5 py-2 text-sm text-stone-500">Delete draft</button></form>
+{% endif %}
+</div>
+{% endblock %}

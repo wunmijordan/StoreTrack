@@ -10,8 +10,8 @@ from django.utils.crypto import get_random_string
 
 from procurement.models import RawMaterialCostSnapshot
 
-from .forms import OrderForm, OrderItemFormSet, ProductionCompletionForm, ProductionQualityCheckForm, ProductionReconciliationForm
-from .models import Order, OrderItem, OrderMaterialUsage, ProductionBatch, ProductionBatchReconciliation, ProductionQualityCheck, ProductionCostSnapshot, ProductionCostLine
+from .forms import (OrderForm, OrderItemFormSet, ProductionCompletionForm, ProductionQualityCheckForm, ProductionReconciliationForm, ProductionRunForm)
+from .models import (Order, OrderNumberSequence, OrderItem, OrderMaterialUsage, ProductionBatch, ProductionBatchReconciliation, ProductionQualityCheck, ProductionCostSnapshot, ProductionCostLine, ProductionRun)
 from sales.models import CustomerProductPrice
 from inventory.models import FinishedGood
 from inventory.services import (
@@ -21,17 +21,31 @@ from inventory.services import (
 from inventory.models import StockMovement
 from core.invoice import production_order_pdf
 from core.services import record_cash, audit
-from core.models import FinancialTransaction
+from core.models import Business, FinancialTransaction
+from accounts.services import is_business_admin
 
 
 def today():
     return timezone.localdate()
 
 
+def _can_reset_order_numbering(request):
+    return request.user.is_superuser or is_business_admin(request.user, request.business)
+
+
 @login_required
 def orders_list(request):
     orders = Order.objects.prefetch_related("items__finished_good")
-    return render(request, "production/orders_list.html", {"orders": orders})
+    current_business_empty = not Order.raw_objects.filter(business=request.business).exists()
+    can_reset_current_business_numbering = (
+        _can_reset_order_numbering(request) and current_business_empty
+    )
+    return render(request, "production/orders_list.html", {
+        "orders": orders,
+        "can_reset_current_business_numbering": can_reset_current_business_numbering,
+        "can_global_reset_order_numbering": request.user.is_superuser and not Order.raw_objects.exists(),
+        "numbering_businesses": Business.objects.order_by("name", "id") if request.user.is_superuser else [],
+    })
 
 
 def _price_map():
@@ -67,6 +81,13 @@ def order_form(request, pk=None):
     if obj and obj.status != "pending":
         messages.error(request, "Only pending orders can be edited.")
         return redirect("order_detail", pk=obj.pk)
+    run_id = request.POST.get("production_run_id") or request.GET.get("run")
+    target_run = None
+    if run_id and not obj:
+        target_run = get_object_or_404(ProductionRun, pk=run_id, status="draft")
+        if target_run.business_id != request.business.id:
+            messages.error(request, "That Shared Production Run belongs to another business.")
+            return redirect("production_runs")
     if request.method == "POST":
         form = OrderForm(request.POST, instance=obj)
         store_replenishment = (
@@ -135,9 +156,19 @@ def order_form(request, pk=None):
                 item.save()
             for deleted in formset.deleted_objects:
                 deleted.delete()
+            if target_run and obj is None:
+                target_run.order_links.create(order=order)
+                audit(
+                    request.business, request.user, "attach", target_run,
+                    f"Order #{order.display_number} created inside shared production run {target_run.run_number}",
+                    {"order_id": order.pk},
+                )
             # Cash is recorded only when the completed customer order creates
             # its Sale record. This prevents an order from counting the same
             # payment twice (once at order creation and again at completion).
+            if target_run and obj is None:
+                messages.success(request, f"Order #{order.display_number} added to shared production run {target_run.run_number}.")
+                return redirect("production_run_detail", pk=target_run.pk)
             messages.success(request, "Order updated." if obj else "Order created — approve it from the Orders page when ready.")
             return redirect("order_detail", pk=order.pk)
     else:
@@ -150,7 +181,53 @@ def order_form(request, pk=None):
             order_type=(obj.order_type if obj else "distribution"),
         )
     prices = _price_map()
-    return render(request, "production/order_form.html", {"form": form, "formset": formset, "prices": prices, "obj": obj})
+    return render(request, "production/order_form.html", {"form": form, "formset": formset, "prices": prices, "obj": obj, "target_run": target_run})
+
+
+@login_required
+def order_recreate(request, pk):
+    source = get_object_or_404(Order.objects.prefetch_related("items__finished_good"), pk=pk)
+    if request.method != "POST":
+        return redirect("order_detail", pk=pk)
+    if source.status != "reversed":
+        messages.error(request, "Only an already-reversed order can be copied into a new editable order.")
+        return redirect("order_detail", pk=pk)
+
+    with transaction.atomic():
+        new_order = Order.objects.create(
+            business=source.business, created_by=request.user, date=today(),
+            order_type=source.order_type,
+            production_destination=source.production_destination,
+            non_stock_purpose=source.non_stock_purpose,
+            customer=source.customer, customer_name=source.customer_name,
+            customer_region=source.customer_region, customer_group=source.customer_group,
+            transaction_type=source.transaction_type,
+            customer_payment_status=source.customer_payment_status,
+            customer_payment_method=source.customer_payment_method,
+            customer_payment_account=source.customer_payment_account,
+            unpaid_description=source.unpaid_description,
+            payment_method=source.payment_method, account=source.account,
+            status="pending", notes=source.notes,
+        )
+        for item in source.items.select_related("finished_good"):
+            OrderItem.objects.create(
+                order=new_order, finished_good=item.finished_good,
+                batch_qty=item.batch_qty, piece_qty=item.piece_qty,
+                production_batch_qty=item.production_batch_qty,
+                production_piece_qty=item.production_piece_qty,
+                discount=item.discount,
+                price=item.finished_good.selling_price_for(source.order_type, source.customer),
+            )
+        audit(
+            source.business, request.user, "recreate", new_order,
+            f"Pending order #{new_order.display_number} created from reversed order #{source.display_number}",
+            {"source_order_id": source.pk},
+        )
+    messages.success(
+        request,
+        f"Created Pending order #{new_order.display_number} from reversed order #{source.display_number}. Review and edit it before saving/approval; it can also be added to a draft Shared Production Run.",
+    )
+    return redirect("order_edit", pk=new_order.pk)
 
 
 def _material_release_plan(order, post_data=None):
@@ -231,13 +308,213 @@ def _material_release_plan(order, post_data=None):
     return flexible_rows, usage_entries, aggregated, errors
 
 
+def _shared_run_release_plan(production_run, post_data=None):
+    """Aggregate the normal proportional material release of member orders.
+
+    A Shared Production Run is a coordination wrapper, not a different recipe
+    engine. Each OrderItem keeps the exact same batch/piece multiplier used by
+    individual approval (e.g. 50 of a 110-piece batch releases 50/110 of every
+    registered batch ingredient/input). The run simply sums those real
+    requirements and releases them together once.
+    """
+    flexible_rows = []
+    usage_entries = []
+    aggregated = {}
+    errors = []
+
+    for order in production_run.orders.all().prefetch_related(
+        "items__finished_good__recipe_items__raw_material",
+        "items__finished_good__production_materials__raw_material",
+    ):
+        order_flexible, order_entries, order_aggregated, order_errors = _material_release_plan(
+            order, post_data
+        )
+        flexible_rows.extend(order_flexible)
+        usage_entries.extend(order_entries)
+        errors.extend(order_errors)
+        for mat_id, (mat, qty) in order_aggregated.items():
+            current = aggregated.get(mat_id)
+            if current:
+                current[1] += qty
+            else:
+                aggregated[mat_id] = [mat, Decimal(qty)]
+
+    material_summary = [
+        {"material": mat, "quantity": qty}
+        for mat, qty in sorted(
+            aggregated.values(), key=lambda pair: pair[0].name.lower()
+        )
+    ]
+    return flexible_rows, usage_entries, aggregated, material_summary, errors
+
+
+@login_required
+def production_runs(request):
+    runs = ProductionRun.objects.prefetch_related(
+        "orders__customer", "orders__items__finished_good"
+    )
+    return render(request, "production/runs_list.html", {"runs": runs})
+
+
+@login_required
+def production_run_form(request, pk=None):
+    run = get_object_or_404(ProductionRun, pk=pk) if pk else None
+    if run and run.status != "draft":
+        messages.error(request, "Only draft production runs can be edited.")
+        return redirect("production_run_detail", pk=run.pk)
+    instance = run or ProductionRun(business=request.business)
+    if request.method == "POST":
+        form = ProductionRunForm(request.POST, instance=instance)
+        if form.is_valid():
+            with transaction.atomic():
+                obj = form.save(commit=False)
+                obj.business = request.business
+                if not obj.pk:
+                    obj.created_by = request.user
+                obj.save()
+                form.save_order_links(obj)
+                audit(
+                    request.business, request.user, "save", obj,
+                    f"Shared production run {obj.run_number} saved",
+                    {"orders": list(obj.orders.values_list("pk", flat=True))},
+                )
+            messages.success(
+                request,
+                "Shared production run saved. Add any new customer orders to the run, then approve the run when its order mix is ready.",
+            )
+            return redirect("production_run_detail", pk=obj.pk)
+    else:
+        initial = {}
+        if not run:
+            initial = {"date": today(), "run_number": f"RUN-{today().strftime('%y%m%d')}-{get_random_string(4).upper()}"}
+        form = ProductionRunForm(instance=instance, initial=initial)
+    return render(request, "production/run_form.html", {"form": form, "run": run})
+
+
+@login_required
+def production_run_detail(request, pk):
+    run = get_object_or_404(ProductionRun.objects.prefetch_related(
+        "orders__customer", "orders__items__finished_good",
+        "production_batches__finished_good",
+    ), pk=pk)
+    flexible_rows = []
+    shortages = []
+    plan_errors = []
+    material_summary = []
+    if run.status == "draft":
+        flexible_rows, _entries, aggregated, material_summary, plan_errors = _shared_run_release_plan(run)
+        for mat, needed in aggregated.values():
+            if needed > mat.stock:
+                shortages.append({
+                    "name": mat.name, "category": mat.get_category_display(), "usage_unit": mat.usage_unit,
+                    "needed": needed, "have": mat.stock, "short": needed - mat.stock,
+                })
+    else:
+        released = {}
+        usages = OrderMaterialUsage.objects.filter(order__production_runs=run).select_related("raw_material")
+        for usage in usages:
+            row = released.setdefault(usage.raw_material_id, [usage.raw_material, Decimal("0")])
+            row[1] += usage.actual_quantity
+        material_summary = [
+            {"material": mat, "quantity": qty}
+            for mat, qty in sorted(released.values(), key=lambda pair: pair[0].name.lower())
+        ]
+    return render(request, "production/run_detail.html", {
+        "run": run, "flexible_usages": flexible_rows, "shortages": shortages,
+        "plan_errors": plan_errors, "material_summary": material_summary,
+    })
+
+
+@login_required
+def production_run_approve(request, pk):
+    run = get_object_or_404(ProductionRun, pk=pk)
+    if request.method != "POST" or run.status != "draft":
+        return redirect("production_run_detail", pk=pk)
+    force = request.POST.get("force") == "1"
+    orders = list(run.orders.all())
+    if len(orders) < 2:
+        messages.error(request, "A shared production run needs at least two pending orders. Add another existing or new customer/store order before approval.")
+        return redirect("production_run_detail", pk=pk)
+    if any(o.status != "pending" for o in orders):
+        messages.error(request, "Every member order must still be Pending when the shared run is approved.")
+        return redirect("production_run_detail", pk=pk)
+
+    flexible_rows, usage_entries, aggregated, material_summary, errors = _shared_run_release_plan(run, request.POST)
+    if errors:
+        for error in errors:
+            messages.error(request, error)
+        return render(request, "production/run_detail.html", {
+            "run": run, "flexible_usages": flexible_rows, "shortages": [],
+            "plan_errors": errors, "material_summary": material_summary,
+        })
+    shortages = []
+    for mat, needed in aggregated.values():
+        if needed > mat.stock:
+            shortages.append({
+                "name": mat.name, "category": mat.get_category_display(), "usage_unit": mat.usage_unit,
+                "needed": needed, "have": mat.stock, "short": needed - mat.stock,
+            })
+    if shortages and not force:
+        return render(request, "production/run_detail.html", {
+            "run": run, "flexible_usages": flexible_rows, "shortages": shortages,
+            "confirm_approve": True, "plan_errors": [], "material_summary": material_summary,
+        })
+
+    with transaction.atomic():
+        locked_run = ProductionRun.objects.select_for_update().get(pk=run.pk)
+        if locked_run.status != "draft":
+            return redirect("production_run_detail", pk=pk)
+        locked_orders = list(Order.objects.select_for_update().filter(pk__in=[o.pk for o in orders]))
+        if any(o.status != "pending" for o in locked_orders):
+            messages.error(request, "A member order changed status before the run could be approved.")
+            return redirect("production_run_detail", pk=pk)
+        for entry in usage_entries:
+            OrderMaterialUsage.objects.create(business=run.business, created_by=request.user, **entry)
+        for mat, needed in aggregated.values():
+            material_cost, _ = _latest_material_cost(mat, run.date)
+            record_raw_material_movement(
+                mat, -needed, StockMovement.RAW_CONSUMPTION,
+                note=f"Materials released for shared production run {run.run_number}",
+                reference=f"RUN-{run.pk}", unit_value=material_cost,
+            )
+        approved_date = today()
+        Order.objects.filter(pk__in=[o.pk for o in locked_orders]).update(status="approved", approved_date=approved_date)
+        locked_run.status = "approved"
+        locked_run.approved_date = approved_date
+        locked_run.save(update_fields=["status", "approved_date", "updated_at"])
+        audit(run.business, request.user, "approve", run, f"Shared production run {run.run_number} approved", {
+            "orders": [o.pk for o in locked_orders],
+            "material_release": [
+                {"material": x["material"].name, "quantity": str(x["quantity"])}
+                for x in material_summary
+            ],
+        })
+    messages.success(request, "Shared run approved — each member order's proportional recipe/input quantities were combined and released in one coordinated approval. Member orders are ready for completion.")
+    return redirect("production_run_detail", pk=pk)
+
+
+@login_required
+def production_run_delete(request, pk):
+    run = get_object_or_404(ProductionRun, pk=pk)
+    if request.method == "POST" and run.status == "draft":
+        run_number = run.run_number
+        run.delete()
+        audit(request.business, request.user, "delete", None, f"Draft shared production run {run_number} deleted")
+        messages.success(request, "Draft production run removed.")
+        return redirect("production_runs")
+    messages.error(request, "Only a draft shared production run can be deleted.")
+    return redirect("production_run_detail", pk=pk)
+
+
 @login_required
 def order_detail(request, pk):
     order = get_object_or_404(Order.objects.select_related("customer"), pk=pk)
-    shortages = order.shortages() if order.status == "pending" else []
-    flexible_usages = _material_release_plan(order)[0] if order.status == "pending" else []
+    run_link = order.production_run_links.select_related("production_run").first()
+    in_draft_run = bool(run_link and run_link.production_run.status == "draft")
+    shortages = order.shortages() if order.status == "pending" and not in_draft_run else []
+    flexible_usages = _material_release_plan(order)[0] if order.status == "pending" and not in_draft_run else []
     batches = order.production_batches.select_related("finished_good").prefetch_related("quality_check")
-    return render(request, "production/order_detail.html", {"order": order, "shortages": shortages, "batches": batches, "flexible_usages": flexible_usages})
+    return render(request, "production/order_detail.html", {"order": order, "shortages": shortages, "batches": batches, "flexible_usages": flexible_usages, "production_run": run_link.production_run if run_link else None})
 
 
 @login_required
@@ -245,6 +522,10 @@ def order_approve(request, pk):
     order = get_object_or_404(Order, pk=pk)
     if request.method != "POST" or order.status != "pending":
         return redirect("order_detail", pk=pk)
+    run_link = order.production_run_links.select_related("production_run").first()
+    if run_link and run_link.production_run.status == "draft":
+        messages.error(request, f"Order #{order.display_number} belongs to shared production run {run_link.production_run.run_number}. Approve the run so all member orders are released together from their proportional recipe requirements.")
+        return redirect("production_run_detail", pk=run_link.production_run_id)
     force = request.POST.get("force") == "1"
     flexible_usages, usage_entries, aggregated, errors = _material_release_plan(order, request.POST)
     if errors:
@@ -278,12 +559,12 @@ def order_approve(request, pk):
             material_cost, _ = _latest_material_cost(mat, order.date)
             record_raw_material_movement(
                 mat, -needed, StockMovement.RAW_CONSUMPTION,
-                note=f"Materials released for order #{order.pk}", reference=f"PROD-{order.pk}", unit_value=material_cost,
+                note=f"Materials released for order #{order.display_number}", reference=f"PROD-{order.pk}", unit_value=material_cost,
             )
         order.status = "approved"
         order.approved_date = today()
         order.save()
-        audit(request.business, request.user, "approve", order, f"Order #{order.pk} approved", {
+        audit(request.business, request.user, "approve", order, f"Order #{order.display_number} approved", {
             "flexible_materials": [
                 {"product": r["good"].name, "material": r["material"].name, "qty_per_batch": str(r["actual_per_batch"])}
                 for r in flexible_usages
@@ -299,7 +580,7 @@ def order_reject(request, pk):
     if request.method == "POST" and order.status == "pending":
         order.status = "rejected"
         order.save()
-        audit(request.business, request.user, "reject", order, f"Order #{order.pk} rejected")
+        audit(request.business, request.user, "reject", order, f"Order #{order.display_number} rejected")
         messages.success(request, "Order rejected.")
     return redirect("orders_list")
 
@@ -360,6 +641,8 @@ def order_complete(request, pk):
         return redirect("orders_list")
 
     items = list(order.items.select_related("finished_good"))
+    run_link = order.production_run_links.select_related("production_run").first()
+    production_run = run_link.production_run if run_link and run_link.production_run.status in ("approved", "completed") else None
     completion_forms = []
     channel_code = {
         "physical_store": "P",
@@ -400,6 +683,7 @@ def order_complete(request, pk):
                         business=order.business,
                         created_by=request.user,
                         order=order,
+                        production_run=production_run,
                         order_item=item,
                         finished_good=item.finished_good,
                         production_date=order.completed_date,
@@ -482,7 +766,7 @@ def order_complete(request, pk):
                     if planned_surplus_stock > 0:
                         record_finished_good_movement(
                             good, planned_surplus_stock, StockMovement.FG_PRODUCTION,
-                            note=f"Planned customer-order offcut retained in Physical Store stock — batch {batch.batch_number}",
+                            note=f"Uncommitted planned offcut retained in general finished-goods stock — batch {batch.batch_number}",
                             reference=batch.batch_number, affects_stock=True, unit_value=snapshot.unit_cost,
                         )
 
@@ -498,7 +782,7 @@ def order_complete(request, pk):
                             business=order.business, date=order.completed_date,
                             customer=customer.name, customer_master=customer,
                             transaction_type="unpaid",
-                            unpaid_description=f"Planned production offcut from order #{order.pk} — receivable",
+                            unpaid_description=f"Planned production offcut from order #{order.display_number} — receivable",
                             account=None, payment_method="Transfer",
                             source=f"{channel}_order", linked_order=order, created_by=request.user,
                         )
@@ -536,6 +820,12 @@ def order_complete(request, pk):
 
                 order.status = "completed"
                 order.save(update_fields=["status", "completed_date", "updated_at"])
+                if production_run:
+                    member_statuses = list(production_run.orders.values_list("status", flat=True))
+                    if member_statuses and all(status == "completed" for status in member_statuses):
+                        production_run.status = "completed"
+                        production_run.completed_date = order.completed_date
+                        production_run.save(update_fields=["status", "completed_date", "updated_at"])
 
                 if order.order_type in ("distribution", "online"):
                     from sales.models import Sale, SaleItem
@@ -566,11 +856,11 @@ def order_complete(request, pk):
                         record_cash(
                             request.business, request.user, date=sale.date, amount=sale.total,
                             transaction_type=FinancialTransaction.INCOME, category="Customer order payment",
-                            description=f"Payment received for order #{order.pk}", payment_method=sale.payment_method,
+                            description=f"Payment received for order #{order.display_number}", payment_method=sale.payment_method,
                             reference=f"ORDER-{order.pk}", account=order.customer_payment_account,
                         )
                 audit(
-                    order.business, request.user, "complete", order, f"Order #{order.pk} completed",
+                    order.business, request.user, "complete", order, f"Order #{order.display_number} completed",
                     {
                         "channel": order.order_type,
                         "customer_payment_status": order.customer_payment_status if order.order_type in ("distribution", "online") else None,
@@ -618,7 +908,7 @@ def production_batches(request):
 def production_batch_detail(request, pk):
     batch = get_object_or_404(
         ProductionBatch.objects.select_related(
-            "finished_good", "order", "order_item", "order__customer", "quality_check"
+            "finished_good", "order", "order_item", "order__customer", "quality_check", "production_run"
         ).prefetch_related(
             "cost_snapshots__lines__raw_material",
             "sale_items__sale",
@@ -782,14 +1072,14 @@ def order_reverse(request, pk):
             raw_totals.setdefault(usage.raw_material_id, [usage.raw_material, Decimal("0")])[1] += usage.actual_quantity
         for material, qty in raw_totals.values():
             if qty > 0:
-                record_raw_material_movement(material, qty, StockMovement.ADJUSTMENT, note=f"Reversal of raw-material release for order #{order.pk}", reference=f"REV-ORDER-{order.pk}")
+                record_raw_material_movement(material, qty, StockMovement.ADJUSTMENT, note=f"Reversal of raw-material release for order #{order.display_number}", reference=f"REV-ORDER-{order.pk}")
         for batch in order.production_batches.select_for_update().select_related("finished_good"):
             good = batch.finished_good
             remove_from_stock = batch.planned_surplus_stock_units + batch.excess_stock_units
             if order.order_type == "physical_store" and order.production_destination == "store":
                 remove_from_stock += min(batch.saleable_units, batch.planned_units)
             if remove_from_stock > 0:
-                record_finished_good_movement(good, -remove_from_stock, StockMovement.ADJUSTMENT, note=f"Reversal of finished-good stock from order #{order.pk} — batch {batch.batch_number}", reference=f"REV-{batch.batch_number}", affects_stock=True, unit_value=batch.unit_cost)
+                record_finished_good_movement(good, -remove_from_stock, StockMovement.ADJUSTMENT, note=f"Reversal of finished-good stock from order #{order.display_number} — batch {batch.batch_number}", reference=f"REV-{batch.batch_number}", affects_stock=True, unit_value=batch.unit_cost)
             good.total_produced = max(Decimal("0"), Decimal(good.total_produced or 0) - batch.saleable_units)
             delivered = Decimal("0")
             if order.order_type in ("distribution", "online"):
@@ -814,8 +1104,14 @@ def order_reverse(request, pk):
         order.reversed_by = request.user
         order.reversed_reason = reason
         order.save(update_fields=["status", "reversed_at", "reversed_by", "reversed_reason", "updated_at"])
-        audit(order.business, request.user, "reverse", order, f"Completed order #{order.pk} reversed", {"reason": reason})
-    messages.success(request, "Order reversed. Raw materials and reversible stock/cash effects have been restored. The reversed order can now be deleted if you no longer need it.")
+        run_link = order.production_run_links.select_related("production_run").first()
+        if run_link and run_link.production_run.status == "completed":
+            linked_run = run_link.production_run
+            linked_run.status = "approved"
+            linked_run.completed_date = None
+            linked_run.save(update_fields=["status", "completed_date", "updated_at"])
+        audit(order.business, request.user, "reverse", order, f"Completed order #{order.display_number} reversed", {"reason": reason})
+    messages.success(request, "Order reversed. Raw materials and reversible stock/cash effects have been restored. You can keep it for history, edit it as a new Pending order, or permanently delete the reversed record.")
     return redirect("order_detail", pk=pk)
 
 
@@ -825,14 +1121,77 @@ def order_delete(request, pk):
     if request.method == "POST" and order.status in ("pending", "rejected", "reversed"):
         if order.status == "reversed":
             deleted_id = order.pk
+            deleted_number = order.display_number
             reason = order.reversed_reason
             order.production_batches.all().delete()
             order.cost_snapshots.all().delete()
-            audit(order.business, request.user, "delete", None, f"Reversed order #{deleted_id} permanently deleted", {"order_id": deleted_id, "reversal_reason": reason})
+            audit(order.business, request.user, "delete", None, f"Reversed order #{deleted_number} permanently deleted", {"order_id": deleted_id, "reversal_reason": reason})
         order.delete()
         messages.success(request, "Removed.")
     else:
         messages.error(request, "Only pending, rejected, or already-reversed orders can be deleted.")
+    return redirect("orders_list")
+
+
+@login_required
+def reset_order_numbering(request):
+    """Reset the human-facing Order # sequence, never the database PK.
+
+    Business Admins may reset only their own business and only when that
+    business has no remaining Order rows. A superuser may do the same for a
+    selected business, or reset every business sequence when the entire Order
+    table is empty. Users, inventory, finance and all other data are untouched.
+    """
+    if request.method != "POST":
+        return redirect("orders_list")
+
+    scope = request.POST.get("scope", "business")
+    if scope == "global":
+        if not request.user.is_superuser:
+            messages.error(request, "Only the global superuser can reset all business order-number sequences.")
+            return redirect("orders_list")
+        if Order.raw_objects.exists():
+            messages.error(request, "A global numbering reset is only allowed when there are no production orders in any business.")
+            return redirect("orders_list")
+        businesses = list(Business.objects.all())
+        with transaction.atomic():
+            OrderNumberSequence.raw_objects.all().delete()
+            for business in businesses:
+                audit(
+                    business, request.user, "reset_sequence", None,
+                    "Global production order numbering reset; this business's next visible Order will start from #1.",
+                    {"model": "production.Order", "scope": "global", "business_id": business.pk},
+                )
+        messages.success(request, "All business Order # sequences were reset. Each business will start its next Order from #1. Database IDs and all other data were left unchanged.")
+        return redirect("orders_list")
+
+    if request.user.is_superuser:
+        business_id = request.POST.get("business_id") or request.business.pk
+        target_business = get_object_or_404(Business, pk=business_id)
+    else:
+        if not is_business_admin(request.user, request.business):
+            messages.error(request, "Only the Business Admin or global superuser can reset order numbering.")
+            return redirect("orders_list")
+        target_business = request.business
+
+    if Order.raw_objects.filter(business=target_business).exists():
+        messages.error(request, f"{target_business.name}'s numbering can only be reset after all of that business's production orders have been deleted.")
+        return redirect("orders_list")
+
+    with transaction.atomic():
+        sequence, created = OrderNumberSequence.raw_objects.update_or_create(
+            business=target_business,
+            defaults={"next_number": 1},
+        )
+        if created and sequence.created_by_id is None:
+            sequence.created_by = request.user
+            sequence.save(update_fields=["created_by", "updated_at"])
+        audit(
+            target_business, request.user, "reset_sequence", None,
+            "Business production order numbering reset; the next visible Order will start from #1.",
+            {"model": "production.Order", "scope": "business", "business_id": target_business.pk},
+        )
+    messages.success(request, f"{target_business.name}'s Order # sequence was reset. Its next Order will be #1. Other businesses and all other data were left unchanged.")
     return redirect("orders_list")
 
 @login_required

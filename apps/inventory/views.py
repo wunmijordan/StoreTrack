@@ -74,7 +74,10 @@ def operational_supply_dispense(request):
 def inventory(request):
     return render(request, "inventory/inventory.html", {
         "raw_materials": RawMaterial.objects.all(),
-        "finished_goods": FinishedGood.objects.all(),
+        "finished_goods": FinishedGood.objects.prefetch_related(
+            "production_batches__reconciliation_out",
+            "recipe_items", "production_materials",
+        ),
     })
 
 

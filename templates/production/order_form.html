@@ -7,6 +7,12 @@
   {% endif %}
   <form method="post" id="order-form">
     {% csrf_token %}
+    {% if target_run %}
+      <input type="hidden" name="production_run_id" value="{{ target_run.pk }}">
+      <div class="mb-3 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900">
+        <b>Adding a new order to Shared Run {{ target_run.run_number }}.</b> Create this order exactly as you normally would. Its customer, channel, quantities, pricing and production plan remain independent; saving it returns you to the Shared Run.
+      </div>
+    {% endif %}
     <div class="flex gap-2 mb-3">
       <label class="flex-1">
         <input type="radio" name="order_type" value="distribution" class="hidden peer" {% if form.order_type.value == 'distribution' or not form.order_type.value %}checked{% endif %} onchange="toggleOrderType()">

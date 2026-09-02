@@ -135,6 +135,67 @@ and product and immediately see the applicable unit price: **customer-specific
 price → exact channel price → product default**. The saved order retains that
 resolved price as a historical snapshot.
 
+## Shared production runs (multi-customer / multi-product)
+
+StoreTrack supports an optional `ProductionRun` above ordinary production
+orders for bakery-style planning where several customer/store orders are
+produced together in one coordinated exercise.
+
+A Shared Run is **not a second recipe engine** and it does not assume that each
+member order consumes a full standard batch. Every `OrderItem` keeps the same
+proportional recipe logic used by ordinary approval. For example, if FAO Mini
+Loaves yields 110 pieces from one registered batch recipe and an order requires
+50 pieces, that order contributes `50 / 110` of each configured batch ingredient
+and production input. A second order contributes its own exact fraction. The
+Shared Run simply sums those normal requirements and releases the combined
+stock in one approval.
+
+The run can be assembled in either direction:
+
+1. create a Draft Shared Run and attach any existing Pending orders intended
+   for the same production exercise; and/or
+2. from that Draft Run, create new customer/store Orders using the ordinary
+   Order form. Each newly saved Order is automatically attached to the run.
+
+This allows one run to contain multiple Distribution customers, Online
+customers and Physical Store demand without merging their commercial records.
+Each Order retains its customer, channel, requested quantity, optional planned
+production quantity, current pricing hierarchy, discount, payment/receivable
+state and eventual Sale.
+
+While a Pending Order belongs to a Draft Shared Run, individual approval is
+blocked so the same requirement cannot be released twice. Approving the run:
+
+1. calculates every member OrderItem with its ordinary proportional
+   batch/piece multiplier;
+2. preserves flexible recipe overrides at the applicable product/order level;
+3. aggregates identical raw materials across all member orders;
+4. performs one combined stock-availability check and stock release;
+5. writes the same per-order-item `OrderMaterialUsage` snapshots used by
+   ordinary production costing; and
+6. marks all member Orders Approved together.
+
+Member Orders then use the existing completion workflow independently for
+gross output, wastage, shortage, planned offcut, additional excess, QC and
+Sales creation. Each resulting `ProductionBatch` links back to the
+`ProductionRun`. The run is marked Completed when every member order is
+completed. Orders that are not attached to a Shared Run continue through the
+ordinary approval/completion path unchanged.
+
+The older `ProductionRunMaterial` run-level material-substitution table is
+retained only for database/history compatibility. New Shared Runs do not ask
+for or apply common-material override quantities.
+
+### A user should be able to answer:
+
+- Which customer/store orders were coordinated in the same production run?
+- What exact product quantities did each customer/order require?
+- What proportional raw-material quantity did each order item contribute?
+- What was the combined material release for the run?
+- Which flexible recipe quantities were adjusted for a particular product?
+- Which batches, customer sales, shortages, wastage and offcuts came from the
+  shared run?
+
 ## Production batches, yield and wastage
 
 Each completed production-order line creates one `ProductionBatch`.
@@ -155,11 +216,11 @@ from new batches, while wastage is kept separately on the batch and recorded
 as a non-stock production-wastage movement. Physical-store stock and
 customer-delivered totals increase only by saleable units.
 
-For Distribution and Online orders, completion deliberately requires the
-saleable quantity to equal the quantity promised by the order. This prevents
-an order from being marked commercially fulfilled while silently producing
-less saleable product. Physical-store production can legitimately produce
-less and record the resulting yield/wastage.
+For Distribution and Online orders, the customer/requested quantity is kept
+separate from the production target. Completion may record less saleable output
+as an explicit shortage, or more output as planned offcut/additional excess, so
+the commercial demand is never silently rewritten by the physical result.
+Physical-store production likewise records actual yield and wastage.
 
 ## Batch traceability
 
@@ -374,3 +435,24 @@ migration history an explicit marker for the new movement type.
 - A new stock-mutating flow is added.
 - A production/sales/finance relationship changes.
 - A major capability moves from roadmap into the implemented product.
+
+
+### Automatic uncommitted planned-offcut stock
+For customer orders with an explicit production target above the ordered quantity, saleable planned offcut no longer has to be manually allocated in full at completion. Any quantity not already committed to an identified Distribution/Online customer is automatically retained as general FinishedGood stock, so production completion is not blocked while waiting for a future buyer. Finished Goods inventory exposes a conservative `Uncommitted Offcut` figure: unreversed planned offcut retained to stock, less explicit shortage reconciliations, capped by the live physical stock balance.
+
+### Reversed orders: recreate rather than mutate
+A reversed order is an immutable historical correction record. `Edit as New Order` copies its customer/channel snapshot, order lines, production-plan quantities and discounts into a fresh Pending order dated today. The new order then follows the current normal lifecycle and may be attached to a draft Shared Production Run. This avoids reactivating reversed stock/finance history while still making error correction practical.
+
+### Business-specific production order numbering
+
+Production Orders separate the global database primary key (`Order.id`) from the human-facing `Order.order_number`.
+
+- `Order.id` remains global, immutable and is used for URLs, foreign keys and technical references.
+- `Order.order_number` is unique only within a Business (`business + order_number`).
+- `OrderNumberSequence` stores the next visible number independently for each Business.
+- A Business Admin may reset only their own sequence, and only when that Business has no remaining Order rows.
+- A global superuser may reset a selected Business under the same rule, or reset all Business sequences when no Order rows exist anywhere.
+- Sequence reset never truncates or resets the database primary-key sequence and does not modify users, inventory, customers, finance, recipes, stock movements, Shared Production Runs or other business data.
+
+This is the numbering foundation for multi-tenant operation: two businesses may each legitimately have an `Order #1` while their internal database IDs remain globally distinct.
+
