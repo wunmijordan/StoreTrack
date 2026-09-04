@@ -26,15 +26,15 @@
         {% if form.restaurant_table_service.errors %}<div class="text-xs text-rose-600 mt-1">{{ form.restaurant_table_service.errors|join:", " }}</div>{% endif %}
       </div>
     </div>
-    <p class="text-xs text-stone-500 mb-4">Changing the vertical adjusts labels and future defaults; it does not rewrite or delete existing inventory, orders, sales, or finance data.</p>
+    <p class="text-xs text-stone-500 mb-4">Changing the vertical adjusts labels and workflow capability; it does not rewrite or delete existing inventory, orders, sales, or finance data. Wholesale and retail use direct product procurement and stock sales, so Production is safely hidden and blocked while either vertical is active.</p>
     <button class="px-4 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">Save preferences</button>
   </form>
 
   <section class="mt-5 bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg p-5">
     <h3 class="font-medium">Enabled modules</h3>
-    <p class="text-xs text-stone-500 mt-1 mb-3">Every module is included for now. This entitlement layer is ready for plan-based access later.</p>
+    <p class="text-xs text-stone-500 mt-1 mb-3">Plan entitlements and vertical capability are both applied. Historical data remains intact when a module is not used by the selected vertical.</p>
     <div class="grid sm:grid-cols-3 gap-2">
-      {% for item in business_modules %}<div class="rounded border border-[#E7DFCC] px-3 py-2 text-sm"><span class="inline-block h-2 w-2 rounded-full mr-2 {% if item.enabled %}bg-emerald-500{% else %}bg-stone-300{% endif %}"></span>{{ item.get_module_display }}</div>{% endfor %}
+      {% for item in business_modules %}<div class="rounded border border-[#E7DFCC] px-3 py-2 text-sm"><span class="inline-block h-2 w-2 rounded-full mr-2 {% if item.enabled and item.module != 'production' or item.enabled and vertical_ui.uses_production %}bg-emerald-500{% else %}bg-stone-300{% endif %}"></span>{{ item.get_module_display }}{% if item.module == 'production' and not vertical_ui.uses_production %}<span class="block text-[10px] text-stone-400 mt-1">Not used by this vertical</span>{% endif %}</div>{% endfor %}
     </div>
   </section>
 </div>

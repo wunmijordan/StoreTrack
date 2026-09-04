@@ -1,5 +1,6 @@
 from django import forms
 from django.forms import inlineformset_factory
+from django.db.models import Q
 from .models import Customer, Sale, SaleItem, CustomerProductPrice
 from core.models import CashAccount
 from inventory.models import FinishedGood
@@ -45,6 +46,10 @@ class SaleForm(StyledModelForm):
         self.fields["account"].queryset = CashAccount.objects.filter(active=True).order_by("name")
         self.fields["account"].required = False
         self.fields["transaction_type"].choices = [("paid", "Paid"), ("unpaid", "Unpaid")]
+        if business and business.is_wholesale:
+            self.fields["customer_master"].required = True
+            self.fields["customer_master"].label = "Trade customer"
+            self.fields["customer"].required = False
         if not business or not business.is_restaurant:
             self.fields.pop("service_mode")
             self.fields.pop("table_reference")
@@ -59,10 +64,12 @@ class SaleForm(StyledModelForm):
         master = cleaned.get("customer_master")
         if master:
             cleaned["customer"] = master.name
+        elif self.business and self.business.is_wholesale:
+            self.add_error("customer_master", "Select the trade customer receiving this stock.")
         elif not (cleaned.get("customer") or "").strip():
             cleaned["customer"] = "Walk-in"
         if cleaned.get("transaction_type") == "unpaid" and not (cleaned.get("unpaid_description") or "").strip():
-            self.add_error("unpaid_description", "Explain why this physical-store sale is unpaid.")
+            self.add_error("unpaid_description", "Add the credit or non-cash reason for this unpaid sale.")
         if cleaned.get("transaction_type") == "paid" and not cleaned.get("account"):
             self.add_error("account", "Select the cash/bank account that received this payment.")
         if self.business and self.business.is_restaurant:
@@ -88,8 +95,9 @@ class SaleItemForm(StyledModelForm):
         # sold directly. Only finished goods configured for physical-store
         # shelf stock are therefore valid choices here.
         self.fields["finished_good"].queryset = FinishedGood.objects.filter(
-            stock__isnull=False,
-            reorder_level__gt=0,
+            Q(stock__isnull=False, reorder_level__gt=0)
+            | Q(stock__isnull=False, business__vertical__in=("wholesale", "retail"))
+            | Q(transferred_market_stock__gt=0),
         ).order_by("name")
 
 

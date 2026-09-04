@@ -39,7 +39,7 @@
         {{ form.is_market_stock }}
         <span>
           <span class="block text-xs font-medium text-sky-900">{{ form.is_market_stock.label }}</span>
-          <span class="block text-[11px] text-sky-700 mt-0.5">Use this for Distribution production intended for marketing or future demand. Completion adds the saleable output to available finished-goods stock; it does not create a customer sale, receivable, or payment.</span>
+          <span class="block text-[11px] text-sky-700 mt-0.5">Use this for Distribution production intended for marketing or future demand. Completion adds saleable output to separate, expiry-aware Distribution Market Stock; it does not create a customer sale, receivable, payment, or Physical Store balance.</span>
           {% for error in form.is_market_stock.errors %}<span class="block text-[11px] text-rose-600 mt-0.5">{{ error }}</span>{% endfor %}
         </span>
       </label>

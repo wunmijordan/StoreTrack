@@ -82,6 +82,12 @@ def business_has_module(business, module):
     """Return entitlement without penalising legacy/missing provisioning rows."""
     if not business:
         return False
+    # Production is a vertical capability as well as a plan entitlement.
+    # Wholesale and retail keep any historical production data intact, but do
+    # not expose or authorize the production workflow while using a stock-first
+    # vertical.
+    if module == "production" and not business.uses_production:
+        return False
     enabled = BusinessModuleAccess.objects.filter(
         business=business, module=module
     ).values_list("enabled", flat=True).first()

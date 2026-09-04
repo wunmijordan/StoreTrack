@@ -2,7 +2,19 @@ from decimal import Decimal, InvalidOperation
 
 from django import forms
 from django.forms import inlineformset_factory
-from .models import RawMaterial, FinishedGood, FinishedGoodChannelPrice, RecipeItem, ProductionMaterial
+from django.db.models import Q
+from django.utils import timezone
+from core.models import CashAccount
+from core.verticals import vertical_config
+from sales.models import Customer, SaleItem
+from .models import (
+    DistributionReturn,
+    FinishedGood,
+    FinishedGoodChannelPrice,
+    ProductionMaterial,
+    RawMaterial,
+    RecipeItem,
+)
 
 INPUT_CLS = "w-full rounded-md border border-[#D9CFB4] bg-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#8f172d]/30 focus:border-[#8f172d]"
 
@@ -12,6 +24,13 @@ class StyledModelForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         for f in self.fields.values():
             f.widget.attrs["class"] = INPUT_CLS
+
+
+class StyledForm(forms.Form):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.widget.attrs["class"] = INPUT_CLS
 
 
 class RawMaterialForm(StyledModelForm):
@@ -29,7 +48,7 @@ class RawMaterialForm(StyledModelForm):
         help_text="How much is inside ONE purchase unit, e.g. 1 bag = 50 → 50.",
     )
     usage_conversion_factor = forms.DecimalField(
-        max_digits=12, decimal_places=2, initial=1,
+        max_digits=16, decimal_places=6, initial=1,
         label="Usage conversion",
         help_text="How many usage units in ONE package unit. Standard: kg→g is 1000. "
                    "Non-standard (spoon, cap…): count it yourself.",
@@ -59,8 +78,36 @@ class RawMaterialForm(StyledModelForm):
         fields = ["name", "category", "purchase_unit", "package_qty", "package_unit",
                   "usage_unit", "usage_conversion_factor", "reorder_level_purchase_units"]
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, business=None, **kwargs):
         super().__init__(*args, **kwargs)
+        if business:
+            vocabulary = vertical_config(business)
+            self.fields["usage_unit"].help_text = (
+                f"The fine unit the {vocabulary['recipe_label'].lower()} consumes — kg, g, "
+                "mL, spoon, cap…"
+                if vocabulary["uses_production"]
+                else "The fine unit used when an internal supply is dispensed — kg, g, mL, piece…"
+            )
+            if business.vertical == business.VERTICAL_GENERAL:
+                self.fields["category"].choices = [
+                    (value, "Component material" if value == RawMaterial.CATEGORY_INGREDIENT else label)
+                    for value, label in self.fields["category"].choices
+                ]
+            elif not vocabulary["uses_production"]:
+                category_labels = {
+                    RawMaterial.CATEGORY_INGREDIENT: "Consumable supply",
+                    RawMaterial.CATEGORY_PACKAGING: "Packaging supply",
+                    RawMaterial.CATEGORY_PRODUCTION_SUPPLY: "Handling / storage supply",
+                    RawMaterial.CATEGORY_OPERATIONAL_SUPPLY: "Operational supply",
+                }
+                self.fields["category"].choices = [
+                    (value, category_labels.get(value, label))
+                    for value, label in self.fields["category"].choices
+                ]
+                self.fields["category"].help_text = (
+                    "Classifies supporting stock used by the business. Products bought for resale "
+                    "are created under Stock Products instead."
+                )
         if self.instance and self.instance.pk:
             factor = self.instance.total_conversion_factor or Decimal("1")
             # Stock entry supports 3dp so fractional purchase-unit counts can
@@ -103,11 +150,16 @@ class FinishedGoodForm(StyledModelForm):
         model = FinishedGood
         fields = ["name", "unit", "units_per_batch", "stock", "reorder_level", "selling_price"]
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, business=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["stock"].required = False
         self.fields["reorder_level"].required = False
         self.fields["selling_price"].required = False
+        if business and not business.uses_production:
+            self.fields.pop("units_per_batch")
+            self.fields["unit"].label = "Stock / selling unit"
+            self.fields["stock"].label = "Opening stock"
+            self.fields["stock"].help_text = "Use this only for the opening balance. Record later arrivals by receiving a purchase order."
 
 
 class FinishedGoodChannelPriceForm(StyledModelForm):
@@ -162,3 +214,89 @@ RecipeItemFormSet = inlineformset_factory(
 ProductionMaterialFormSet = inlineformset_factory(
     FinishedGood, ProductionMaterial, form=ProductionMaterialForm, extra=1, can_delete=True
 )
+
+
+class MarketStockReleaseForm(StyledForm):
+    PAYMENT_CHOICES = [("unpaid", "Receivable / pay later"), ("paid", "Payment received")]
+
+    date = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}))
+    customer = forms.ModelChoiceField(queryset=Customer.objects.none())
+    finished_good = forms.ModelChoiceField(queryset=FinishedGood.objects.none(), label="Product")
+    quantity = forms.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"))
+    payment_status = forms.ChoiceField(choices=PAYMENT_CHOICES, initial="unpaid")
+    payment_method = forms.ChoiceField(
+        choices=[("Transfer", "Transfer"), ("Cash", "Cash"), ("Card", "Card")],
+        required=False,
+    )
+    account = forms.ModelChoiceField(queryset=CashAccount.objects.none(), required=False)
+    note = forms.CharField(max_length=255, required=False, widget=forms.Textarea(attrs={"rows": 2}))
+
+    def __init__(self, *args, business=None, **kwargs):
+        self.business = business
+        super().__init__(*args, **kwargs)
+        self.fields["customer"].queryset = Customer.objects.filter(
+            business=business, active=True
+        ).order_by("name")
+        self.fields["finished_good"].queryset = FinishedGood.objects.filter(
+            business=business,
+            market_stock_lots__quantity_available__gt=0,
+            market_stock_lots__active=True,
+        ).filter(
+            Q(market_stock_lots__expiry_date__isnull=True)
+            | Q(market_stock_lots__expiry_date__gte=timezone.localdate())
+        ).distinct().order_by("name")
+        self.fields["account"].queryset = CashAccount.objects.filter(
+            business=business, active=True
+        ).order_by("name")
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get("payment_status") == "paid" and not cleaned.get("account"):
+            self.add_error("account", "Select the account that received this payment.")
+        if cleaned.get("payment_status") != "paid":
+            cleaned["account"] = None
+            cleaned["payment_method"] = "Transfer"
+        return cleaned
+
+
+class MarketStockTransferForm(StyledForm):
+    date = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}))
+    finished_good = forms.ModelChoiceField(queryset=FinishedGood.objects.none(), label="Product")
+    quantity = forms.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"))
+    reason = forms.CharField(max_length=255, widget=forms.Textarea(attrs={"rows": 2}))
+
+    def __init__(self, *args, business=None, **kwargs):
+        self.business = business
+        super().__init__(*args, **kwargs)
+        self.fields["finished_good"].queryset = FinishedGood.objects.filter(
+            business=business,
+            market_stock_lots__quantity_available__gt=0,
+            market_stock_lots__active=True,
+        ).filter(
+            Q(market_stock_lots__expiry_date__isnull=True)
+            | Q(market_stock_lots__expiry_date__gte=timezone.localdate())
+        ).distinct().order_by("name")
+
+
+class DistributionReturnForm(StyledModelForm):
+    class Meta:
+        model = DistributionReturn
+        fields = ["date", "sale_item", "quantity", "condition", "reason"]
+        widgets = {
+            "date": forms.DateInput(attrs={"type": "date"}),
+            "reason": forms.Textarea(attrs={"rows": 2}),
+        }
+
+    def __init__(self, *args, business=None, **kwargs):
+        self.business = business
+        super().__init__(*args, **kwargs)
+        queryset = SaleItem.objects.filter(
+            sale__business=business,
+            sale__source="distribution_order",
+        ).select_related("sale", "finished_good").order_by("-sale__date", "-sale_id", "id")
+        self.fields["sale_item"].queryset = queryset
+        self.fields["sale_item"].label = "Original Distribution sale line"
+        self.fields["sale_item"].label_from_instance = lambda item: (
+            f"Sale #{item.sale_id} · {item.sale.customer} · {item.finished_good.name} · "
+            f"{item.total_units:.2f} {item.finished_good.unit}"
+        )

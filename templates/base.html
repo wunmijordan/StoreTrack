@@ -204,7 +204,7 @@
         }
 
         // Persist choice so manual user reloads on inventory.html preserve state
-        localStorage.setItem('activeInventoryTab', tabKey);
+        localStorage.setItem('activeInventoryTab:{{ biz.pk|default:"anonymous" }}', tabKey);
       }
 
       function determineInitialState() {
@@ -214,10 +214,11 @@
         if (hash === '#finished') return 'finished';
 
         // Priority 2: Fall back to memory persistence layer if reloading organically
-        const savedState = localStorage.getItem('activeInventoryTab');
+        const storageKey = 'activeInventoryTab:{{ biz.pk|default:"anonymous" }}';
+        const savedState = localStorage.getItem(storageKey);
         if (savedState === 'raw' || savedState === 'finished') return savedState;
 
-        return 'raw';
+        return rawRadio?.dataset.defaultTab || 'raw';
       }
 
       // Execute rendering cycle on load

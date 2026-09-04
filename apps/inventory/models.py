@@ -1,5 +1,7 @@
+from datetime import timedelta
 from decimal import Decimal
 from django.db import models
+from django.utils import timezone
 from core.models import BusinessOwnedModel, TimestampedModel
 
 
@@ -31,7 +33,7 @@ class RawMaterial(BusinessOwnedModel):
         help_text="The unit package_qty is measured in — kg, g, litre… (what's printed on the pack)")
     usage_unit = models.CharField(max_length=20, default="", blank=True,
         help_text="The fine unit recipes actually consume — kg, g, spoon, cap…")
-    usage_conversion_factor = models.DecimalField(max_digits=12, decimal_places=2, default=1,
+    usage_conversion_factor = models.DecimalField(max_digits=16, decimal_places=6, default=1,
         help_text="How many usage units in ONE package_unit. Standard: kg→g is 1000, litre→ml is 1000, "
                    "same unit both ways is 1. Non-standard (spoon, cap…): count it yourself, e.g. "
                    "'my spoon holds 5g' → if package_unit is kg, that's 200 spoons per kg → 200.")
@@ -117,6 +119,15 @@ class FinishedGood(BusinessOwnedModel):
         help_text="For Physical Store ONLY.")
     # Legacy/default price used when no channel-specific price is configured.
     selling_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    transferred_market_stock = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=0,
+        help_text=(
+            "Remaining shelf stock that entered through an explicit Market Stock transfer. "
+            "This is the only shelf-sale allowance for products not normally configured for Physical Store stock."
+        ),
+    )
 
     class Meta:
         ordering = ["name"]
@@ -146,6 +157,67 @@ class FinishedGood(BusinessOwnedModel):
         ):
             return False
         return self.stock <= (self.reorder_level * Decimal("1.5"))
+
+    @property
+    def is_physical_store_configured(self):
+        if self.stock is None:
+            return False
+        if self.business_id and not self.business.uses_production:
+            return True
+        return self.reorder_level is not None and self.reorder_level > 0
+
+    @property
+    def can_sell_from_physical_store(self):
+        return self.is_physical_store_configured or self.transferred_market_stock > 0
+
+    @property
+    def physical_saleable_stock(self):
+        if self.is_physical_store_configured:
+            return max(Decimal("0"), Decimal(self.stock or 0))
+        return min(
+            max(Decimal("0"), Decimal(self.stock or 0)),
+            max(Decimal("0"), Decimal(self.transferred_market_stock or 0)),
+        )
+
+    def _market_lots(self):
+        return list(self.market_stock_lots.all())
+
+    @property
+    def market_stock(self):
+        today = timezone.localdate()
+        return sum(
+            (
+                Decimal(lot.quantity_available or 0)
+                for lot in self._market_lots()
+                if lot.active and (lot.expiry_date is None or lot.expiry_date >= today)
+            ),
+            Decimal("0"),
+        )
+
+    @property
+    def expired_market_stock(self):
+        today = timezone.localdate()
+        return sum(
+            (
+                Decimal(lot.quantity_available or 0)
+                for lot in self._market_lots()
+                if lot.active and lot.expiry_date is not None and lot.expiry_date < today
+            ),
+            Decimal("0"),
+        )
+
+    @property
+    def expiring_market_stock(self):
+        deadline = timezone.localdate() + timedelta(days=7)
+        today = timezone.localdate()
+        return sum(
+            (
+                Decimal(lot.quantity_available or 0)
+                for lot in self._market_lots()
+                if lot.active and lot.expiry_date is not None and today <= lot.expiry_date <= deadline
+            ),
+            Decimal("0"),
+        )
 
     @property
     def uncommitted_planned_offcut_stock(self):
@@ -185,11 +257,25 @@ class FinishedGood(BusinessOwnedModel):
         """Estimated ingredient cost PER UNIT (matches selling_price being
         per unit) — recipe quantities are per batch, so this divides the
         batch cost back down by units_per_batch."""
+        if self.business_id and not self.business.uses_production:
+            latest_purchase = self.stock_movements.filter(
+                movement_type=StockMovement.FG_PURCHASE,
+                quantity__gt=0,
+            ).order_by("-occurred_at", "-id").first()
+            if latest_purchase is not None:
+                return latest_purchase.unit_value
         batch_cost = Decimal("0")
         for ri in self.recipe_items.select_related("raw_material"):
             batch_cost += ri.raw_material.cost_per_unit * ri.qty_per_batch
         for pm in self.production_materials.select_related("raw_material"):
             batch_cost += pm.raw_material.cost_per_unit * pm.qty_per_batch
+        if not self.recipe_items.exists() and not self.production_materials.exists():
+            latest_purchase = self.stock_movements.filter(
+                movement_type=StockMovement.FG_PURCHASE,
+                quantity__gt=0,
+            ).order_by("-occurred_at", "-id").first()
+            if latest_purchase is not None:
+                return latest_purchase.unit_value
         upb = self.units_per_batch or Decimal("1")
         return batch_cost / upb
 
@@ -331,13 +417,173 @@ class OperationalSupplyDispense(BusinessOwnedModel):
         return f"{self.raw_material.name} — {self.quantity} {self.raw_material.usage_unit}"
 
 
+class MarketStockLot(BusinessOwnedModel):
+    """A batch-aware pool reserved exclusively for future Distribution sales."""
+
+    SOURCE_PRODUCTION = "production"
+    SOURCE_RETURN = "return"
+    SOURCE_CHOICES = [
+        (SOURCE_PRODUCTION, "Market-stock production"),
+        (SOURCE_RETURN, "Redistributable customer return"),
+    ]
+
+    finished_good = models.ForeignKey(
+        FinishedGood, on_delete=models.PROTECT, related_name="market_stock_lots"
+    )
+    production_batch = models.ForeignKey(
+        "production.ProductionBatch", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="market_stock_lots",
+    )
+    source_sale_item = models.ForeignKey(
+        "sales.SaleItem", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="returned_market_lots",
+    )
+    source = models.CharField(max_length=12, choices=SOURCE_CHOICES)
+    received_date = models.DateField()
+    expiry_date = models.DateField(null=True, blank=True)
+    quantity_received = models.DecimalField(max_digits=14, decimal_places=2)
+    quantity_available = models.DecimalField(max_digits=14, decimal_places=2)
+    unit_cost = models.DecimalField(max_digits=16, decimal_places=6, default=0)
+    active = models.BooleanField(default=True)
+    closed_reason = models.CharField(max_length=40, blank=True, default="")
+
+    class Meta:
+        ordering = ["expiry_date", "received_date", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(quantity_received__gte=0),
+                name="market_lot_received_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(quantity_available__gte=0),
+                name="market_lot_available_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(quantity_available__lte=models.F("quantity_received")),
+                name="market_lot_available_not_above_received",
+            ),
+            models.UniqueConstraint(
+                fields=["production_batch"],
+                condition=models.Q(source="production"),
+                name="one_market_production_lot_per_batch",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.finished_good.name} — {self.quantity_available} available"
+
+    @property
+    def is_expired(self):
+        return bool(self.expiry_date and self.expiry_date < timezone.localdate())
+
+    @property
+    def is_expiring_soon(self):
+        if not self.expiry_date or self.is_expired:
+            return False
+        return self.expiry_date <= timezone.localdate() + timedelta(days=7)
+
+    @property
+    def available_value(self):
+        return self.quantity_available * self.unit_cost
+
+
+class MarketStockMovement(BusinessOwnedModel):
+    PRODUCTION_IN = "production_in"
+    RELEASE = "release"
+    RETURN_IN = "return_in"
+    TRANSFER_PHYSICAL = "transfer_physical"
+    EXPIRY = "expiry"
+    REVERSAL = "reversal"
+    TYPE_CHOICES = [
+        (PRODUCTION_IN, "Production received into Market Stock"),
+        (RELEASE, "Released to distributor"),
+        (RETURN_IN, "Redistributable return received"),
+        (TRANSFER_PHYSICAL, "Transferred to Physical Store"),
+        (EXPIRY, "Expired / unsellable write-off"),
+        (REVERSAL, "Production reversal"),
+    ]
+
+    lot = models.ForeignKey(MarketStockLot, on_delete=models.PROTECT, related_name="movements")
+    date = models.DateField()
+    movement_type = models.CharField(max_length=24, choices=TYPE_CHOICES)
+    quantity = models.DecimalField(max_digits=14, decimal_places=2)
+    balance_after = models.DecimalField(max_digits=14, decimal_places=2)
+    customer = models.ForeignKey(
+        "sales.Customer", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="market_stock_movements",
+    )
+    sale = models.ForeignKey(
+        "sales.Sale", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="market_stock_movements",
+    )
+    unit_value = models.DecimalField(max_digits=16, decimal_places=6, default=0)
+    note = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+        ordering = ["-date", "-id"]
+
+    @property
+    def value(self):
+        return self.quantity * self.unit_value
+
+    def __str__(self):
+        return f"{self.date} — {self.get_movement_type_display()} — {self.quantity}"
+
+
+class DistributionReturn(BusinessOwnedModel):
+    REDISTRIBUTABLE = "redistributable"
+    DAMAGED = "damaged"
+    CONDITION_CHOICES = [
+        (REDISTRIBUTABLE, "Unsold and suitable for redistribution"),
+        (DAMAGED, "Damaged / unsellable"),
+    ]
+
+    sale_item = models.ForeignKey(
+        "sales.SaleItem", on_delete=models.PROTECT, related_name="distribution_returns"
+    )
+    date = models.DateField()
+    quantity = models.DecimalField(max_digits=14, decimal_places=2)
+    condition = models.CharField(max_length=20, choices=CONDITION_CHOICES)
+    reason = models.CharField(max_length=255)
+    unit_value = models.DecimalField(max_digits=16, decimal_places=6, default=0)
+    market_lot = models.OneToOneField(
+        MarketStockLot, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="distribution_return",
+    )
+
+    class Meta:
+        ordering = ["-date", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(quantity__gt=0),
+                name="distribution_return_quantity_positive",
+            )
+        ]
+
+    @property
+    def writeoff_value(self):
+        if self.condition != self.DAMAGED:
+            return Decimal("0")
+        return self.quantity * self.unit_value
+
+    def __str__(self):
+        return f"Sale #{self.sale_item.sale_id} return — {self.quantity}"
+
+
 class StockMovement(BusinessOwnedModel):
     RAW_PURCHASE = "raw_purchase"
     RAW_CONSUMPTION = "raw_consumption"
     FG_PRODUCTION = "fg_production"
+    FG_PURCHASE = "fg_purchase"
     FG_SALE = "fg_sale"
     FG_UNPAID_ISSUE = "fg_unpaid_issue"
     FG_WASTAGE = "fg_wastage"
+    FG_MARKET_PRODUCTION = "fg_market_production"
+    FG_MARKET_RELEASE = "fg_market_release"
+    FG_MARKET_RETURN = "fg_market_return"
+    FG_MARKET_TRANSFER = "fg_market_transfer"
+    FG_MARKET_EXPIRY = "fg_market_expiry"
+    FG_DISTRIBUTION_DAMAGE = "fg_distribution_damage"
     OPERATIONAL_DISPENSE = "operational_dispense"
     ADJUSTMENT = "adjustment"
 
@@ -345,9 +591,16 @@ class StockMovement(BusinessOwnedModel):
         (RAW_PURCHASE, "Raw material purchase"),
         (RAW_CONSUMPTION, "Raw material consumption"),
         (FG_PRODUCTION, "Finished goods production"),
+        (FG_PURCHASE, "Stock product purchase"),
         (FG_SALE, "Finished goods sale"),
         (FG_UNPAID_ISSUE, "Unpaid product issue"),
         (FG_WASTAGE, "Production wastage"),
+        (FG_MARKET_PRODUCTION, "Production received into Distribution Market Stock"),
+        (FG_MARKET_RELEASE, "Market Stock released to distributor"),
+        (FG_MARKET_RETURN, "Redistributable Distribution return"),
+        (FG_MARKET_TRANSFER, "Market Stock transferred to Physical Store"),
+        (FG_MARKET_EXPIRY, "Expired Market Stock write-off"),
+        (FG_DISTRIBUTION_DAMAGE, "Damaged Distribution return"),
         (OPERATIONAL_DISPENSE, "Operational supply dispense"),
         (ADJUSTMENT, "Adjustment"),
     ]

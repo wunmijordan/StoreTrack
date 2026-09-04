@@ -1,6 +1,8 @@
+from datetime import timedelta
 from decimal import Decimal
 from django.conf import settings
 from django.db import models, transaction
+from django.utils import timezone
 from core.models import BusinessOwnedModel, TimestampedModel
 
 
@@ -380,6 +382,12 @@ class ProductionBatch(BusinessOwnedModel):
     # reconciliation; excess assigned to a non-stock purpose is consumed by
     # that purpose and is not available to satisfy another order.
     excess_stock_units = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    excess_market_stock_units = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=0,
+        help_text="Additional saleable output from an unassigned Distribution order retained in Market Stock.",
+    )
     excess_non_stock_units = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     excess_non_stock_purpose = models.CharField(max_length=255, blank=True, default="")
 
@@ -399,6 +407,16 @@ class ProductionBatch(BusinessOwnedModel):
         if not self.planned_units:
             return Decimal("0")
         return (self.saleable_units / self.planned_units * Decimal("100")).quantize(Decimal("0.01"))
+
+    @property
+    def is_expired(self):
+        return bool(self.expiry_date and self.expiry_date < timezone.localdate())
+
+    @property
+    def is_expiring_soon(self):
+        if not self.expiry_date or self.is_expired:
+            return False
+        return self.expiry_date <= timezone.localdate() + timedelta(days=7)
 
     @property
     def shortage_units(self):

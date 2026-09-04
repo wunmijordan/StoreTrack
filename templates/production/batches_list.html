@@ -5,7 +5,7 @@
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] overflow-x-auto">
 <table class="min-w-max w-full text-sm">
   <thead class="bg-[#F0EAD9] text-stone-600 text-xs">
-    <tr><th class="px-3 py-2 text-left">Order</th><th class="px-3 py-2">Type</th><th class="px-3 py-2">Date</th><th class="px-3 py-2">Products</th><th class="px-3 py-2">Batches</th><th class="px-3 py-2 text-right">Production target</th><th class="px-3 py-2 text-right">Saleable</th><th class="px-3 py-2 text-right">Shortage</th><th class="w-20"></th></tr>
+    <tr><th class="px-3 py-2 text-left">Order</th><th class="px-3 py-2">Type</th><th class="px-3 py-2">Date</th><th class="px-3 py-2">Products</th><th class="px-3 py-2">Batches</th><th class="px-3 py-2">Shelf life</th><th class="px-3 py-2 text-right">Production target</th><th class="px-3 py-2 text-right">Saleable</th><th class="px-3 py-2 text-right">Shortage</th><th class="w-20"></th></tr>
   </thead>
   <tbody>
   {% for o in orders %}
@@ -21,6 +21,7 @@
           <a href="{% url 'production_batch_detail' b.pk %}" class="block font-mono text-[#8f172d] hover:underline">{{ b.batch_number }}</a>
         {% endfor %}
       </td>
+      <td class="px-3 py-2 text-xs">{% for b in o.production_batches.all %}{% if b.expiry_date %}<span class="{% if b.is_expired %}text-rose-700 font-semibold{% elif b.is_expiring_soon %}text-amber-700{% else %}text-stone-500{% endif %}">{{ b.expiry_date }}{% if b.is_expired %} · potentially expired{% elif b.is_expiring_soon %} · expiring soon{% endif %}</span>{% else %}<span class="text-stone-300">—</span>{% endif %}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
       <td class="px-3 py-2 text-right font-mono">{% for b in o.production_batches.all %}{{ b.planned_units|num }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
       <td class="px-3 py-2 text-right font-mono">{% for b in o.production_batches.all %}{{ b.saleable_units|num }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
       <td class="px-3 py-2 text-right font-mono">
@@ -29,7 +30,7 @@
       <td class="px-3 py-2"><a href="{% url 'order_detail' o.pk %}" class="text-xs text-[#8f172d] hover:underline">View</a></td>
     </tr>
   {% empty %}
-    <tr><td colspan="9" class="px-3 py-10 text-center text-stone-400 italic">No production batches yet.</td></tr>
+    <tr><td colspan="10" class="px-3 py-10 text-center text-stone-400 italic">No production batches yet.</td></tr>
   {% endfor %}
   </tbody>
 </table>

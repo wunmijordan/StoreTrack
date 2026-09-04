@@ -4,7 +4,8 @@ Read this before editing the repo. It's the scaled-down sibling of the
 ChurchForce foundation doc: same shape, far fewer moving parts. It is a
 multi-business, multi-vertical inventory/production/sales SaaS foundation.
 
-See also `docs/ARCHITECTURE.md` for the fuller structural writeup.
+See also `docs/ARCHITECTURE.md` for the fuller structural writeup and
+`docs/skills/SKILL.md` for the project prompt-skill index.
 
 ## 1. System shape
 
@@ -100,7 +101,29 @@ After editing:
   instead.
 - Bypassing `transaction.atomic()` on a new stock-mutating view.
 
-## 7. Not built yet (by design)
+## 7. Project prompt skills
+
+StoreTrack now includes repository-local skills under `.claude/skills/`. These
+are instructions for coding/prompt agents, not runtime Django features. Load
+them when the task matches their domain:
+
+| Skill | Invoke when |
+| --- | --- |
+| `storetrack` | Cross-app or architecture-heavy work |
+| `frontend-design` | Templates, forms, formsets, modals, dashboards and UI work |
+| `excalidraw-diagram` | Architecture/process/pitch diagrams and diagrammatic documents |
+| `simplify` | After every implementation |
+| `tenant-safety` | Tenant/query/admin/report changes |
+| `production-integrity` | Recipes, Shared Runs, stock, batches, offcuts, reversal |
+| `finance-integrity` | Money movement, payments, receivables/payables, reversals |
+| `migration-safety` | Any schema change or remote migration history |
+| `systematic-debugging` | Tracebacks, silent forms, dynamic formsets, multi-app bugs |
+| `code-reviewer` | Deep review of substantial or cross-domain changes |
+
+Before presenting an implementation, run the `simplify` checklist and whichever
+domain safety skill applies. The full index is `docs/skills/SKILL.md`. Codex uses the mirrored `.codex/skills/` library through the repository `AGENTS.md`.
+
+## 8. Not built yet (by design)
 
 These remain deliberately deferred:
 
@@ -109,4 +132,5 @@ These remain deliberately deferred:
 - Subscription plans and prices. `BusinessModuleAccess` is the entitlement
   boundary and currently enables every module for every business.
 - A dedicated-database path for a "white-label" business.
-- Any AI/automation skill registry.
+- A runtime end-user AI/automation skill registry. The repository prompt skills
+  in `.claude/skills/` are developer-agent instructions only.

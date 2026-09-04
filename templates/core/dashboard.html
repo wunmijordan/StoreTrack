@@ -97,7 +97,7 @@
                     <td class="px-3 py-2 font-semibold text-stone-700" x-text="row.label"></td>
                     <td class="px-3 py-2 text-right font-mono" x-text="row.events ?? row.purchase_count ?? row.sale_events ?? row.production_events ?? 0"></td>
                     <td class="px-3 py-2 text-right font-mono" x-text="fmt(row.purchased_qty ?? row.produced_units ?? row.sold_units ?? row.units ?? row.consumed_qty ?? 0)"></td>
-                    <td x-show="detail?.type === 'Finished good'" class="px-3 py-2 text-right font-mono" x-text="Number(row.excess_units || 0) > 0 ? (fmt(row.excess_units) + ' total · ' + fmt(row.planned_offcut_units || 0) + ' planned offcut · ' + fmt(row.additional_excess_units || 0) + ' additional · ' + fmt(row.excess_stock_units) + ' stock · ' + fmt(row.excess_non_stock_units) + ' non-stock') : '—'"></td>
+                    <td x-show="detail?.type === 'Finished good'" class="px-3 py-2 text-right font-mono" x-text="Number(row.excess_units || 0) > 0 ? (fmt(row.excess_units) + ' total · ' + fmt(row.planned_offcut_units || 0) + ' planned offcut · ' + fmt(row.additional_excess_units || 0) + ' additional · ' + fmt(row.excess_stock_units) + ' physical · ' + fmt(row.excess_market_stock_units) + ' market · ' + fmt(row.excess_non_stock_units) + ' non-stock') : '—'"></td>
                     <td x-show="detail?.type === 'Raw material' || detail?.type === 'Procurement vendor'" class="px-3 py-2 text-right font-mono" x-text="money(row.spend ?? 0)"></td>
                     <td x-show="detail?.type === 'Finished good' || detail?.type === 'Customer'" class="px-3 py-2 text-right font-mono" x-text="money(row.revenue ?? 0)"></td>
                     <td x-show="detail?.type === 'Raw material' || detail?.type === 'Procurement vendor'" class="px-3 py-2 text-right font-mono" x-text="row.price_difference !== null && row.price_difference !== undefined ? ((row.price_difference > 0 ? '+' : '') + money(row.price_difference) + (row.price_difference_pct !== null && row.price_difference_pct !== undefined ? ' (' + (row.price_difference_pct > 0 ? '+' : '') + fmt(row.price_difference_pct) + '%)' : '')) : '—'"></td>
@@ -120,12 +120,12 @@
               </div>
             </section>
             <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden">
-              <div class="px-4 py-3 border-b border-[#E7DFCC] flex items-center justify-between"><div><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Operational supply dispensing</h4><p class="text-[10px] text-stone-400 mt-0.5">Manual consumption outside production recipes; every issue reduces stock.</p></div><span class="text-xs font-mono text-amber-700" x-text="fmt(detail.summary.operational_dispensed || 0) + ' ' + (detail.summary.stock_unit || '')"></span></div>
+              <div class="px-4 py-3 border-b border-[#E7DFCC] flex items-center justify-between"><div><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Operational supply dispensing</h4><p class="text-[10px] text-stone-400 mt-0.5" x-text="detail.uses_production ? `Manual consumption outside the ${detail.recipe_label.toLowerCase()}; every issue reduces stock.` : 'Internal supply use recorded separately from product receipts and sales; every issue reduces stock.'"></p></div><span class="text-xs font-mono text-amber-700" x-text="fmt(detail.summary.operational_dispensed || 0) + ' ' + (detail.summary.stock_unit || '')"></span></div>
               <div class="overflow-x-auto"><table class="w-full text-xs min-w-[650px]"><thead class="bg-stone-50 text-stone-500"><tr><th class="px-3 py-2 text-left">Date</th><th class="px-3 py-2 text-right">Quantity</th><th class="px-3 py-2 text-left">Reason</th><th class="px-3 py-2 text-left">Description</th><th class="px-3 py-2 text-left">Location</th></tr></thead><tbody><template x-for="d in detail.operational_dispenses" :key="d.date + d.quantity + d.description"><tr class="border-t border-stone-100"><td class="px-3 py-2" x-text="d.date"></td><td class="px-3 py-2 text-right font-mono" x-text="fmt(d.quantity) + ' ' + d.unit"></td><td class="px-3 py-2" x-text="d.reason"></td><td class="px-3 py-2" x-text="d.description"></td><td class="px-3 py-2" x-text="d.location"></td></tr></template><tr x-show="!detail.operational_dispenses?.length"><td colspan="5" class="p-5 text-center text-stone-400">No operational dispensing recorded.</td></tr></tbody></table></div>
             </section>
-            <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden">
-              <div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Usage / production links</h4></div>
-              <div class="p-4 grid grid-cols-1 md:grid-cols-2 gap-2"><template x-for="row in detail.linked_goods" :key="row.name"><div class="border border-stone-100 rounded-lg p-3 flex justify-between gap-3"><span class="font-semibold text-sm text-stone-700" x-text="row.name"></span><span class="font-mono text-xs text-stone-500" x-text="fmt(row.qty_per_batch) + ' ' + row.usage_unit + ' / batch'"></span></div></template><div x-show="!detail.linked_goods.length" class="text-xs text-stone-400">Not currently linked to a finished-good recipe or production material.</div></div>
+            <section x-show="detail.uses_production" class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden">
+              <div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]" x-text="detail.recipe_label + ' / production links'"></h4></div>
+              <div class="p-4 grid grid-cols-1 md:grid-cols-2 gap-2"><template x-for="row in detail.linked_goods" :key="row.name"><div class="border border-stone-100 rounded-lg p-3 flex justify-between gap-3"><span class="font-semibold text-sm text-stone-700" x-text="row.name"></span><span class="font-mono text-xs text-stone-500" x-text="fmt(row.qty_per_batch) + ' ' + row.usage_unit + ' / batch'"></span></div></template><div x-show="!detail.linked_goods.length" class="text-xs text-stone-400" x-text="`Not currently linked to a product ${detail.recipe_label.toLowerCase()} or ${detail.production_inputs_label.toLowerCase()}.`"></div></div>
             </section>
           </div>
         </template>
@@ -140,10 +140,10 @@
               </div>
             </section>
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Production frequency by channel</h4></div><div class="p-4 space-y-2"><template x-for="row in detail.production_channels" :key="row.channel"><div class="flex items-center justify-between text-xs border-b border-stone-100 pb-2 gap-3"><span x-text="row.channel"></span><span class="font-mono text-right" x-text="fmt(row.units) + ' saleable • ' + row.production_events + ' event(s)' + (Number(row.excess_units || 0) > 0 ? ' • ' + fmt(row.excess_units) + ' surplus (' + fmt(row.planned_offcut_units || 0) + ' planned offcut / ' + fmt(row.additional_excess_units || 0) + ' additional; ' + fmt(row.excess_stock_units) + ' stock / ' + fmt(row.excess_non_stock_units) + ' non-stock)' : '') + (Number(row.outstanding_shortage_units || 0) > 0 ? ' • ' + fmt(row.outstanding_shortage_units) + ' shortage' : '')"></span></div></template></div></section>
+              <section x-show="detail.uses_production" class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Production frequency by channel</h4></div><div class="p-4 space-y-2"><template x-for="row in detail.production_channels" :key="row.channel"><div class="flex items-center justify-between text-xs border-b border-stone-100 pb-2 gap-3"><span x-text="row.channel"></span><span class="font-mono text-right" x-text="fmt(row.units) + ' saleable • ' + row.production_events + ' event(s)' + (Number(row.excess_units || 0) > 0 ? ' • ' + fmt(row.excess_units) + ' surplus (' + fmt(row.planned_offcut_units || 0) + ' planned offcut / ' + fmt(row.additional_excess_units || 0) + ' additional; ' + fmt(row.excess_stock_units) + ' physical / ' + fmt(row.excess_market_stock_units) + ' market / ' + fmt(row.excess_non_stock_units) + ' non-stock)' : '') + (Number(row.outstanding_shortage_units || 0) > 0 ? ' • ' + fmt(row.outstanding_shortage_units) + ' shortage' : '')"></span></div></template></div></section>
               <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Sales by channel</h4></div><div class="p-4 space-y-2"><template x-for="row in detail.sales_channels" :key="row.channel"><div class="flex items-center justify-between text-xs border-b border-stone-100 pb-2"><span x-text="row.channel"></span><span class="font-mono" x-text="fmt(row.units) + ' units • ' + money(row.revenue)"></span></div></template></div></section>
             </div>
-            <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Recipe / production cost</h4></div><div class="overflow-x-auto"><table class="w-full text-xs min-w-[620px]"><thead class="bg-stone-50 text-stone-500"><tr><th class="px-3 py-2 text-left">Material</th><th class="px-3 py-2 text-right">Qty / batch</th><th class="px-3 py-2 text-left">Unit</th><th class="px-3 py-2 text-right">Current cost / usage unit</th></tr></thead><tbody><template x-for="row in detail.recipe" :key="row.name"><tr class="border-t border-stone-100"><td class="px-3 py-2 font-semibold" x-text="row.name"></td><td class="px-3 py-2 text-right font-mono" x-text="fmt(row.qty_per_batch)"></td><td class="px-3 py-2" x-text="row.unit"></td><td class="px-3 py-2 text-right font-mono" x-text="money(row.current_cost)"></td></tr></template></tbody></table></div><p class="px-4 py-3 text-[10px] text-stone-400" x-text="detail.note"></p></section>
+            <section x-show="detail.uses_production" class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]" x-text="detail.recipe_label + ' / production cost'"></h4></div><div class="overflow-x-auto"><table class="w-full text-xs min-w-[620px]"><thead class="bg-stone-50 text-stone-500"><tr><th class="px-3 py-2 text-left" x-text="detail.recipe_item_label"></th><th class="px-3 py-2 text-right">Qty / batch</th><th class="px-3 py-2 text-left">Unit</th><th class="px-3 py-2 text-right">Current cost / usage unit</th></tr></thead><tbody><template x-for="row in detail.recipe" :key="row.name"><tr class="border-t border-stone-100"><td class="px-3 py-2 font-semibold" x-text="row.name"></td><td class="px-3 py-2 text-right font-mono" x-text="fmt(row.qty_per_batch)"></td><td class="px-3 py-2" x-text="row.unit"></td><td class="px-3 py-2 text-right font-mono" x-text="money(row.current_cost)"></td></tr></template></tbody></table></div><p class="px-4 py-3 text-[10px] text-stone-400" x-text="detail.note"></p></section>
           </div>
         </template>
 
@@ -214,9 +214,9 @@
       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#dd2f3e88" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-loader-4">
         <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M12 21v-3m6.36 .36l-2.12 -2.12m4.76 -4.24h-3m.36 -6.36l-2.12 2.12m-4.24 -4.76v3m-6.36 -.36l2.12 2.12m-3.76 4.24h2m1 4.95l.71 -.71" />
       </svg>
-      Pending Orders
+      {% if vertical_ui.uses_production %}Pending Orders{% else %}Open Purchase Orders{% endif %}
     </div>
-    <div class="text-2xl font-semibold mt-1 font-mono {% if pending_orders_count %}text-rose-700{% else %}text-[#8f172d]{% endif %}">{{ pending_orders_count }}</div>
+    <div class="text-2xl font-semibold mt-1 font-mono {% if vertical_ui.uses_production and pending_orders_count or not vertical_ui.uses_production and open_purchase_orders_count %}text-rose-700{% else %}text-[#8f172d]{% endif %}">{% if vertical_ui.uses_production %}{{ pending_orders_count }}{% else %}{{ open_purchase_orders_count }}{% endif %}</div>
   </div>
   <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[2px_-2px_8px_#000000d2] p-4 flex-1 min-w-[140px]">
     <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#8f172d] block mb-1 gap-2">
@@ -224,10 +224,10 @@
         <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M8.56 3.69a9 9 0 0 0 -2.92 1.95" /><path d="M3.69 8.56a9 9 0 0 0 -.69 3.44" /><path d="M3.69 15.44a9 9 0 0 0 1.95 2.92" /><path d="M8.56 20.31a9 9 0 0 0 3.44 .69" />
         <path d="M15.44 20.31a9 9 0 0 0 2.92 -1.95" /><path d="M20.31 15.44a9 9 0 0 0 .69 -3.44" /><path d="M20.31 8.56a9 9 0 0 0 -1.95 -2.92" /><path d="M15.44 3.69a9 9 0 0 0 -3.44 -.69" /><path d="M9 12l2 2l4 -4" />
       </svg>
-      Today's Production
+      {% if vertical_ui.uses_production %}Today's Production{% else %}Today's Stock Arrivals{% endif %}
     </div>
-    <div class="text-2xl font-semibold mt-1 font-mono text-[#8f172d]">{{ daily_units_made|num }}</div>
-    <div class="text-xs text-stone-400 mt-0.5">Finished Goods Units</div>
+    <div class="text-2xl font-semibold mt-1 font-mono text-[#8f172d]">{% if vertical_ui.uses_production %}{{ daily_units_made|num }}{% else %}{{ daily_units_received|num }}{% endif %}</div>
+    <div class="text-xs text-stone-400 mt-0.5">{% if vertical_ui.uses_production %}Finished Goods Units{% else %}Product Units Received{% endif %}</div>
   </div>
 </div>
 
@@ -969,6 +969,7 @@
               ['Raw Materials', data[scope]?.procurement?.raw_materials || 0],
               ['Production Materials', data[scope]?.procurement?.production_materials || 0],
               ['Operational Materials', data[scope]?.procurement?.operational_materials || 0],
+              ['Products for Resale', data[scope]?.procurement?.products_for_resale || 0],
               ['Other Procurement', data[scope]?.procurement?.other_procurement || 0]
             ]" :key="row[0]">
               <div class="flex justify-between border-b border-dashed border-[#E7DFCC] pb-1"><span x-text="row[0]"></span><span class="font-mono" x-text="money(row[1])"></span></div>
@@ -980,7 +981,8 @@
           <div class="text-[11px] leading-5 text-stone-500">
             <p><strong>Raw Materials</strong> = Ingredient procurement.</p>
             <p><strong>Production Materials</strong> = Packaging and Production Supplies such as Gas.</p>
-            <p><strong>Operational Materials</strong> = Supplies not tied to a Production Recipe.</p>
+            <p><strong>Operational Materials</strong> = Supplies used outside {% if vertical_ui.uses_production %}a production {{ vertical_ui.recipe_label }}{% else %}sellable-product receipts and sales{% endif %}.</p>
+            <p><strong>Products for Resale</strong> = Sellable stock received directly from a supplier rather than made through Production.</p>
             <p><strong>Misc Expenses</strong> = Rent, Utilities, Labour, Transport, Marketing, Bank Fees and other recorded expenses.</p>
             <!--<p><strong>Production</strong> is an internal conversion and is therefore not subtracted as another Cash Outflow.</p>-->
           </div>
@@ -1270,10 +1272,14 @@ function dashboardSearch() {
     summaryCards() {
       const s = this.detail?.summary || {};
       const skip = new Set(['regions', 'groups', 'customers_sample', 'customers', 'stock_unit', 'reorder_unit']);
+      if (this.detail?.type === 'Finished good' && !this.detail?.uses_production) {
+        ['total_produced', 'delivered_to_customers', 'market_stock', 'expired_market_stock', 'market_transfer_shelf_allowance', 'units_per_batch'].forEach(key => skip.add(key));
+      }
       const labels = {
         category: 'Category', cost_per_purchase_unit: 'Cost / purchase unit', last_purchase: 'Last purchase', supplier_count: 'Suppliers',
         total_produced: 'Total produced', delivered_to_customers: 'Delivered', selling_price: 'Default selling price',
-        estimated_recipe_cost_per_unit: 'Current recipe cost / unit', estimated_margin_per_unit: 'Current est. margin / unit', margin_pct: 'Current est. margin %', units_per_batch: 'Units / batch',
+        market_stock: 'Distribution Market Stock', expired_market_stock: 'Expired Market Stock', market_transfer_shelf_allowance: 'Market-origin shelf allowance',
+        estimated_recipe_cost_per_unit: this.detail?.uses_production ? `Current ${this.detail.recipe_label.toLowerCase()} cost / unit` : 'Latest purchase cost / unit', estimated_margin_per_unit: 'Current est. margin / unit', margin_pct: 'Current est. margin %', units_per_batch: 'Units / batch',
         total_purchase: 'Total purchased', purchase_orders: 'Purchase orders', materials_bought: 'Materials bought', average_purchase: 'Average purchase',
         channel: 'Channel', orders: 'Orders', completed_orders: 'Completed', sales: 'Sales', revenue: 'Revenue', units: 'Units', last_order: 'Last order', last_sale: 'Last sale',
         latest_historical_unit_cost: 'Latest historical cost / unit', unpaid_product_value: 'Unpaid product value', unpaid_product_retail_value: 'Unpaid product value', unpaid_product_cost_value: 'Unpaid product cost', gross_profit: 'Gross profit',

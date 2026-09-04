@@ -1,5 +1,13 @@
 from django.contrib import admin
-from .models import RawMaterial, FinishedGood, RecipeItem, ProductionMaterial
+from .models import (
+    DistributionReturn,
+    FinishedGood,
+    MarketStockLot,
+    MarketStockMovement,
+    ProductionMaterial,
+    RawMaterial,
+    RecipeItem,
+)
 
 admin.site.register(RawMaterial)
 admin.site.register(FinishedGood)
@@ -10,3 +18,6 @@ admin.site.register(InventoryLocation)
 admin.site.register(StockAdjustment)
 
 admin.site.register(OperationalSupplyDispense)
+admin.site.register(MarketStockLot)
+admin.site.register(MarketStockMovement)
+admin.site.register(DistributionReturn)

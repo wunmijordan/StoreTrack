@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 from django.shortcuts import get_object_or_404, redirect, render
@@ -10,16 +11,44 @@ from django.http import JsonResponse
 from django.db.models import Q, Sum
 from django.db.models.functions import TruncDate
 
-from .forms import RawMaterialForm, FinishedGoodForm, FinishedGoodChannelPriceFormSet, RecipeItemFormSet, ProductionMaterialFormSet
-from .models import RawMaterial, FinishedGood, StockMovement, OperationalSupplyDispense, InventoryLocation
+from django.views.decorators.http import require_POST
+
+from .forms import (
+    DistributionReturnForm,
+    FinishedGoodForm,
+    FinishedGoodChannelPriceFormSet,
+    MarketStockReleaseForm,
+    MarketStockTransferForm,
+    ProductionMaterialFormSet,
+    RawMaterialForm,
+    RecipeItemFormSet,
+)
+from .models import (
+    DistributionReturn,
+    FinishedGood,
+    InventoryLocation,
+    MarketStockLot,
+    MarketStockMovement,
+    OperationalSupplyDispense,
+    RawMaterial,
+    StockMovement,
+)
 from core.services import audit
+from core.verticals import vertical_config
 from core.pdf_fonts import (
     PDF_BODY_BOLD_FONT,
     PDF_BODY_FONT,
     PDF_DISPLAY_FONT,
     PDF_MONO_MEDIUM_FONT,
 )
-from .services import default_location, record_raw_material_movement
+from .services import (
+    default_location,
+    reconcile_expired_market_lot,
+    record_distribution_return,
+    record_raw_material_movement,
+    release_market_stock,
+    transfer_market_stock_to_physical,
+)
 
 
 def _raw_material_stock_breakdown_markup(material):
@@ -98,11 +127,182 @@ def operational_supply_dispense(request):
 def inventory(request):
     return render(request, "inventory/inventory.html", {
         "raw_materials": RawMaterial.objects.all(),
-        "finished_goods": FinishedGood.objects.prefetch_related(
+        "finished_goods": FinishedGood.objects.select_related("business").prefetch_related(
             "production_batches__reconciliation_out",
-            "recipe_items", "production_materials",
+            "recipe_items", "production_materials", "market_stock_lots",
         ),
     })
+
+
+@login_required
+def market_stock(request):
+    today = timezone.localdate()
+    lots = list(
+        MarketStockLot.objects.select_related(
+            "finished_good", "production_batch", "source_sale_item__sale"
+        ).prefetch_related("movements")
+    )
+    active_lots = [lot for lot in lots if lot.active and lot.quantity_available > 0]
+    sellable_units = sum(
+        (lot.quantity_available for lot in active_lots if not lot.is_expired), Decimal("0")
+    )
+    expired_units = sum(
+        (lot.quantity_available for lot in active_lots if lot.is_expired), Decimal("0")
+    )
+    expiring_units = sum(
+        (lot.quantity_available for lot in active_lots if lot.is_expiring_soon), Decimal("0")
+    )
+    damage_value = sum(
+        (row.writeoff_value for row in DistributionReturn.objects.filter(condition=DistributionReturn.DAMAGED)),
+        Decimal("0"),
+    )
+    expiry_value = sum(
+        (-movement.value for movement in MarketStockMovement.objects.filter(movement_type=MarketStockMovement.EXPIRY)),
+        Decimal("0"),
+    )
+    return render(request, "inventory/market_stock.html", {
+        "lots": lots,
+        "movements": MarketStockMovement.objects.select_related(
+            "lot__finished_good", "customer", "sale"
+        )[:50],
+        "returns": DistributionReturn.objects.select_related(
+            "sale_item__sale", "sale_item__finished_good", "market_lot"
+        )[:30],
+        "sellable_units": sellable_units,
+        "expired_units": expired_units,
+        "expiring_units": expiring_units,
+        "damage_value": damage_value,
+        "expiry_value": expiry_value,
+        "today": today,
+    })
+
+
+def _market_form_response(request, form, *, title, intro, submit_label):
+    return render(request, "inventory/market_stock_form.html", {
+        "form": form,
+        "title": title,
+        "intro": intro,
+        "submit_label": submit_label,
+    })
+
+
+@login_required
+def market_stock_release(request):
+    form = MarketStockReleaseForm(
+        request.POST or None,
+        business=request.business,
+        initial={"date": timezone.localdate()},
+    )
+    if request.method == "POST" and form.is_valid():
+        try:
+            sale = release_market_stock(
+                business=request.business,
+                good=form.cleaned_data["finished_good"],
+                customer=form.cleaned_data["customer"],
+                quantity=form.cleaned_data["quantity"],
+                date=form.cleaned_data["date"],
+                payment_status=form.cleaned_data["payment_status"],
+                payment_method=form.cleaned_data["payment_method"],
+                account=form.cleaned_data["account"],
+                user=request.user,
+                note=(form.cleaned_data.get("note") or "").strip(),
+            )
+        except ValidationError as exc:
+            form.add_error(None, exc)
+        else:
+            messages.success(request, f"Market Stock released to {sale.customer} as Distribution Sale #{sale.pk}.")
+            return redirect("market_stock")
+    return _market_form_response(
+        request,
+        form,
+        title="Release Market Stock",
+        intro="Assign sellable Distribution Market Stock to a customer. Oldest-expiring batches are released first and a Distribution sale/receivable is created.",
+        submit_label="Release to customer",
+    )
+
+
+@login_required
+def market_stock_transfer(request):
+    form = MarketStockTransferForm(
+        request.POST or None,
+        business=request.business,
+        initial={"date": timezone.localdate()},
+    )
+    if request.method == "POST" and form.is_valid():
+        try:
+            good = transfer_market_stock_to_physical(
+                business=request.business,
+                good=form.cleaned_data["finished_good"],
+                quantity=form.cleaned_data["quantity"],
+                date=form.cleaned_data["date"],
+                user=request.user,
+                reason=form.cleaned_data["reason"].strip(),
+            )
+        except ValidationError as exc:
+            form.add_error(None, exc)
+        else:
+            messages.success(request, f"Market Stock transferred to {request.business.name}'s {good.name} shelf balance.")
+            return redirect("market_stock")
+    return _market_form_response(
+        request,
+        form,
+        title="Transfer Market Stock to Physical Store",
+        intro="Move unsold Distribution stock to the shelf. This explicitly permits a normally non-shelf product to be sold only up to the transferred balance.",
+        submit_label="Transfer to Physical Store",
+    )
+
+
+@login_required
+def distribution_return(request):
+    form = DistributionReturnForm(
+        request.POST or None,
+        business=request.business,
+        initial={"date": timezone.localdate()},
+    )
+    if request.method == "POST" and form.is_valid():
+        try:
+            returned = record_distribution_return(
+                business=request.business,
+                sale_item=form.cleaned_data["sale_item"],
+                quantity=form.cleaned_data["quantity"],
+                date=form.cleaned_data["date"],
+                condition=form.cleaned_data["condition"],
+                reason=form.cleaned_data["reason"].strip(),
+                user=request.user,
+            )
+        except ValidationError as exc:
+            form.add_error(None, exc)
+        else:
+            destination = "Market Stock" if returned.market_lot_id else "damage/write-off analysis"
+            messages.success(request, f"Distribution return recorded to {destination}.")
+            return redirect("market_stock")
+    return _market_form_response(
+        request,
+        form,
+        title="Record Distribution Return",
+        intro="Return unsold saleable goods to Market Stock for redistribution, or classify damaged goods as unsellable at their frozen unit cost.",
+        submit_label="Record return",
+    )
+
+
+@login_required
+@require_POST
+def market_stock_expire(request, pk):
+    lot = get_object_or_404(MarketStockLot, pk=pk)
+    reason = (request.POST.get("reason") or "Shelf life elapsed").strip()
+    try:
+        quantity = reconcile_expired_market_lot(
+            business=request.business,
+            lot=lot,
+            date=timezone.localdate(),
+            user=request.user,
+            reason=reason,
+        )
+    except ValidationError as exc:
+        messages.error(request, "; ".join(exc.messages))
+    else:
+        messages.success(request, f"{quantity:.2f} {lot.finished_good.unit} reconciled as expired and unsellable.")
+    return redirect("market_stock")
 
 
 @login_required
@@ -261,7 +461,7 @@ def raw_material_inventory_pdf(request):
 def raw_material_form(request, pk=None):
     obj = get_object_or_404(RawMaterial, pk=pk) if pk else None
     if request.method == "POST":
-        form = RawMaterialForm(request.POST, instance=obj)
+        form = RawMaterialForm(request.POST, instance=obj, business=request.business)
         if form.is_valid():
             m = form.save(commit=False)
             m.business = request.business
@@ -272,7 +472,7 @@ def raw_material_form(request, pk=None):
             messages.success(request, "Raw material saved.")
             return redirect("inventory")
     else:
-        form = RawMaterialForm(instance=obj)
+        form = RawMaterialForm(instance=obj, business=request.business)
     return render(request, "inventory/rawmaterial_form.html", {"form": form, "obj": obj})
 
 
@@ -288,30 +488,34 @@ def raw_material_delete(request, pk):
 @login_required
 def finished_good_form(request, pk=None):
     obj = get_object_or_404(FinishedGood, pk=pk) if pk else None
+    uses_production = request.business.uses_production
     if request.method == "POST":
-        form = FinishedGoodForm(request.POST, instance=obj)
-        formset = RecipeItemFormSet(request.POST, instance=obj if obj else FinishedGood(), prefix="recipe_items")
-        production_formset = ProductionMaterialFormSet(request.POST, instance=obj if obj else FinishedGood(), prefix="production_materials")
+        form = FinishedGoodForm(request.POST, instance=obj, business=request.business)
+        formset = RecipeItemFormSet(request.POST, instance=obj if obj else FinishedGood(), prefix="recipe_items") if uses_production else None
+        production_formset = ProductionMaterialFormSet(request.POST, instance=obj if obj else FinishedGood(), prefix="production_materials") if uses_production else None
         channel_price_formset = FinishedGoodChannelPriceFormSet(request.POST, instance=obj if obj else FinishedGood(), prefix="channel_prices")
-        if form.is_valid() and formset.is_valid() and production_formset.is_valid() and channel_price_formset.is_valid():
+        production_forms_valid = not uses_production or (formset.is_valid() and production_formset.is_valid())
+        if form.is_valid() and production_forms_valid and channel_price_formset.is_valid():
             good = form.save(commit=False)
             good.business = request.business
             if obj is None:
                 good.created_by = request.user
             good.save()
-            formset.instance = good
-            production_formset.instance = good
+            if uses_production:
+                formset.instance = good
+                production_formset.instance = good
             channel_price_formset.instance = good
-            formset.save()
-            production_formset.save()
+            if uses_production:
+                formset.save()
+                production_formset.save()
             channel_price_formset.save()
             audit(request.business, request.user, "create" if obj is None else "update", good, f"Finished good {good.name} saved")
             messages.success(request, "Product saved.")
             return redirect("inventory")
     else:
-        form = FinishedGoodForm(instance=obj)
-        formset = RecipeItemFormSet(instance=obj, prefix="recipe_items")
-        production_formset = ProductionMaterialFormSet(instance=obj, prefix="production_materials")
+        form = FinishedGoodForm(instance=obj, business=request.business)
+        formset = RecipeItemFormSet(instance=obj, prefix="recipe_items") if uses_production else None
+        production_formset = ProductionMaterialFormSet(instance=obj, prefix="production_materials") if uses_production else None
         channel_price_formset = FinishedGoodChannelPriceFormSet(instance=obj, prefix="channel_prices")
     raw_material_units = {
         str(material.pk): material.usage_unit
@@ -338,6 +542,8 @@ def finished_good_delete(request, pk):
 
 @login_required
 def stock_history(request, kind, pk):
+    from procurement.models import PurchaseOrderItem
+
     if kind == "raw":
         item = get_object_or_404(
             RawMaterial,
@@ -479,11 +685,12 @@ def stock_history(request, kind, pk):
         data.append(row)
 
     materials = []
+    labels = vertical_config(request.business)
     if is_finished_good:
         for recipe in item.recipe_items.select_related("raw_material").order_by("raw_material__name"):
             materials.append({
                 "name": recipe.raw_material.name,
-                "category": "Recipe ingredient",
+                "category": f"{labels['recipe_label']} {labels['recipe_item_label'].lower()}",
                 "qty_per_batch": str(recipe.qty_per_batch),
                 "usage_unit": recipe.raw_material.usage_unit,
                 "flexible": recipe.flexible_usage,
@@ -497,12 +704,32 @@ def stock_history(request, kind, pk):
                 "flexible": False,
             })
 
+    purchase_filter = {"raw_material": item} if kind == "raw" else {"finished_good": item}
+    arrivals = [
+        {
+            "date": (line.purchase_order.received_date or line.purchase_order.date).isoformat(),
+            "supplier": line.purchase_order.supplier or "Unnamed supplier",
+            "quantity": str(line.qty),
+            "unit": line.stock_unit,
+            "unit_cost": str(line.unit_cost),
+            "reference": f"PO-{line.purchase_order_id}",
+        }
+        for line in PurchaseOrderItem.objects.filter(
+            purchase_order__status="received",
+            **purchase_filter,
+        ).select_related("purchase_order", "raw_material", "finished_good").order_by(
+            "-purchase_order__received_date", "-purchase_order__date", "-id"
+        )[:50]
+    ]
+
     response = {
         "kind": kind,
         "name": name,
         "purchase_unit": purchase_unit,
         "usage_unit": usage_unit,
         "factor": str(factor),
+        "stock": str(item.stock or Decimal("0")),
+        "units_per_batch": str(item.units_per_batch) if is_finished_good else None,
         "total_produced": (
             str(total_produced)
             if total_produced is not None
@@ -514,6 +741,7 @@ def stock_history(request, kind, pk):
             else None
         ),
         "materials": materials,
+        "arrivals": arrivals,
         "data": data,
     }
 

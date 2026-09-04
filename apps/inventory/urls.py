@@ -10,6 +10,11 @@ urlpatterns = [
     path("product/add/", views.finished_good_form, name="finished_good_add"),
     path("product/<int:pk>/edit/", views.finished_good_form, name="finished_good_edit"),
     path("product/<int:pk>/delete/", views.finished_good_delete, name="finished_good_delete"),
+    path("market-stock/", views.market_stock, name="market_stock"),
+    path("market-stock/release/", views.market_stock_release, name="market_stock_release"),
+    path("market-stock/transfer/", views.market_stock_transfer, name="market_stock_transfer"),
+    path("market-stock/return/", views.distribution_return, name="distribution_return"),
+    path("market-stock/lots/<int:pk>/expire/", views.market_stock_expire, name="market_stock_expire"),
     path("stock-history/<str:kind>/<int:pk>/", views.stock_history, name="stock_history"),
     path("operational-supply/dispense/", views.operational_supply_dispense, name="operational_supply_dispense"),
 ]

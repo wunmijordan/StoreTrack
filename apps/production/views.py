@@ -15,10 +15,12 @@ from .models import (Order, OrderNumberSequence, OrderItem, OrderMaterialUsage, 
 from sales.models import CustomerProductPrice
 from inventory.models import FinishedGood
 from inventory.services import (
+    receive_market_production,
     record_raw_material_movement,
     record_finished_good_movement,
+    reverse_market_production_lot,
 )
-from inventory.models import StockMovement
+from inventory.models import DistributionReturn, StockMovement
 from core.invoice import production_order_pdf
 from core.services import record_cash, audit
 from core.models import Business, FinancialTransaction
@@ -669,6 +671,7 @@ def order_complete(request, pk):
             planned_units=item.production_total_units,
             required_units=item.total_units,
             customer_order=customer_order,
+            market_stock_order=market_stock_order,
             initial={
                 "produced_units": f"{Decimal(item.production_total_units).quantize(Decimal('0.01')):.2f}",
                 "batch_number": default_batch,
@@ -768,6 +771,7 @@ def order_complete(request, pk):
                             else ""
                         ),
                         excess_stock_units=form.cleaned_data.get("excess_to_stock") or Decimal("0"),
+                        excess_market_stock_units=form.cleaned_data.get("excess_to_market_stock") or Decimal("0"),
                         excess_non_stock_units=form.cleaned_data.get("excess_to_non_stock") or Decimal("0"),
                         excess_non_stock_purpose=(form.cleaned_data.get("excess_non_stock_purpose") or "").strip(),
                     )
@@ -803,16 +807,16 @@ def order_complete(request, pk):
                         )
 
                     if destination_committed > 0:
-                        if (
-                            order.order_type == "physical_store" and order.production_destination == "store"
-                        ) or market_stock_order:
+                        if market_stock_order:
+                            receive_market_production(
+                                batch,
+                                destination_committed + batch.excess_market_stock_units,
+                                user=request.user,
+                            )
+                        elif order.order_type == "physical_store" and order.production_destination == "store":
                             record_finished_good_movement(
                                 good, destination_committed, StockMovement.FG_PRODUCTION,
-                                note=(
-                                    f"Unassigned Distribution production retained for future sales — batch {batch.batch_number}"
-                                    if market_stock_order
-                                    else f"Planned store production — batch {batch.batch_number}"
-                                ),
+                                note=f"Planned store production — batch {batch.batch_number}",
                                 reference=batch.batch_number, affects_stock=True, unit_value=snapshot.unit_cost,
                             )
                         else:
@@ -964,6 +968,7 @@ def order_complete(request, pk):
                         "planned_offcut_to_customer": str(sum((f.cleaned_data.get("planned_surplus_customer_units") or Decimal("0") for _, f, _ in completion_forms), Decimal("0"))),
                         "planned_offcut_allocations": audit_allocations,
                         "excess_to_stock": str(sum((f.cleaned_data.get("excess_to_stock") or Decimal("0") for _, f, _ in completion_forms), Decimal("0"))),
+                        "excess_to_market_stock": str(sum((f.cleaned_data.get("excess_to_market_stock") or Decimal("0") for _, f, _ in completion_forms), Decimal("0"))),
                         "excess_to_non_stock": str(sum((f.cleaned_data.get("excess_to_non_stock") or Decimal("0") for _, f, _ in completion_forms), Decimal("0"))),
                         "non_stock_excess_purposes": [
                             f.cleaned_data.get("excess_non_stock_purpose", "").strip()
@@ -1011,6 +1016,7 @@ def production_batch_detail(request, pk):
             "reconciliation_out__target_batch__order",
             "order__items__finished_good",
             "offcut_allocations__customer",
+            "market_stock_lots",
         ),
         pk=pk,
     )
@@ -1019,6 +1025,7 @@ def production_batch_detail(request, pk):
         "batch": batch,
         "qc_form": ProductionQualityCheckForm(instance=batch.quality_check),
         "recon_form": recon_form,
+        "today": today(),
     })
 
 
@@ -1143,12 +1150,24 @@ def order_reverse(request, pk):
     if any(sale.payments.exists() for sale in related_sales):
         messages.error(request, "This order cannot be reversed automatically because a linked sale already has customer payments. Reverse those payments first.")
         return redirect("order_detail", pk=pk)
+    if DistributionReturn.raw_objects.filter(sale_item__sale__in=related_sales).exists():
+        messages.error(request, "This order cannot be reversed automatically because a linked Distribution sale has recorded returns. Reconcile those downstream return records first.")
+        return redirect("order_detail", pk=pk)
 
     stock_to_remove = {}
     for batch in batches:
         good = batch.finished_good
         qty = batch.planned_surplus_stock_units + batch.excess_stock_units
-        if (order.order_type == "physical_store" and order.production_destination == "store") or order.is_market_stock_order:
+        market_lot = batch.market_stock_lots.filter(source="production").first() if order.is_market_stock_order else None
+        if market_lot and (
+            market_lot.quantity_available != market_lot.quantity_received
+            or market_lot.movements.exclude(movement_type="production_in").exists()
+        ):
+            messages.error(request, "This order cannot be reversed automatically because its Distribution Market Stock has already been released, returned, transferred, expired, or otherwise moved.")
+            return redirect("order_detail", pk=pk)
+        if (
+            order.order_type == "physical_store" and order.production_destination == "store"
+        ) or (order.is_market_stock_order and market_lot is None):
             qty += min(batch.saleable_units, batch.planned_units)
         if qty > 0:
             stock_to_remove[good.pk] = stock_to_remove.get(good.pk, Decimal("0")) + qty
@@ -1172,7 +1191,16 @@ def order_reverse(request, pk):
         for batch in order.production_batches.select_for_update().select_related("finished_good"):
             good = batch.finished_good
             remove_from_stock = batch.planned_surplus_stock_units + batch.excess_stock_units
-            if (order.order_type == "physical_store" and order.production_destination == "store") or order.is_market_stock_order:
+            reversed_market_lot = False
+            if order.is_market_stock_order:
+                reversed_market_lot = reverse_market_production_lot(
+                    batch=batch,
+                    date=today(),
+                    user=request.user,
+                )
+            if (
+                order.order_type == "physical_store" and order.production_destination == "store"
+            ) or (order.is_market_stock_order and not reversed_market_lot):
                 remove_from_stock += min(batch.saleable_units, batch.planned_units)
             if remove_from_stock > 0:
                 record_finished_good_movement(good, -remove_from_stock, StockMovement.ADJUSTMENT, note=f"Reversal of finished-good stock from order #{order.display_number} — batch {batch.batch_number}", reference=f"REV-{batch.batch_number}", affects_stock=True, unit_value=batch.unit_cost)
@@ -1216,9 +1244,14 @@ def order_delete(request, pk):
     order = get_object_or_404(Order, pk=pk)
     if request.method == "POST" and order.status in ("pending", "rejected", "reversed"):
         if order.status == "reversed":
+            from inventory.models import MarketStockLot, MarketStockMovement
+
             deleted_id = order.pk
             deleted_number = order.display_number
             reason = order.reversed_reason
+            market_lots = MarketStockLot.raw_objects.filter(production_batch__order=order)
+            MarketStockMovement.raw_objects.filter(lot__in=market_lots).delete()
+            market_lots.delete()
             order.production_batches.all().delete()
             order.cost_snapshots.all().delete()
             audit(order.business, request.user, "delete", None, f"Reversed order #{deleted_number} permanently deleted", {"order_id": deleted_id, "reversal_reason": reason})

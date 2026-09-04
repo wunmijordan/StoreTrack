@@ -10,18 +10,24 @@
     <a href="{% url 'export_stock_xlsx' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] hover:bg-[#E7DFCC] border border-[#D9CFB4] inline-block mr-1">Export Excel</a>
     <a href="{% url 'export_stock_csv' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] hover:bg-[#E7DFCC] border border-[#D9CFB4] inline-block">Export CSV</a>
   </div>
+  {% if vertical_ui.uses_production %}<div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[2px_-2px_8px_#000000d2] p-4">
+    <h3 class="font-medium text-sm mb-1">Distribution Market Stock Ledger</h3>
+    <p class="text-xs text-stone-500 mb-3">Batch receipts, customer releases, returns, shelf transfers, expiry and damage values.</p>
+    <a href="{% url 'export_market_stock_xlsx' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] hover:bg-[#E7DFCC] border border-[#D9CFB4] inline-block mr-1">Export Excel</a>
+    <a href="{% url 'export_market_stock_csv' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] hover:bg-[#E7DFCC] border border-[#D9CFB4] inline-block">Export CSV</a>
+  </div>{% endif %}
   <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[2px_-2px_8px_#000000d2] p-4">
     <h3 class="font-medium text-sm mb-1">Procurement Report</h3>
     <p class="text-xs text-stone-500 mb-3">All purchase orders and spend.</p>
     <a href="{% url 'export_procurement_xlsx' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] hover:bg-[#E7DFCC] border border-[#D9CFB4] inline-block mr-1">Export Excel</a>
     <a href="{% url 'export_procurement_csv' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] hover:bg-[#E7DFCC] border border-[#D9CFB4] inline-block">Export CSV</a>
   </div>
-  <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[-2px_2px_8px_#000000d2] p-4">
+  {% if vertical_ui.uses_production %}<div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[-2px_2px_8px_#000000d2] p-4">
     <h3 class="font-medium text-sm mb-1">Production Report</h3>
     <p class="text-xs text-stone-500 mb-3">Completed production runs.</p>
     <a href="{% url 'export_production_xlsx' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] hover:bg-[#E7DFCC] border border-[#D9CFB4] inline-block mr-1">Export Excel</a>
     <a href="{% url 'export_production_csv' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] hover:bg-[#E7DFCC] border border-[#D9CFB4] inline-block">Export CSV</a>
-  </div>
+  </div>{% endif %}
   <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[2px_2px_8px_#000000d2] p-4">
     <h3 class="font-medium text-sm mb-1">Sales Report</h3>
     <form action="{% url 'export_sales_csv' %}" method="get">

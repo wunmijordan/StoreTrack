@@ -1,10 +1,10 @@
 # StoreTrack
 
-A lightweight, multi-vertical, multitenant inventory, production, and sales
-system. Bakery businesses retain the original full workflow; restaurants add
-food-service vocabulary and dine-in/takeaway/delivery details; other makers
-use a general production profile. It remains one Django codebase and one
-SQLite database, suitable for PythonAnywhere.
+A lightweight inventory, production, procurement, and sales system for bakery,
+restaurant, general-production, wholesale, and retail businesses — Django backend and server-rendered frontend in
+one codebase, structured as `apps/`-per-domain (borrowed from a larger
+multitenant Django project; see `docs/ARCHITECTURE.md` and `CLAUDE.md` for
+what was borrowed and what was deliberately left out).
 
 ## What it does
 
@@ -14,6 +14,10 @@ SQLite database, suitable for PythonAnywhere.
   and an optional batch size.
 - **Procurement** — purchase orders; receiving one converts through the
   unit chain and updates stock + cost per unit automatically.
+- **Wholesale & retail** — stock-first workspaces procure sellable products
+  directly, track every supplier arrival per product, and sell from warehouse
+  or shop stock without forcing those products through Production. Wholesale
+  reuses customer pricing, credit, receivables and finance settlement.
 - **Customer Orders & Sales** — one form, one model, split by type:
   - **Walk-in** — immediate, deducts from existing shelf stock, exactly
     like a normal point-of-sale transaction.
@@ -67,8 +71,7 @@ python manage.py createsuperuser
 python manage.py runserver
 ```
 
-Open http://127.0.0.1:8001. Existing users sign in; a new business owner uses
-**Sign up** to create a workspace and its first Business Admin account.
+Open http://127.0.0.1:8001 and log in.
 
 ### WiFi-only access for staff, right now
 
@@ -141,24 +144,10 @@ custom domain (needs their $10/month plan).
 Steps: sign up → open a Bash console → clone this repo (or upload it) →
 create a virtualenv and `pip install -r requirements.txt` → in the **Web**
 tab, add a manually-configured web app pointing its WSGI file at
-`storetrack.wsgi.application` → set `SECRET_KEY`, `DEBUG=False`,
-`ALLOWED_HOSTS=yourusername.pythonanywhere.com`, and an absolute SQLite URL
-such as `DATABASE_URL=sqlite:////home/yourusername/storetrack/db.sqlite3`.
-
-For an upgrade with live data, stop/reload traffic around this short sequence:
-
-```bash
-cp db.sqlite3 "db.sqlite3.backup-$(date +%F-%H%M%S)"
-source venv/bin/activate
-pip install -r requirements.txt
-python manage.py migrate --noinput
-python manage.py check
-```
-
-Then reload the web app. Do not replace the SQLite file: the migrations add
-nullable/defaulted fields in place, classify every existing business as
-`bakery`, preserve all foreign keys/rows, and grant legacy tenants all current
-modules.
+`storetrack.wsgi.application` → set env vars `DJANGO_SECRET_KEY`,
+`DJANGO_DEBUG=False`, `DJANGO_ALLOWED_HOSTS=yourusername.pythonanywhere.com`
+→ `python manage.py migrate` and `createsuperuser` from the console →
+reload the web app.
 
 Other options (Render, Railway, Fly.io, a VPS) all run Django fine — just
 confirm the free tier gives a **persistent disk**, or plan to switch
@@ -171,12 +160,13 @@ confirm the free tier gives a **persistent disk**, or plan to switch
 
 ## Security checklist before going live
 
-- [ ] `SECRET_KEY` set to a fresh random value
-- [ ] `DEBUG=False`
-- [ ] `ALLOWED_HOSTS` set to your real domain
-- [ ] Each staff member has their own login (Business Settings → Users & Access)
+- [ ] `DJANGO_SECRET_KEY` set to a fresh random value
+- [ ] `DJANGO_DEBUG=False`
+- [ ] `DJANGO_ALLOWED_HOSTS` set to your real domain
+- [ ] Each staff member has their own login (Django admin → Users → Add user)
 
 ## What's next
 
-See `docs/ROADMAP.md` for production planning, location support, and future
-plan/pricing work.
+See `CLAUDE.md` §7 for what was deliberately left out for now (real
+multi-location routing, permission tiers, Postgres) and how to add it later
+without a rewrite.

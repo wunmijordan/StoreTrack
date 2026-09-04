@@ -97,15 +97,15 @@ def purchase_order_pdf(order):
     story = []
     _header(story, order.business, "PURCHASE ORDER", f"PO #{order.pk}", order.date, "Supplier", order.supplier)
     rows = []
-    for item in order.items.select_related("raw_material"):
+    for item in order.items.select_related("raw_material", "finished_good"):
         rows.append([
-            item.raw_material.name,
-            item.raw_material.get_category_display(),
-            f"{item.qty:,.2f} {item.raw_material.purchase_unit}",
+            item.item_name,
+            item.item_category,
+            f"{item.qty:,.2f} {item.stock_unit}",
             _money(item.unit_cost, symbol),
             _money(item.line_total, symbol),
         ])
-    _table(story, ["Raw material", "Category", "Quantity", "Unit cost", "Line total"], rows, [50*mm, 30*mm, 32*mm, 30*mm, 38*mm], order.total, symbol)
+    _table(story, ["Inventory item", "Category", "Quantity", "Unit cost", "Line total"], rows, [50*mm, 30*mm, 32*mm, 30*mm, 38*mm], order.total, symbol)
     styles = _styles()
     story.append(Spacer(1, 5 * mm))
     story.append(Paragraph(f"Status: {order.get_status_display()}", styles["body"]))
@@ -146,7 +146,7 @@ def production_order_pdf(order):
         story.append(Paragraph(f"Customer order type: {order.display_order_type}", styles["body"]))
     elif is_market_stock:
         story.append(Paragraph(f"Production channel: <b>{channel_label}</b>", styles["body"]))
-        story.append(Paragraph("Production destination: <b>AVAILABLE FINISHED-GOODS STOCK</b>", styles["body"]))
+        story.append(Paragraph("Production destination: <b>DISTRIBUTION MARKET STOCK</b>", styles["body"]))
         story.append(Paragraph("No customer sale or payment is created until these goods are sold.", styles["body"]))
     else:
         story.append(Paragraph(f"Sales channel: <b>{stock_location.upper()}</b>", styles["body"]))

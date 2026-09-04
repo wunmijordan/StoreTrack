@@ -8,8 +8,8 @@ from django.utils import timezone
 from .forms import PurchaseOrderForm, PurchaseOrderItemFormSet
 from .models import PurchaseOrder, RawMaterialCostSnapshot, SupplierPayment
 from inventory.models import RawMaterial
-from inventory.services import record_raw_material_movement
-from inventory.models import StockMovement
+from inventory.services import record_finished_good_movement, record_raw_material_movement
+from inventory.models import FinishedGood, StockMovement
 from core.invoice import purchase_order_pdf
 from core.services import record_cash, audit
 from core.models import FinancialTransaction
@@ -56,7 +56,7 @@ def procurement_list(request):
         raw_material_categories.append({"value": value, "label": label, "items": items})
         
     return render(request, "procurement/procurement_list.html", {
-        "orders": PurchaseOrder.objects.prefetch_related("items__raw_material"),
+        "orders": PurchaseOrder.objects.prefetch_related("items__raw_material", "items__finished_good"),
         "raw_material_categories": raw_material_categories,
     })
 
@@ -69,7 +69,11 @@ def po_form(request, pk=None):
         return redirect("procurement_list")
     if request.method == "POST":
         form = PurchaseOrderForm(request.POST, instance=obj)
-        formset = PurchaseOrderItemFormSet(request.POST, instance=obj if obj else PurchaseOrder())
+        formset = PurchaseOrderItemFormSet(
+            request.POST,
+            instance=obj if obj else PurchaseOrder(),
+            form_kwargs={"business": request.business},
+        )
         if form.is_valid() and formset.is_valid():
             active_items = [
                 f.cleaned_data for f in formset.forms
@@ -139,41 +143,86 @@ def po_form(request, pk=None):
                         return redirect("procurement_list")
     else:
         form = PurchaseOrderForm(instance=obj, initial=None if obj else {"date": today()})
-        formset = PurchaseOrderItemFormSet(instance=obj)
-    current_costs = {str(m.pk): f"{m.cost_per_purchase_unit:.2f}" for m in RawMaterial.objects.all()}
+        formset = PurchaseOrderItemFormSet(instance=obj, form_kwargs={"business": request.business})
+    current_costs = {
+        **{f"raw:{m.pk}": f"{m.cost_per_purchase_unit:.2f}" for m in RawMaterial.objects.all()},
+        **{f"finished:{g.pk}": f"{g.est_cost:.2f}" for g in FinishedGood.objects.filter(
+            stock__isnull=False,
+        ).distinct()},
+    }
     return render(request, "procurement/po_form.html", {"form": form, "formset": formset, "obj": obj, "current_costs": current_costs})
 
 
 @login_required
 def po_receive(request, pk):
     po = get_object_or_404(PurchaseOrder, pk=pk)
-    if request.method == "POST" and po.status != "received":
+    if request.method == "POST":
         with transaction.atomic():
-            for item in po.items.select_related("raw_material"):
-                mat = item.raw_material
-                factor = mat.total_conversion_factor or 1
-                # item.qty / item.unit_cost are in the material's purchase
-                # unit (e.g. bags); stock and cost_per_unit are always in
-                # its usage unit (e.g. kg) — convert on the way in.
-                usage_cost = (item.unit_cost / factor).quantize(Decimal("0.000001"))
-                record_raw_material_movement(
-                    mat,
-                    item.qty * factor,
-                    StockMovement.RAW_PURCHASE,
-                    note=f"Purchase order received", reference=f"PO-{po.pk}", unit_value=usage_cost,
+            # Prevent two workers from receiving the same PO and duplicating
+            # its stock/finance effects.
+            po = PurchaseOrder.objects.select_for_update().get(pk=po.pk)
+            if po.status == "received":
+                return redirect("procurement_list")
+            items = list(po.items.select_related("raw_material", "finished_good"))
+            invalid_item = next((
+                item for item in items
+                if (
+                    not item.stock_item
+                    or item.stock_item.business_id != po.business_id
+                    or item.qty <= 0
+                    or item.unit_cost < 0
+                    or (item.finished_good_id and item.finished_good.stock is None)
+                    or (
+                        item.finished_good_id
+                        and po.business.uses_production
+                        and (
+                            item.finished_good.recipe_items.exists()
+                            or item.finished_good.production_materials.exists()
+                        )
+                    )
                 )
-                RawMaterialCostSnapshot.objects.create(
-                    business=po.business,
-                    raw_material=mat,
-                    purchase_order_item=item,
-                    effective_date=po.received_date or today(),
-                    purchase_unit_cost=item.unit_cost,
-                    usage_unit_cost=usage_cost,
-                    supplier=po.supplier or "",
-                )
-                # This remains the material's current/latest procurement cost.
-                mat.cost_per_unit = usage_cost
-                mat.save(update_fields=["cost_per_unit"])
+            ), None)
+            if invalid_item:
+                messages.error(request, "This purchase order contains an invalid or non-purchasable inventory item.")
+                return redirect("procurement_list")
+            for item in items:
+                if item.raw_material_id:
+                    mat = item.raw_material
+                    factor = mat.total_conversion_factor or 1
+                    # item.qty / item.unit_cost are in the material's purchase
+                    # unit (e.g. bags); stock and cost_per_unit are always in
+                    # its usage unit (e.g. kg) — convert on the way in.
+                    usage_cost = (item.unit_cost / factor).quantize(Decimal("0.000001"))
+                    record_raw_material_movement(
+                        mat,
+                        item.qty * factor,
+                        StockMovement.RAW_PURCHASE,
+                        note="Purchase order received", reference=f"PO-{po.pk}", unit_value=usage_cost,
+                    )
+                    RawMaterialCostSnapshot.objects.create(
+                        business=po.business,
+                        raw_material=mat,
+                        purchase_order_item=item,
+                        effective_date=po.received_date or today(),
+                        purchase_unit_cost=item.unit_cost,
+                        usage_unit_cost=usage_cost,
+                        supplier=po.supplier or "",
+                    )
+                    # This remains the material's current/latest procurement cost.
+                    mat.cost_per_unit = usage_cost
+                    mat.save(update_fields=["cost_per_unit"])
+                else:
+                    good = item.finished_good
+                    if good.business_id != po.business_id or good.stock is None:
+                        raise ValueError("A purchased stock product must belong to this business and have stock enabled.")
+                    record_finished_good_movement(
+                        good,
+                        item.qty,
+                        StockMovement.FG_PURCHASE,
+                        note=f"Stock arrival from {po.supplier or 'supplier'}",
+                        reference=f"PO-{po.pk}",
+                        unit_value=item.unit_cost,
+                    )
             po.status = "received"
             po.received_date = today()
             po.save()
@@ -194,5 +243,8 @@ def po_delete(request, pk):
 
 @login_required
 def po_invoice(request, pk):
-    po = get_object_or_404(PurchaseOrder.objects.prefetch_related("items__raw_material"), pk=pk)
+    po = get_object_or_404(
+        PurchaseOrder.objects.prefetch_related("items__raw_material", "items__finished_good"),
+        pk=pk,
+    )
     return purchase_order_pdf(po)

@@ -16,7 +16,7 @@
 </div>
 
 <div class="rounded-lg border border-sky-200 bg-sky-50 p-4 mb-4 text-sm text-sky-900">
-  <b>Several commercial orders, one coordinated production approval.</b> Every order keeps its customer, channel, selling price, requested quantity and optional production target. Raw materials are still calculated proportionally from the registered product recipe: for example, 50 pieces from a 110-piece batch uses 50/110 of each configured batch input. The run only combines those requirements before release.
+  <b>Several commercial orders, one coordinated production approval.</b> Every order keeps its customer, channel, selling price, requested quantity and optional production target. Materials are still calculated proportionally from the registered product {{ vertical_ui.recipe_label|lower }}: for example, 50 pieces from a 110-piece batch uses 50/110 of each configured batch input. The run only combines those requirements before release.
 </div>
 
 {% if plan_errors %}<div class="rounded-md border border-rose-200 bg-rose-50 p-3 mb-4 text-sm text-rose-700">{% for e in plan_errors %}<div>{{ e }}</div>{% endfor %}</div>{% endif %}
@@ -48,9 +48,9 @@
 
 {% if run.status == 'draft' and flexible_usages %}
 <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
-  <h3 class="text-sm font-semibold text-amber-900">Flexible recipe usage for this run</h3>
-  <p class="text-xs text-amber-700 mt-1 mb-2">These are the same flexible recipe controls used by individual order approval. Any override is applied to that product/order's own proportional multiplier.</p>
-  {% for row in flexible_usages %}<div class="grid grid-cols-[1fr_10rem] gap-3 border-t border-amber-200 py-2 items-end"><div class="text-xs"><b>Order #{{ row.item.order.display_number }} · {{ row.good.name }}</b> · {{ row.material.name }} · recipe {{ row.planned_per_batch|num }} {{ row.usage_unit }}/batch</div><label class="text-[10px]">Actual / batch<input form="approve-run-form" type="number" min="0" step="0.01" name="{{ row.input_name }}" value="{{ row.actual_per_batch }}" class="w-full rounded border border-amber-300 px-2 py-1"></label></div>{% endfor %}
+  <h3 class="text-sm font-semibold text-amber-900">Flexible {{ vertical_ui.recipe_label|lower }} usage for this run</h3>
+  <p class="text-xs text-amber-700 mt-1 mb-2">These are the same flexible {{ vertical_ui.recipe_label|lower }} controls used by individual order approval. Any override is applied to that product/order's own proportional multiplier.</p>
+  {% for row in flexible_usages %}<div class="grid grid-cols-[1fr_10rem] gap-3 border-t border-amber-200 py-2 items-end"><div class="text-xs"><b>Order #{{ row.item.order.display_number }} · {{ row.good.name }}</b> · {{ row.material.name }} · {{ vertical_ui.recipe_label }} {{ row.planned_per_batch|num }} {{ row.usage_unit }}/batch</div><label class="text-[10px]">Actual / batch<input form="approve-run-form" type="number" min="0" step="0.01" name="{{ row.input_name }}" value="{{ row.actual_per_batch }}" class="w-full rounded border border-amber-300 px-2 py-1"></label></div>{% endfor %}
 </div>
 {% endif %}
 

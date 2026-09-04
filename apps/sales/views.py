@@ -3,22 +3,37 @@ from decimal import Decimal
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from .forms import SaleForm, SaleItemFormSet, CustomerForm, CustomerProductPriceFormSet
-from .models import Customer, Sale
+from .models import Customer, CustomerProductPrice, Sale
 from inventory.models import FinishedGood
 from production.models import ProductionCostSnapshot
-from inventory.services import record_finished_good_movement
+from inventory.services import consume_transferred_physical_stock, record_finished_good_movement
 from inventory.models import StockMovement
 from core.invoice import sale_invoice_pdf
 from core.services import record_cash, audit
 from core.models import FinancialTransaction
+from core.verticals import vertical_config
 
 
 def today():
     return timezone.localdate()
+
+
+def _direct_sale_prices(channel, saleable_products):
+    goods = FinishedGood.objects.filter(saleable_products).prefetch_related("channel_prices")
+    prices = {str(g.pk): str(g.selling_price_for(channel)) for g in goods}
+    customer_prices = {}
+    if channel == "distribution":
+        for customer_id, good_id, price in CustomerProductPrice.objects.filter(
+            channel=channel,
+            customer__active=True,
+        ).values_list("customer_id", "finished_good_id", "price"):
+            customer_prices.setdefault(str(customer_id), {})[str(good_id)] = str(price)
+    return prices, customer_prices
 
 
 @login_required
@@ -87,6 +102,12 @@ def sale_form(request):
     """Physical store stock only — immediate, deducts from existing shelf
     stock right away. For a customer order or a physical store restock
     (production needed first), use the Orders page instead."""
+    sale_channel = vertical_config(request.business)["direct_sale_channel"]
+    saleable_products = (
+        Q(stock__isnull=False, reorder_level__gt=0)
+        | Q(stock__isnull=False, business__vertical__in=("wholesale", "retail"))
+        | Q(transferred_market_stock__gt=0)
+    )
     if request.method == "POST":
         form = SaleForm(request.POST, business=request.business)
         formset = SaleItemFormSet(request.POST, instance=Sale())
@@ -98,11 +119,7 @@ def sale_form(request):
                 for f in formset.forms
                 if f.cleaned_data and not f.cleaned_data.get("DELETE")
                 and f.cleaned_data.get("finished_good")
-                and (
-                    f.cleaned_data["finished_good"].stock is None
-                    or f.cleaned_data["finished_good"].reorder_level is None
-                    or f.cleaned_data["finished_good"].reorder_level <= 0
-                )
+                and not f.cleaned_data["finished_good"].can_sell_from_physical_store
             ]
             if invalid_products:
                 formset.forms[0].add_error(
@@ -115,28 +132,48 @@ def sale_form(request):
                 if not f.cleaned_data or f.cleaned_data.get("DELETE"):
                     continue
                 good = f.cleaned_data["finished_good"]
-                if good.stock is None or good.reorder_level is None or good.reorder_level <= 0:
+                if not good.can_sell_from_physical_store:
                     shortages.append({"name": good.name, "unit": good.unit, "needed": Decimal("0"), "have": Decimal("0"), "short": Decimal("0"), "message": "Not configured for physical-store sales."})
                     continue
                 upb = good.units_per_batch or Decimal("1")
                 total_units = (f.cleaned_data.get("batch_qty") or Decimal("0")) * upb + (f.cleaned_data.get("piece_qty") or Decimal("0"))
-                if good.stock is None:
-                    shortages.append({"name": good.name, "unit": good.unit, "needed": total_units, "have": 0, "short": total_units, "message": "Not configured for physical-store stock."})
-                elif total_units > good.stock:
-                    shortages.append({"name": good.name, "unit": good.unit, "needed": total_units, "have": good.stock, "short": total_units - good.stock})
-            if shortages and not force:
-                prices = {str(g.pk): f"{g.selling_price_for('physical_store')}" for g in FinishedGood.objects.filter(stock__isnull=False, reorder_level__gt=0).prefetch_related("channel_prices")}
-                return render(request, "sales/sale_form.html", {"form": form, "formset": formset, "shortages": shortages, "prices": prices})
+                available = good.physical_saleable_stock
+                if total_units > available:
+                    shortages.append({
+                        "name": good.name,
+                        "unit": good.unit,
+                        "needed": total_units,
+                        "have": available,
+                        "short": total_units - available,
+                        # The ordinary force option preserves the existing
+                        # configured-shelf workflow. It must never expand the
+                        # narrow allowance for a distribution-only product.
+                        "restricted": not good.is_physical_store_configured,
+                    })
+            restricted_shortage = any(row.get("restricted") for row in shortages)
+            if invalid_products or restricted_shortage or (shortages and not force):
+                prices, customer_prices = _direct_sale_prices(sale_channel, saleable_products)
+                return render(request, "sales/sale_form.html", {
+                    "form": form,
+                    "formset": formset,
+                    "shortages": shortages,
+                    "prices": prices,
+                    "customer_prices": customer_prices,
+                    "force_allowed": bool(shortages and not restricted_shortage and not invalid_products),
+                })
             with transaction.atomic():
                 sale = form.save(commit=False)
                 sale.business = request.business
                 sale.created_by = request.user
-                sale.source = "walkin"
+                sale.source = "distribution_order" if sale_channel == "distribution" else "walkin"
                 sale.save()
                 formset.instance = sale
                 items = formset.save(commit=False)
                 for item in items:
-                    item.price = item.finished_good.selling_price_for("physical_store")
+                    item.price = item.finished_good.selling_price_for(
+                        sale_channel,
+                        sale.customer_master if sale_channel == "distribution" else None,
+                    )
                     item.save()
                 for obj in formset.deleted_objects:
                     obj.delete()
@@ -145,15 +182,29 @@ def sale_form(request):
                     latest_cost = ProductionCostSnapshot.objects.filter(
                         finished_good=good, production_date__lte=sale.date
                     ).order_by("-production_date", "-id").first()
-                    item.unit_cost = latest_cost.unit_cost if latest_cost else None
+                    latest_purchase = good.stock_movements.filter(
+                        movement_type=StockMovement.FG_PURCHASE,
+                        occurred_at__date__lte=sale.date,
+                        quantity__gt=0,
+                    ).order_by("-occurred_at", "-id").first()
+                    if not request.business.uses_production and latest_purchase:
+                        item.unit_cost = latest_purchase.unit_value
+                    else:
+                        item.unit_cost = (
+                            latest_cost.unit_cost if latest_cost
+                            else latest_purchase.unit_value if latest_purchase
+                            else good.est_cost
+                        )
                     item.save(update_fields=["unit_cost"])
                     record_finished_good_movement(
                         good,
                         -item.total_units,
                         StockMovement.FG_SALE,
-                        note="Walk-in sale",
+                        note="Wholesale stock release" if sale_channel == "distribution" else "Walk-in sale",
                         affects_stock=True,
+                        unit_value=item.unit_cost,
                     )
+                    consume_transferred_physical_stock(good, item.total_units)
 
                 if sale.transaction_type == "paid":
                     record_cash(request.business, request.user, date=sale.date, amount=sale.total, transaction_type=FinancialTransaction.INCOME, category="Sales revenue", description=f"Sale #{sale.pk}", payment_method=sale.payment_method, reference=f"SALE-{sale.pk}", account=sale.account)
@@ -163,16 +214,26 @@ def sale_form(request):
     else:
         form = SaleForm(initial={"date": today(), "customer": "Walk-in"}, business=request.business)
         formset = SaleItemFormSet(instance=Sale())
-    prices = {str(g.pk): f"{g.selling_price_for('physical_store')}" for g in FinishedGood.objects.filter(stock__isnull=False, reorder_level__gt=0).prefetch_related("channel_prices")}
-    return render(request, "sales/sale_form.html", {"form": form, "formset": formset, "prices": prices})
+    prices, customer_prices = _direct_sale_prices(sale_channel, saleable_products)
+    return render(request, "sales/sale_form.html", {
+        "form": form,
+        "formset": formset,
+        "prices": prices,
+        "customer_prices": customer_prices,
+    })
 
 
 @login_required
 def sale_delete(request, pk):
     obj = get_object_or_404(Sale, pk=pk)
     if request.method == "POST":
-        obj.delete()
-        messages.success(request, "Removed.")
+        if obj.market_stock_movements.exists():
+            messages.error(request, "A Market Stock release sale cannot be deleted because it has inventory allocation history. Record a Distribution return instead.")
+        elif obj.items.filter(distribution_returns__isnull=False).exists():
+            messages.error(request, "This Distribution sale has recorded returns and cannot be deleted.")
+        else:
+            obj.delete()
+            messages.success(request, "Removed.")
     return redirect("sales_list")
 
 @login_required

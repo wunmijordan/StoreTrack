@@ -130,6 +130,10 @@ class Sale(BusinessOwnedModel):
     def display_source(self):
         if self.source == "walkin" and self.business.is_restaurant:
             return "Restaurant POS"
+        if self.source == "distribution_order" and self.business.is_wholesale:
+            return "Wholesale"
+        if self.source == "walkin" and self.business.is_retail:
+            return "Retail POS"
         return self.get_source_display()
 
 

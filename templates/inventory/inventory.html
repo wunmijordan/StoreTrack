@@ -3,33 +3,33 @@
 {% block content %}
 
 <div class="flex gap-2 mb-4 border-b border-[#E7DFCC]">
-  <input type="radio" name="inv-tab" id="radio-raw" class="hidden" checked>
+  <input type="radio" name="inv-tab" id="radio-raw" class="hidden" data-default-tab="{{ vertical_ui.inventory_primary }}" checked>
   <input type="radio" name="inv-tab" id="radio-finished" class="hidden">
   
-  <label for="radio-raw" class="cursor-pointer px-4 py-2 text-sm font-medium text-stone-500 border-b-2 border-transparent transition-colors duration-200" id="raw-tab-label">Raw Materials</label>
-  <label for="radio-finished" class="cursor-pointer px-4 py-2 text-sm font-medium text-stone-500 border-b-2 border-transparent transition-colors duration-200" id="finished-tab-label">Finished Goods</label>
+  <label for="radio-raw" class="cursor-pointer px-4 py-2 text-sm font-medium text-stone-500 border-b-2 border-transparent transition-colors duration-200" id="raw-tab-label">{% if vertical_ui.uses_production %}Raw Materials{% else %}Supporting Supplies{% endif %}</label>
+  <label for="radio-finished" class="cursor-pointer px-4 py-2 text-sm font-medium text-stone-500 border-b-2 border-transparent transition-colors duration-200" id="finished-tab-label">{{ vertical_ui.product_label }}</label>
 </div>
 
 <div id="raw-panel" class="transition-all duration-300 transform opacity-0 translate-y-2 pointer-events-none hidden">
 
 
-<h2 class="text-xl font-semibold font-display text-[#8f172d]">Raw Materials</h2>
+<h2 class="text-xl font-semibold font-display text-[#8f172d]">{% if vertical_ui.uses_production %}Raw Materials{% else %}Supporting Supplies{% endif %}</h2>
 <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
-  <p class="text-sm text-stone-500 mt-0.5 flex-1 min-w-[240px]">Ingredients, production inputs and operational supplies — all procured through the same material form and procurement chain.</p>
+  <p class="text-sm text-stone-500 mt-0.5 flex-1 min-w-[240px]">{% if vertical_ui.uses_production %}{{ vertical_ui.recipe_item_label }}s, {{ vertical_ui.production_inputs_label|lower }} and operational supplies — all procured through the same material form and procurement chain.{% else %}Packaging, handling, storage and operational supplies used around product procurement and sales.{% endif %}</p>
   <div class="flex items-center gap-2 shrink-0">
     <a href="{% url 'raw_material_inventory_pdf' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-white text-[#8f172d] border border-[#8f172d]/30 hover:bg-[#FFF4F6]" title="Export current raw-material stock and reorder status as PDF">Export PDF</a>
-    {% if module_permissions.inventory.edit %}<a href="{% url 'raw_material_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">+ Add Material</a>{% endif %}
+    {% if module_permissions.inventory.edit %}<a href="{% url 'raw_material_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">+ Add {% if vertical_ui.uses_production %}Material{% else %}Supply{% endif %}</a>{% endif %}
   </div>
 </div>
 <div id="material-category-tabs" class="flex flex-wrap gap-1.5 mb-4">
-  <button type="button" data-material-tab="ingredient" class="material-tab px-3 py-1.5 rounded-md text-xs font-medium border">Ingredients <span data-material-count="ingredient" class="ml-1 text-[10px] opacity-70"></span></button>
+  <button type="button" data-material-tab="ingredient" class="material-tab px-3 py-1.5 rounded-md text-xs font-medium border">{% if vertical_ui.uses_production %}{{ vertical_ui.recipe_item_label }}s{% else %}Consumable Supplies{% endif %} <span data-material-count="ingredient" class="ml-1 text-[10px] opacity-70"></span></button>
   <button type="button" data-material-tab="packaging" class="material-tab px-3 py-1.5 rounded-md text-xs font-medium border">Packaging <span data-material-count="packaging" class="ml-1 text-[10px] opacity-70"></span></button>
-  <button type="button" data-material-tab="production_supply" class="material-tab px-3 py-1.5 rounded-md text-xs font-medium border">Production Supplies <span data-material-count="production_supply" class="ml-1 text-[10px] opacity-70"></span></button>
+  <button type="button" data-material-tab="production_supply" class="material-tab px-3 py-1.5 rounded-md text-xs font-medium border">{% if vertical_ui.uses_production %}{{ vertical_ui.production_inputs_label }}{% else %}Handling / Storage Supplies{% endif %} <span data-material-count="production_supply" class="ml-1 text-[10px] opacity-70"></span></button>
   <button type="button" data-material-tab="operational_supply" class="material-tab px-3 py-1.5 rounded-md text-xs font-medium border">Operational Supplies <span data-material-count="operational_supply" class="ml-1 text-[10px] opacity-70"></span></button>
 </div>
 
 {% if not raw_materials %}
-  <div class="text-center py-10 text-sm text-stone-400 italic">No Raw Materials yet. Add Flour, Sugar, Packaging — whatever you procure.</div>
+  <div class="text-center py-10 text-sm text-stone-400 italic">No {% if vertical_ui.uses_production %}raw materials{% else %}supporting supplies{% endif %} yet. Add what your operation procures and consumes.</div>
 {% else %}
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] mb-8 overflow-x-auto overflow-y-auto max-h-[28rem]">
   <table class="min-w-max w-full text-sm">
@@ -119,26 +119,27 @@
 
 <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
   <div>
-    <h2 class="text-xl font-semibold font-display text-[#8f172d]">Products (Finished Goods)</h2>
-    <p class="text-sm text-stone-500 mt-0.5">Items you sell, with their recipe and batch size</p>
+    <h2 class="text-xl font-semibold font-display text-[#8f172d]">{{ vertical_ui.product_label }}</h2>
+    <p class="text-sm text-stone-500 mt-0.5">{% if vertical_ui.uses_production %}Items you sell, with their {{ vertical_ui.recipe_label|lower }} and batch size{% else %}Items you procure, receive into {{ vertical_ui.stock_location }}, and sell{% endif %}</p>
   </div>
-  <div class="flex gap-2">{% if module_permissions.inventory.edit %}<a href="{% url 'operational_supply_dispense' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100">Dispense Operational Supply</a><a href="{% url 'finished_good_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">+ Add Product</a>{% endif %}</div>
+  <div class="flex flex-wrap gap-2">{% if vertical_ui.uses_production %}<a href="{% url 'market_stock' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100">Distribution Market Stock</a>{% endif %}{% if module_permissions.inventory.edit %}<a href="{% url 'operational_supply_dispense' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100">Dispense Operational Supply</a><a href="{% url 'finished_good_add' %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">+ Add Product</a>{% endif %}</div>
 </div>
 
 {% if not finished_goods %}
-  <div class="text-center py-10 text-sm text-stone-400 italic">No Products yet. Add what you bake or cook to sell.</div>
+  <div class="text-center py-10 text-sm text-stone-400 italic">No Products yet. {% if vertical_ui.uses_production %}Add what you make to sell.{% else %}Add a stock product, then receive its purchases through Procurement.{% endif %}</div>
 {% else %}
 <div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] overflow-x-auto overflow-y-auto max-h-[28rem]">
   <table class="min-w-max w-full text-sm">
     <thead class="bg-[#F0EAD9] text-stone-600 text-md text-middle"><tr>
       <th class="px-3 py-2">Product</th>
       <th class="px-3 py-2">Stock ({{ vertical_ui.stock_location }})</th>
+      {% if vertical_ui.uses_production %}<th class="px-3 py-2" title="Sellable, unassigned stock reserved exclusively for future Distribution orders.">Market Stock (Distribution)</th>
       <th class="px-3 py-2" title="Traceable planned-offcut pool currently represented in live finished-goods stock.">Uncommitted Offcut*</th>
       <th class="px-3 py-2">Customer Orders</th>
-      <th class="px-3 py-2">Total Made</th>
+      <th class="px-3 py-2">Total Made</th>{% endif %}
       <!--<th class="px-3 py-2">Reorder at</th>-->
       <th class="px-3 py-2">Price</th>
-      <th class="px-3 py-2">Recipe / Production Inputs</th>
+      {% if vertical_ui.uses_production %}<th class="px-3 py-2">{{ vertical_ui.recipe_label }} / {{ vertical_ui.production_inputs_label }}</th>{% else %}<th class="px-3 py-2">Latest Purchase Cost</th>{% endif %}
       <th class="w-24"></th>
     </tr></thead>
     <tbody>
@@ -158,13 +159,15 @@
           {% if g.units_per_batch != 1 %}<div class="text-[10px] text-stone-400">{{ g.units_per_batch|num }} {{ g.unit }}/batch</div>{% endif %}
         </td>
         <td class="px-3 py-2 text-right">
-          {% if not g.reorder_level or g.reorder_level <= 0 %}
+          {% if not g.is_physical_store_configured and not g.transferred_market_stock %}
             <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium border bg-stone-50 text-stone-500 ring-1 ring-inset ring-stone-300">
               Unavailable
             </span>
           {% else %}
             <span class="inline-block px-2 py-0.5 rounded-full text-xs font-mono font-medium border
-              {% if g.is_low %}
+              {% if not g.is_physical_store_configured %}
+                bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-600/10
+              {% elif g.is_low %}
                 bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/10
               {% elif g.is_warning %}
                 bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-600/20
@@ -173,7 +176,13 @@
               {% endif %}">
               {{ g.stock|num }} {{ g.unit }}
             </span>
+            {% if not g.is_physical_store_configured %}<div class="text-[10px] text-sky-600 mt-1">Market-transfer shelf exception</div>{% endif %}
           {% endif %}
+        </td>
+        {% if vertical_ui.uses_production %}<td class="px-3 py-2 text-right">
+          {% if g.market_stock > 0 %}<a href="{% url 'market_stock' %}" class="inline-block px-2 py-0.5 rounded-full text-xs font-mono font-medium border bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/10">{{ g.market_stock|num }} {{ g.unit }}</a>{% else %}<span class="text-xs text-stone-400">—</span>{% endif %}
+          {% if g.expiring_market_stock > 0 %}<div class="text-[10px] text-amber-700 mt-1">{{ g.expiring_market_stock|num }} expires within 7 days</div>{% endif %}
+          {% if g.expired_market_stock > 0 %}<div class="text-[10px] text-rose-700 mt-1">{{ g.expired_market_stock|num }} expired — blocked</div>{% endif %}
         </td>
         <td class="px-3 py-2 text-right">
           {% with offcut=g.uncommitted_planned_offcut_stock %}
@@ -185,10 +194,10 @@
           {% endwith %}
         </td>
         <td class="px-3 py-2 text-right font-mono text-sky-700">{{ g.total_delivered_to_customers|num }}</td>
-        <td class="px-3 py-2 text-right font-mono text-stone-500">{{ g.total_produced|num }}</td>
+        <td class="px-3 py-2 text-right font-mono text-stone-500">{{ g.total_produced|num }}</td>{% endif %}
         <!--<td class="px-3 py-2 text-right font-mono text-stone-500">{{ g.reorder_level|num }}</td>-->
         <td class="px-3 py-2 text-right font-mono">{{ g.selling_price|money:biz.currency_symbol }}</td>
-        <td class="px-3 py-2 text-xs text-stone-500">{{ g.recipe_items.count }} Ingredient{{ g.recipe_items.count|pluralize }}{% if g.production_materials.count %}, {{ g.production_materials.count }} production input{{ g.production_materials.count|pluralize }}{% endif %}</td>
+        <td class="px-3 py-2 text-xs text-stone-500">{% if vertical_ui.uses_production %}{{ g.recipe_items.count }} {{ vertical_ui.recipe_item_label }}{{ g.recipe_items.count|pluralize }}{% if g.production_materials.count %}, {{ g.production_materials.count }} production input{{ g.production_materials.count|pluralize }}{% endif %}{% else %}<span class="font-mono">{{ g.est_cost|money:biz.currency_symbol }}</span> / {{ g.unit }}{% endif %}</td>
         <td class="px-3 py-2 text-right">
           {% if module_permissions.inventory.edit %}<a href="{% url 'finished_good_edit' g.pk %}" class="text-stone-400 hover:text-[#8f172d] mr-2">Edit</a>{% endif %}
           {% if module_permissions.inventory.edit %}<form action="{% url 'finished_good_delete' g.pk %}" method="post" class="inline" onsubmit="return confirm('Remove {{ g.name }}?');">{% csrf_token %}<button class="text-stone-400 hover:text-rose-600">Delete</button></form>{% endif %}
@@ -198,7 +207,7 @@
     </tbody>
   </table>
 </div>
-<p class="mt-2 text-[10px] text-stone-400">* Uncommitted Offcut is a traceable planned-offcut pool: retained offcut less explicit reconciliations, capped by current physical stock. Ordinary shelf sales are not yet lot-source tagged, so this is intentionally conservative rather than a separate stock balance.</p>
+{% if vertical_ui.uses_production %}<p class="mt-2 text-[10px] text-stone-400">* Market Stock is a separate, batch/expiry-aware Distribution pool. It does not enter Physical Store stock until an explicit transfer. Uncommitted Offcut remains the existing traceable physical-stock pool and is not merged into Market Stock.</p>{% endif %}
 {% endif %}
 </div>
 
@@ -244,9 +253,17 @@
       <div id="stock-history-empty" class="hidden px-5 py-12 text-center text-sm text-stone-400">No Stock movement history is available for this item yet.</div>
 
       <div id="stock-history-content" class="hidden p-5 space-y-5">
+        <div id="stock-history-flow-card" class="hidden rounded-xl border border-[#D9CFB4] bg-gradient-to-br from-[#FFFDF8] via-white to-[#F5EFE0] p-4 overflow-hidden">
+          <div class="flex flex-wrap items-start justify-between gap-2 mb-4"><div><div id="stock-history-flow-title" class="text-xs font-bold uppercase tracking-wider text-[#8f172d]">Operational Flow</div><div class="text-[10px] text-stone-500 mt-0.5">A visual simulation of how this product moves through the active vertical.</div></div><span class="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-stone-500 ring-1 ring-[#D9CFB4]">Configured workflow</span></div>
+          <div id="stock-history-flow" class="flex flex-col lg:flex-row items-stretch lg:items-center gap-2"></div>
+        </div>
+        <div id="stock-history-arrivals-card" class="hidden rounded-lg border border-[#E7DFCC] overflow-hidden">
+          <div class="px-4 py-3 bg-[#F0EAD9] border-b border-[#E7DFCC]"><div class="text-xs font-bold uppercase tracking-wider text-stone-600">Stock Arrivals</div><div class="text-[10px] text-stone-400 mt-0.5">Received purchase-order lines for this item, newest first.</div></div>
+          <div class="overflow-x-auto"><table class="min-w-[680px] w-full text-sm"><thead class="bg-stone-50 text-xs text-stone-500"><tr><th class="px-4 py-2 text-left">Received</th><th class="px-4 py-2 text-left">Supplier</th><th class="px-4 py-2 text-left">Reference</th><th class="px-4 py-2 text-right">Quantity</th><th class="px-4 py-2 text-right">Unit Cost</th></tr></thead><tbody id="stock-history-arrival-rows"></tbody></table></div>
+        </div>
         <div id="stock-history-materials-card" class="hidden rounded-lg border border-[#E7DFCC] overflow-hidden">
           <div class="px-4 py-3 bg-[#F0EAD9] border-b border-[#E7DFCC] flex items-center justify-between gap-3">
-            <div><div class="text-xs font-bold uppercase tracking-wider text-stone-600">Recipe & Production Inputs</div><div class="text-[10px] text-stone-400 mt-0.5">Materials configured to make this product, shown even before the first production movement.</div></div>
+            <div><div class="text-xs font-bold uppercase tracking-wider text-stone-600">{{ vertical_ui.recipe_label }} & {{ vertical_ui.production_inputs_label }}</div><div class="text-[10px] text-stone-400 mt-0.5">Configured inputs are shown even before the first production movement.</div></div>
           </div>
           <div class="overflow-x-auto">
             <table class="min-w-[640px] w-full text-sm">
@@ -272,7 +289,7 @@
           </div>
         </div>
 
-        <div id="stock-history-no-movements" class="hidden rounded-lg border border-stone-200 bg-stone-50 px-4 py-4 text-sm text-stone-500">No stock movement history is available for this product yet. Its configured recipe and production inputs are shown above.</div>
+        <div id="stock-history-no-movements" class="hidden rounded-lg border border-stone-200 bg-stone-50 px-4 py-4 text-sm text-stone-500">No stock movement history is available for this product yet. Its configured workflow is shown above.</div>
 
         <div id="stock-history-daily-card" class="rounded-lg border border-[#E7DFCC] overflow-hidden">
           <div class="px-4 py-3 bg-[#F0EAD9] border-b border-[#E7DFCC] text-xs font-bold uppercase tracking-wider text-stone-600">Daily Movement</div>
@@ -297,7 +314,9 @@
   </div>
 </div>
 
+{{ vertical_ui|json_script:"inventory-vertical-config" }}
 <script>
+  const inventoryVertical = JSON.parse(document.getElementById('inventory-vertical-config').textContent);
   const materialRows = Array.from(document.querySelectorAll('[data-material-category]'));
   const materialTabs = Array.from(document.querySelectorAll('[data-material-tab]'));
   let activeMaterialCategory = 'ingredient';
@@ -334,6 +353,11 @@
   const historyUnitLabel = document.getElementById('stock-history-unit-label');
   const historyChart = document.getElementById('stock-history-chart');
   const historyRows = document.getElementById('stock-history-rows');
+  const historyFlowCard = document.getElementById('stock-history-flow-card');
+  const historyFlowTitle = document.getElementById('stock-history-flow-title');
+  const historyFlow = document.getElementById('stock-history-flow');
+  const historyArrivalsCard = document.getElementById('stock-history-arrivals-card');
+  const historyArrivalRows = document.getElementById('stock-history-arrival-rows');
   const historyMaterialsCard = document.getElementById('stock-history-materials-card');
   const historyMaterialRows = document.getElementById('stock-history-material-rows');
   const historyMovementCard = document.getElementById('stock-history-movement-card');
@@ -376,6 +400,10 @@
       minimumFractionDigits: digits,
       maximumFractionDigits: digits,
     });
+  }
+
+  function fmtMoney(value) {
+    return '{{ biz.currency_symbol|default:"₦"|escapejs }}' + fmt(value);
   }
 
   function filteredHistory() {
@@ -567,11 +595,83 @@
     historyMaterialsCard.classList.toggle('hidden', !show);
     historyMaterialRows.innerHTML = materials.map(row => `
       <tr class="border-t border-[#E7DFCC]">
-        <td class="px-4 py-2.5 font-medium text-stone-700">${row.name}</td>
-        <td class="px-4 py-2.5 text-xs text-stone-500">${row.category}</td>
+        <td class="px-4 py-2.5 font-medium text-stone-700">${escapeFlowText(row.name)}</td>
+        <td class="px-4 py-2.5 text-xs text-stone-500">${escapeFlowText(row.category)}</td>
         <td class="px-4 py-2.5 text-right font-mono">${fmt(row.qty_per_batch)}</td>
-        <td class="px-4 py-2.5 text-xs text-stone-500">${row.usage_unit || ''}</td>
-        <td class="px-4 py-2.5 text-xs">${row.flexible ? '<span class="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">Flexible at approval</span>' : '<span class="text-stone-400">Fixed recipe</span>'}</td>
+        <td class="px-4 py-2.5 text-xs text-stone-500">${escapeFlowText(row.usage_unit || '')}</td>
+        <td class="px-4 py-2.5 text-xs">${row.flexible ? '<span class="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">Flexible at approval</span>' : `<span class="text-stone-400">Fixed ${escapeFlowText(inventoryVertical.recipe_label.toLowerCase())}</span>`}</td>
+      </tr>
+    `).join('');
+  }
+
+  function escapeFlowText(value) {
+    const node = document.createElement('span');
+    node.textContent = String(value ?? '');
+    return node.innerHTML;
+  }
+
+  function flowNode(kicker, title, detail, tone = 'stone') {
+    const tones = {
+      sky: 'border-sky-200 bg-sky-50 text-sky-950',
+      amber: 'border-amber-200 bg-amber-50 text-amber-950',
+      emerald: 'border-emerald-200 bg-emerald-50 text-emerald-950',
+      rose: 'border-rose-200 bg-rose-50 text-rose-950',
+      stone: 'border-stone-200 bg-white text-stone-800'
+    };
+    return `<div class="relative flex-1 min-w-0 rounded-xl border ${tones[tone]} p-3 shadow-sm"><div class="text-[9px] uppercase tracking-[0.16em] font-bold opacity-60">${escapeFlowText(kicker)}</div><div class="mt-1 text-sm font-semibold leading-tight">${escapeFlowText(title)}</div><div class="mt-1 text-[10px] leading-4 opacity-70">${escapeFlowText(detail)}</div></div>`;
+  }
+
+  function flowArrow() {
+    return '<div class="self-center shrink-0 text-[#8f172d] font-bold text-lg rotate-90 lg:rotate-0" aria-hidden="true">→</div>';
+  }
+
+  function renderProductFlow() {
+    const isProduct = stockHistoryData?.kind === 'finished';
+    historyFlowCard.classList.toggle('hidden', !isProduct);
+    if (!isProduct) return;
+    const materials = Array.isArray(stockHistoryData.materials) ? stockHistoryData.materials : [];
+    const arrivals = Array.isArray(stockHistoryData.arrivals) ? stockHistoryData.arrivals : [];
+    const product = stockHistoryData.name || 'Product';
+    if (inventoryVertical.uses_production) {
+      const inputNames = materials.slice(0, 3).map(row => row.name).join(', ');
+      const more = Math.max(0, materials.length - 3);
+      historyFlowTitle.textContent = `${inventoryVertical.recipe_label} · production · fulfilment`;
+      historyFlow.innerHTML = [
+        flowNode('Inputs', `${materials.length} configured`, inputNames ? `${inputNames}${more ? ` +${more} more` : ''}` : `Add ${inventoryVertical.recipe_item_label.toLowerCase()}s and production inputs`, 'sky'),
+        flowArrow(),
+        flowNode(inventoryVertical.recipe_label, `${stockHistoryData.units_per_batch || 1} ${stockHistoryData.usage_unit || 'units'} / batch`, 'Requirements scale proportionally to the planned quantity.', 'amber'),
+        flowArrow(),
+        flowNode('Process', inventoryVertical.process_label, 'Materials are released, output and wastage are recorded, and cost is frozen.', 'rose'),
+        flowArrow(),
+        flowNode('Output', product, `${fmt(stockHistoryData.stock || 0)} ${stockHistoryData.usage_unit || ''} currently in ${inventoryVertical.stock_location}.`, 'emerald'),
+        flowArrow(),
+        flowNode('Fulfilment', `${inventoryVertical.sales} & customer orders`, 'Stock, customer delivery, offcut, shortage, and market allocation keep distinct audit trails.', 'stone')
+      ].join('');
+    } else {
+      const suppliers = [...new Set(arrivals.map(row => row.supplier))];
+      historyFlowTitle.textContent = 'Procurement · stock arrival · sale';
+      historyFlow.innerHTML = [
+        flowNode('Source', suppliers.length ? `${suppliers.length} supplier${suppliers.length === 1 ? '' : 's'}` : 'Supplier', suppliers.slice(0, 3).join(', ') || 'Create a purchase order for this product.', 'sky'),
+        flowArrow(),
+        flowNode('Arrival control', inventoryVertical.process_label, `${arrivals.length} received PO line${arrivals.length === 1 ? '' : 's'} currently traced for this product.`, 'amber'),
+        flowArrow(),
+        flowNode('Stock product', product, `${fmt(stockHistoryData.stock || 0)} ${stockHistoryData.usage_unit || ''} in ${inventoryVertical.stock_location}.`, 'emerald'),
+        flowArrow(),
+        flowNode('Sale', inventoryVertical.sales, inventoryVertical.direct_sale_channel === 'distribution' ? 'Trade customer pricing, credit, receivable, and COGS are snapshotted.' : 'Immediate POS sale reduces available shop stock and records COGS.', 'rose')
+      ].join('');
+    }
+  }
+
+  function renderArrivals() {
+    const arrivals = Array.isArray(stockHistoryData?.arrivals) ? stockHistoryData.arrivals : [];
+    historyArrivalsCard.classList.toggle('hidden', !arrivals.length);
+    historyArrivalRows.innerHTML = arrivals.map(row => `
+      <tr class="border-t border-[#E7DFCC]">
+        <td class="px-4 py-2.5 text-xs text-stone-600">${escapeFlowText(row.date)}</td>
+        <td class="px-4 py-2.5 font-medium text-stone-700">${escapeFlowText(row.supplier)}</td>
+        <td class="px-4 py-2.5 text-xs font-mono text-stone-500">${escapeFlowText(row.reference)}</td>
+        <td class="px-4 py-2.5 text-right font-mono">${fmt(row.quantity)} ${escapeFlowText(row.unit || '')}</td>
+        <td class="px-4 py-2.5 text-right font-mono">${fmtMoney(row.unit_cost)}</td>
       </tr>
     `).join('');
   }
@@ -580,8 +680,10 @@
     const rows = filteredHistory();
     const hasMaterials = stockHistoryData?.kind === 'finished' && Array.isArray(stockHistoryData.materials) && stockHistoryData.materials.length;
     renderMaterials();
+    renderArrivals();
+    renderProductFlow();
     if (!rows.length) {
-      if (hasMaterials) {
+      if (stockHistoryData?.kind === 'finished') {
         setHistoryState('ready');
         historySummary.innerHTML = `
           ${stockHistoryData.total_produced != null ? `<span><strong class="text-stone-700">Total Made:</strong> ${fmt(stockHistoryData.total_produced)} ${stockHistoryData.usage_unit || ''}</span>` : ''}
@@ -590,6 +692,9 @@
         historyMovementCard.classList.add('hidden');
         historyDailyCard.classList.add('hidden');
         historyNoMovements.classList.remove('hidden');
+        historyNoMovements.textContent = hasMaterials
+          ? `No stock movement history is available yet. The configured ${inventoryVertical.recipe_label.toLowerCase()} and workflow are shown above.`
+          : 'No stock movement history is available yet. The configured product workflow is shown above.';
       } else {
         setHistoryState('empty');
       }

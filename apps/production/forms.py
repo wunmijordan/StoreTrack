@@ -169,7 +169,10 @@ class OrderItemFormSetBase(BaseInlineFormSet):
         self.market_stock = bool(market_stock)
         super().__init__(*args, **kwargs)
         if self.market_stock:
-            allowed = FinishedGood.objects.filter(stock__isnull=False).order_by("name")
+            # Market Stock is independent of the Physical Store catalogue.
+            # Distribution-only products can be produced here and can reach
+            # the shelf only through the explicit Market Stock transfer flow.
+            allowed = FinishedGood.objects.all().order_by("name")
             for form in self.forms:
                 form.fields["finished_good"].queryset = allowed
         elif store_replenishment:
@@ -223,14 +226,16 @@ class ProductionCompletionForm(forms.Form):
     flag_shortage = forms.BooleanField(required=False, label="Flag production shortage for reconciliation")
     shortage_reason = forms.CharField(max_length=255, required=False, label="Shortage / reconciliation reason")
     excess_to_stock = forms.DecimalField(max_digits=14, decimal_places=2, min_value=0, required=False, initial=0, label="Excess to Physical Store stock")
+    excess_to_market_stock = forms.DecimalField(max_digits=14, decimal_places=2, min_value=0, required=False, initial=0, label="Excess to Distribution Market Stock")
     excess_to_non_stock = forms.DecimalField(max_digits=14, decimal_places=2, min_value=0, required=False, initial=0, label="Excess to non-stock purpose")
     excess_non_stock_purpose = forms.CharField(max_length=255, required=False, label="Non-stock excess purpose")
 
-    def __init__(self, *args, planned_units=None, required_units=None, customer_order=False, **kwargs):
+    def __init__(self, *args, planned_units=None, required_units=None, customer_order=False, market_stock_order=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.planned_units = Decimal(planned_units or 0).quantize(Decimal("0.01"))
         self.required_units = Decimal(required_units if required_units is not None else planned_units or 0).quantize(Decimal("0.01"))
         self.customer_order = bool(customer_order)
+        self.market_stock_order = bool(market_stock_order)
         for f in self.fields.values():
             f.widget.attrs["class"] = INPUT_CLS
         self.fields["produced_units"].help_text = (
@@ -271,16 +276,21 @@ class ProductionCompletionForm(forms.Form):
 
         excess = max(Decimal("0"), cleaned["saleable_units"] - self.planned_units)
         to_stock = cleaned.get("excess_to_stock") or Decimal("0")
+        to_market_stock = cleaned.get("excess_to_market_stock") or Decimal("0")
         to_non_stock = cleaned.get("excess_to_non_stock") or Decimal("0")
         cleaned["excess_units"] = excess
         if excess > 0:
-            if (to_stock + to_non_stock) != excess:
-                self.add_error("excess_to_stock", f"Allocate the full excess of {excess:.2f} units between Physical Store stock and non-stock purpose.")
+            if (to_stock + to_market_stock + to_non_stock) != excess:
+                self.add_error("excess_to_stock", f"Allocate the full excess of {excess:.2f} units across the available destinations.")
                 self.add_error("excess_to_non_stock", f"Allocated excess must total exactly {excess:.2f} units.")
+            if self.market_stock_order and to_stock > 0:
+                self.add_error("excess_to_stock", "Market-stock production must enter Distribution Market Stock first. Transfer it to Physical Store later from the Market Stock page.")
+            if not self.market_stock_order and to_market_stock > 0:
+                self.add_error("excess_to_market_stock", "Only an unassigned Distribution market-stock order can send additional excess to Market Stock.")
             if to_non_stock > 0 and not (cleaned.get("excess_non_stock_purpose") or "").strip():
                 self.add_error("excess_non_stock_purpose", "Give the purpose for excess units assigned outside Physical Store stock (for example Staff Welfare or Charity).")
         else:
-            if to_stock or to_non_stock:
+            if to_stock or to_market_stock or to_non_stock:
                 self.add_error("excess_to_stock", "There is no excess saleable output to allocate.")
             cleaned["excess_non_stock_purpose"] = ""
         return cleaned

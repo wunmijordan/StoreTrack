@@ -1,4 +1,5 @@
 from decimal import Decimal
+from django.core.exceptions import ValidationError
 from django.db import models
 from core.models import BusinessOwnedModel, TimestampedModel
 
@@ -29,9 +30,67 @@ class PurchaseOrder(BusinessOwnedModel):
 
 class PurchaseOrderItem(TimestampedModel):
     purchase_order = models.ForeignKey(PurchaseOrder, related_name="items", on_delete=models.CASCADE)
-    raw_material = models.ForeignKey("inventory.RawMaterial", on_delete=models.PROTECT)
+    raw_material = models.ForeignKey(
+        "inventory.RawMaterial", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="purchase_order_items",
+    )
+    finished_good = models.ForeignKey(
+        "inventory.FinishedGood", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="purchase_order_items",
+    )
     qty = models.DecimalField(max_digits=12, decimal_places=2)
     unit_cost = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(raw_material__isnull=False, finished_good__isnull=True)
+                    | models.Q(raw_material__isnull=True, finished_good__isnull=False)
+                ),
+                name="purchase_item_has_exactly_one_stock_item",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.qty is not None and self.qty <= 0:
+            raise ValidationError("Purchase quantity must be greater than zero.")
+        if self.unit_cost is not None and self.unit_cost < 0:
+            raise ValidationError("Purchase unit cost cannot be negative.")
+        if bool(self.raw_material_id) == bool(self.finished_good_id):
+            raise ValidationError("Select exactly one material or stock product.")
+        item = self.raw_material or self.finished_good
+        if (
+            item
+            and self.purchase_order_id
+            and item.business_id != self.purchase_order.business_id
+        ):
+            raise ValidationError("The selected item must belong to the purchase order's business.")
+
+    @property
+    def stock_item(self):
+        return self.raw_material or self.finished_good
+
+    @property
+    def item_name(self):
+        return self.stock_item.name
+
+    @property
+    def item_type(self):
+        return "Material" if self.raw_material_id else "Product for resale"
+
+    @property
+    def item_category(self):
+        return self.raw_material.get_category_display() if self.raw_material_id else "Product for resale"
+
+    @property
+    def stock_unit(self):
+        return self.raw_material.purchase_unit if self.raw_material_id else self.finished_good.unit
+
+    @property
+    def item_identity(self):
+        return ("raw", self.raw_material_id) if self.raw_material_id else ("finished", self.finished_good_id)
 
     @property
     def line_total(self):

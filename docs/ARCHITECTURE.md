@@ -17,6 +17,10 @@ MRP/material planning, WIP, scheduling, labour/overhead costing, formal QC
 release gates, and delivery/fulfilment are intentionally still on the roadmap.
 See `docs/ROADMAP.md` for the remaining evolution.
 
+Customer-facing ordering, external website/API routing, path-based tenant
+storefronts and Distribution Market Stock integration are specified in
+[`docs/COMMERCE_INTEGRATION.md`](COMMERCE_INTEGRATION.md).
+
 ## Directory layout
 
 ```
@@ -38,7 +42,25 @@ storetrack/
     ARCHITECTURE.md         this file
     ROADMAP.md              remaining product evolution
   CLAUDE.md                 agent instructions
+  .claude/skills/           project-local prompt skills for coding agents
+  docs/skills/SKILL.md      prompt-skill index / usage guide
 ```
+
+
+## Repository prompt skills
+
+StoreTrack includes a project-local skill library under `.claude/skills/`,
+modelled after the structured `SKILL.md` pattern used by larger agent-driven
+Django projects. These skills capture StoreTrack-specific invariants so prompts
+can load focused context without bloating every task.
+
+The skills currently cover the full StoreTrack reference, simplification,
+tenant safety, production integrity, finance integrity, migration safety and
+systematic debugging. They are documentation/instruction assets only: Django
+does not import them, they add no database tables, and they do not constitute a
+runtime AI provider or end-user assistant.
+
+See `docs/skills/SKILL.md` for the index.
 
 ## Core business flow
 
@@ -332,12 +354,30 @@ permissions, all current `BusinessModuleAccess` entitlements, the first user,
 and that user's Business Admin membership. Existing Business rows migrate as
 the Bakery vertical so the original labels and behavior remain unchanged.
 
-`Business.vertical` selects bakery, restaurant, or general-production
-vocabulary without changing stable order/channel keys. Restaurants extend the
-ordinary sale with service mode (dine-in, takeaway, delivery) and an optional
-table/service reference. Every vertical continues to share the proven
-procurement, recipe/BOM, production, inventory, sales, finance, and reporting
-models.
+`Business.vertical` selects bakery, restaurant, general-production, wholesale,
+or retail behavior without changing stable stock, sales, or channel keys.
+Bakery and restaurant workspaces call the product definition a **Recipe**;
+general production uses **Formula / BOM**. Restaurants additionally retain
+service mode (dine-in, takeaway, delivery) and an optional table/service
+reference.
+
+Wholesale and retail are stock-first verticals. Their effective Production
+module access is disabled by vertical capability while all historical
+production rows remain intact. A purchase-order line may point to either a raw
+material or a directly procured sellable product (exactly one). Receiving a
+sellable product records a `fg_purchase` stock movement with supplier, PO,
+quantity, date, and frozen unit cost. Retail sales use the stable Physical Store
+channel. Wholesale stock releases reuse the stable Distribution channel so
+customer-specific prices, credit terms, receivables, payments, and finance
+reporting continue through the existing models.
+
+The raw-material form includes a non-persistent conversion calculator. Standard
+same-dimension conversions are deterministic; mass/volume conversions require a
+user-supplied density in kg/L; local units such as spoons, caps, buckets, rolls,
+or pallets require a measured custom ratio. Only applying the calculated ratio
+to the form and saving changes business data. The stored conversion precision
+was widened additively from two to six decimal places; existing values are
+preserved.
 
 `BusinessModuleAccess` sits above role and per-user permissions:
 
@@ -349,8 +389,11 @@ Role/user grants action
 Effective access
 ```
 
-All modules are enabled now. A later plan/pricing system can change business
-entitlements without altering role definitions or tenant-owned records.
+Plan entitlements remain separate from vertical capability. Production remains
+available to bakery, restaurant, and general-production businesses; it is
+effectively unavailable to wholesale and retail while those verticals are
+active. A later plan/pricing system can still change business entitlements
+without altering role definitions or tenant-owned records.
 
 ## "A user should be able to answer:"
 

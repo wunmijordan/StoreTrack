@@ -7,9 +7,9 @@ from django.urls import reverse
 from accounts.models import CustomUser, UserBusiness
 from accounts.services import seed_business_roles
 from core.models import Business
-from inventory.models import FinishedGood, StockMovement
+from inventory.models import FinishedGood, MarketStockLot, StockMovement
 from sales.models import Sale
-from .forms import OrderForm
+from .forms import OrderForm, OrderItemFormSet
 from .models import Order, OrderItem, OrderNumberSequence
 
 
@@ -106,6 +106,24 @@ class MarketStockDistributionTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn("customer", form.errors)
 
+    def test_market_stock_order_can_select_distribution_only_product(self):
+        good = FinishedGood.raw_objects.create(
+            business=self.business,
+            name="Distribution-only Bread",
+            unit="loaf",
+            stock=None,
+            reorder_level=None,
+        )
+        formset = OrderItemFormSet(
+            instance=Order(business=self.business, order_type="distribution", is_market_stock=True),
+            market_stock=True,
+            order_type="distribution",
+        )
+
+        self.assertTrue(
+            formset.forms[0].fields["finished_good"].queryset.filter(pk=good.pk).exists()
+        )
+
     def test_completion_puts_market_output_in_stock_without_creating_sale(self):
         user = CustomUser.objects.create_superuser(
             username="admin", password="safe-password-123", fullname="Admin"
@@ -116,8 +134,8 @@ class MarketStockDistributionTests(TestCase):
             name="Bread",
             unit="loaf",
             units_per_batch=Decimal("10"),
-            stock=Decimal("5"),
-            reorder_level=Decimal("1"),
+            stock=None,
+            reorder_level=None,
             selling_price=Decimal("1000"),
         )
         order = Order.raw_objects.create(
@@ -139,7 +157,7 @@ class MarketStockDistributionTests(TestCase):
         response = self.client.post(
             reverse("order_complete", args=[order.pk]),
             {
-                f"item-{item.pk}-produced_units": "10",
+                f"item-{item.pk}-produced_units": "12",
                 f"item-{item.pk}-wastage_units": "0",
                 f"item-{item.pk}-batch_number": "D260902-MARKET-1",
                 f"item-{item.pk}-expiry_date": "",
@@ -148,6 +166,7 @@ class MarketStockDistributionTests(TestCase):
                 f"item-{item.pk}-qc_notes": "",
                 f"item-{item.pk}-shortage_reason": "",
                 f"item-{item.pk}-excess_to_stock": "0",
+                f"item-{item.pk}-excess_to_market_stock": "2",
                 f"item-{item.pk}-excess_to_non_stock": "0",
                 f"item-{item.pk}-excess_non_stock_purpose": "",
             },
@@ -157,12 +176,30 @@ class MarketStockDistributionTests(TestCase):
         order.refresh_from_db()
         good.refresh_from_db()
         self.assertEqual(order.status, "completed")
-        self.assertEqual(good.stock, Decimal("15.00"))
-        self.assertEqual(good.total_produced, Decimal("10.00"))
+        self.assertIsNone(good.stock)
+        self.assertEqual(good.total_produced, Decimal("12.00"))
         self.assertEqual(good.total_delivered_to_customers, Decimal("0.00"))
         self.assertFalse(Sale.raw_objects.filter(linked_order=order).exists())
         movement = StockMovement.raw_objects.get(
-            finished_good=good, movement_type=StockMovement.FG_PRODUCTION
+            finished_good=good, movement_type=StockMovement.FG_MARKET_PRODUCTION
         )
-        self.assertTrue(movement.affects_stock)
-        self.assertEqual(movement.quantity, Decimal("10"))
+        self.assertFalse(movement.affects_stock)
+        self.assertEqual(movement.quantity, Decimal("12"))
+        lot = MarketStockLot.raw_objects.get(production_batch__order=order)
+        self.assertEqual(lot.quantity_available, Decimal("12.00"))
+        self.assertEqual(lot.finished_good, good)
+        self.assertEqual(lot.production_batch.excess_market_stock_units, Decimal("2.00"))
+
+        reverse_response = self.client.post(
+            reverse("order_reverse", args=[order.pk]),
+            {"reason": "Test untouched market-lot reversal"},
+        )
+        self.assertRedirects(reverse_response, reverse("order_detail", args=[order.pk]))
+        order.refresh_from_db()
+        good.refresh_from_db()
+        lot.refresh_from_db()
+        self.assertEqual(order.status, "reversed")
+        self.assertIsNone(good.stock)
+        self.assertEqual(good.total_produced, Decimal("0.00"))
+        self.assertEqual(lot.quantity_available, Decimal("0.00"))
+        self.assertEqual(lot.closed_reason, "reversed")

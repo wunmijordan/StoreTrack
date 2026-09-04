@@ -14,10 +14,14 @@ class Business(models.Model):
     VERTICAL_BAKERY = "bakery"
     VERTICAL_RESTAURANT = "restaurant"
     VERTICAL_GENERAL = "general"
+    VERTICAL_WHOLESALE = "wholesale"
+    VERTICAL_RETAIL = "retail"
     VERTICAL_CHOICES = [
         (VERTICAL_BAKERY, "Bakery"),
         (VERTICAL_RESTAURANT, "Restaurant / food service"),
         (VERTICAL_GENERAL, "General production"),
+        (VERTICAL_WHOLESALE, "Wholesale / distribution"),
+        (VERTICAL_RETAIL, "Retail store"),
     ]
 
     name = models.CharField(max_length=120, default="My Business")
@@ -51,6 +55,18 @@ class Business(models.Model):
     @property
     def is_restaurant(self):
         return self.vertical == self.VERTICAL_RESTAURANT
+
+    @property
+    def is_wholesale(self):
+        return self.vertical == self.VERTICAL_WHOLESALE
+
+    @property
+    def is_retail(self):
+        return self.vertical == self.VERTICAL_RETAIL
+
+    @property
+    def uses_production(self):
+        return self.vertical not in {self.VERTICAL_WHOLESALE, self.VERTICAL_RETAIL}
 
     @staticmethod
     def _contrast_color(value):

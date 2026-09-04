@@ -13,8 +13,12 @@
       {% include "_field.html" with field=form.reorder_level %}
     </div>
     {% include "_field.html" with field=form.stock %}
-    {% include "_field.html" with field=form.units_per_batch %}
-    {% if obj %}<p class="text-[11px] text-stone-400 -mt-2 mb-3">Total made all-time: <span class="font-mono">{{ obj.total_produced|num }}</span> {{ obj.unit }} (updates automatically as orders complete)</p>{% endif %}
+    {% if vertical_ui.uses_production %}
+      {% include "_field.html" with field=form.units_per_batch %}
+      {% if obj %}<p class="text-[11px] text-stone-400 -mt-2 mb-3">Total made all-time: <span class="font-mono">{{ obj.total_produced|num }}</span> {{ obj.unit }} (updates automatically as orders complete)</p>{% endif %}
+    {% else %}
+      <p class="text-[11px] text-stone-500 -mt-1 mb-3">After setup, add stock through Procurement so each supplier arrival, quantity, and unit cost remains traceable.</p>
+    {% endif %}
 
     <span class="block text-xs font-medium text-stone-600 mb-1 mt-4">Channel Selling Prices</span>
     <p class="text-[11px] text-stone-400 mb-2">Optional channel-specific prices. If a channel is left blank, the default Selling Price above is used.</p>
@@ -36,14 +40,15 @@
       </div>
     </div>
 
-    <span class="block text-xs font-medium text-stone-600 mb-1 mt-2">Recipe (Raw Materials used per BATCH)</span>
-    <p class="text-[11px] text-stone-400 mb-1">Qty here is per batch (see "units per batch" above), in each material's <strong>usage unit</strong>. Mark <strong>Flexible</strong> for ingredients such as yeast whose actual quantity may need to change when an order is approved.</p>
+    {% if vertical_ui.uses_production %}
+    <span class="block text-xs font-medium text-stone-600 mb-1 mt-2">{{ vertical_ui.recipe_label }} ({{ vertical_ui.recipe_item_label }} quantities per batch)</span>
+    <p class="text-[11px] text-stone-400 mb-1">Quantity is defined against the registered batch yield above and entered in each material's <strong>usage unit</strong>. Mark <strong>Flexible</strong> only where the {{ vertical_ui.recipe_label|lower }} permits an approval-time quantity adjustment.</p>
     {{ formset.management_form }}
     <div class="border border-[#E7DFCC] rounded-md overflow-hidden">
       <div class="overflow-x-auto">
         <table class="w-full min-w-[680px] text-sm">
           <thead class="bg-[#F0EAD9] text-stone-600 text-xs"><tr>
-            <th class="px-2 py-1.5">Raw Material</th><th class="px-2 py-1.5 w-28">Qty/Batch</th><th class="px-2 py-1.5 w-20">Usage Unit</th><th class="px-2 py-1.5 w-28">Flexible?</th><th class="w-16"></th>
+            <th class="px-2 py-1.5">{{ vertical_ui.recipe_item_label }}</th><th class="px-2 py-1.5 w-28">Qty/Batch</th><th class="px-2 py-1.5 w-20">Usage Unit</th><th class="px-2 py-1.5 w-28">Flexible?</th><th class="w-16"></th>
           </tr></thead>
           <tbody id="recipe-rows">
             {% for f in formset %}
@@ -62,11 +67,11 @@
           </tbody>
         </table>
       </div>
-      <button type="button" onclick="addFormsetRow('recipe_items','recipe-rows')" class="w-full text-xs text-[#8f172d] font-medium py-2 hover:bg-[#F0EAD9]">+ Add Ingredient</button>
+      <button type="button" onclick="addFormsetRow('recipe_items','recipe-rows')" class="w-full text-xs text-[#8f172d] font-medium py-2 hover:bg-[#F0EAD9]">+ Add {{ vertical_ui.recipe_item_label }}</button>
     </div>
 
-    <span class="block text-xs font-medium text-stone-600 mb-1 mt-5">Production Inputs (Packaging, Gas & Production Supplies)</span>
-    <p class="text-[11px] text-stone-400 mb-1">These are consumed per batch but are not recipe ingredients — for example cake boxes, labels, baking gas or other per-production supplies. Quantities use each material's usage unit.</p>
+    <span class="block text-xs font-medium text-stone-600 mb-1 mt-5">{{ vertical_ui.production_inputs_label }}</span>
+    <p class="text-[11px] text-stone-400 mb-1">These are consumed per batch but sit outside the main {{ vertical_ui.recipe_label|lower }} — for example packaging, labels, fuel, or other per-production supplies. Quantities use each material's usage unit.</p>
     {{ production_formset.management_form }}
     <div class="border border-[#E7DFCC] rounded-md overflow-hidden">
       <div class="overflow-x-auto">
@@ -92,6 +97,7 @@
       </div>
       <button type="button" onclick="addFormsetRow('production_materials','production-material-rows')" class="w-full text-xs text-[#8f172d] font-medium py-2 hover:bg-[#F0EAD9]">+ Add Production Input</button>
     </div>
+    {% endif %}
 
     <div class="flex justify-end gap-2 mt-4">
       <a href="{% url 'inventory' %}" class="px-3.5 py-2 text-sm rounded-md text-stone-500 hover:bg-stone-100">Cancel</a>
@@ -100,7 +106,7 @@
   </form>
 </div>
 
-{{ raw_material_units|json_script:"raw-material-usage-units" }}
+{% if vertical_ui.uses_production %}{{ raw_material_units|json_script:"raw-material-usage-units" }}
 <script>
   const rawMaterialUsageUnits = JSON.parse(
     document.getElementById('raw-material-usage-units').textContent || '{}'
@@ -136,4 +142,5 @@
 
   document.addEventListener('DOMContentLoaded', refreshAllUsageUnits);
 </script>
+{% endif %}
 {% endblock %}

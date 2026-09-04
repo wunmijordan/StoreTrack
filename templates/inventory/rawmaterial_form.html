@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
-<h2 class="text-xl font-semibold font-display text-[#8f172d] mb-4">{% if obj %}Edit Raw Material{% else %}Add Raw Material{% endif %}</h2>
-<div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] p-5 max-w-lg">
+<h2 class="text-xl font-semibold font-display text-[#8f172d] mb-4">{% if obj %}Edit{% else %}Add{% endif %} {% if vertical_ui.uses_production %}Raw Material{% else %}Supporting Supply{% endif %}</h2>
+<div class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] p-5 max-w-5xl">
   <form method="post">
     {% csrf_token %}
     {% if form.non_field_errors %}<div class="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-md p-3 mb-3">{{ form.non_field_errors }}</div>{% endif %}
@@ -9,15 +9,21 @@
     {% include "_field.html" with field=form.category %}
 
     <div class="text-xs bg-[#F0EAD9] border border-[#D9CFB4] rounded-md p-3 mb-3 space-y-1.5">
-      <p><strong>Material category</strong> controls how this item is used: ingredients belong in recipes; packaging and production supplies (such as baking gas) can be attached to a product's production inputs; operational supplies (gloves, head nets, cleaning items) remain inventory/procurement items but are not consumed automatically by production.</p>
-      <p><strong>Three layers, if you need them:</strong> what you buy → what's in the pack → what a recipe actually uses.</p>
+      {% if vertical_ui.uses_production %}
+      <p><strong>Material category</strong> controls how this item is used: {{ vertical_ui.recipe_item_label|lower }}s belong in a product's {{ vertical_ui.recipe_label|lower }}; packaging and production supplies can be attached as {{ vertical_ui.production_inputs_label|lower }}; operational supplies remain inventory/procurement items but are not consumed automatically by production.</p>
+      <p><strong>Three layers, if you need them:</strong> what you buy → what's in the pack → what the {{ vertical_ui.recipe_label|lower }} actually uses.</p>
       <p><strong>Purchase unit</strong> — bag, carton, pack. <strong>Package qty/unit</strong> — what's printed on it, e.g. 1 bag = <code>50</code> <code>kg</code>.
-      <strong>Usage unit</strong> — the fine unit a recipe consumes: kg, g, spoon, cap.</p>
+      <strong>Usage unit</strong> — the fine unit the {{ vertical_ui.recipe_label|lower }} consumes: kg, g, mL, spoon, cap, piece.</p>
+      {% else %}
+      <p><strong>Materials here are supporting supplies</strong> such as packaging, cleaning stock, or other items your business consumes. Add goods bought for resale under <strong>{{ vertical_ui.product_label }}</strong>, then receive their arrivals through Purchase Orders.</p>
+      <p><strong>Three layers, if you need them:</strong> what you buy → what's in the pack → the fine unit used when stock is issued.</p>
+      <p><strong>Purchase unit</strong> — bag, carton, pack. <strong>Package qty/unit</strong> — what's printed on it, e.g. 1 bag = <code>50</code> <code>kg</code>. <strong>Usage unit</strong> — the fine unit used for internal stock, such as kg, g, mL, spoon, cap, or piece.</p>
+      {% endif %}
       <p><strong>Usage conversion</strong> — how many usage units in ONE package unit. Standard conversions: kg→g and litre→ml are both <code>1000</code>.
       Same unit both ways (e.g. flour bought and used in kg) → <code>1</code>. Non-standard units like spoon or cap aren't a fixed ratio —
       count it yourself (e.g. "1kg of ack fills 200 spoons" → usage unit <code>spoon</code>, usage conversion <code>200</code>).</p>
       <p>Stock and cost below are entered <strong>per purchase unit</strong> (e.g. "3" bags, "9000" per bag) — everything converts and
-      stores internally in the fine usage unit, since that's what recipes and production deductions run on.
+      stores internally in the fine usage unit, since that's what {% if vertical_ui.uses_production %}{{ vertical_ui.recipe_label|lower }} calculations and production deductions{% else %}supply dispensing and stock calculations{% endif %} run on.
       <strong>Reorder level is entered in purchase units</strong> (e.g. "2" bags), but is converted and stored internally in the
       usage unit so existing stock calculations remain unchanged.</p>
     </div>
@@ -31,6 +37,40 @@
       {% include "_field.html" with field=form.usage_unit %}
     </div>
     {% include "_field.html" with field=form.usage_conversion_factor %}
+
+    <section class="rounded-xl border border-sky-200 bg-gradient-to-br from-sky-50 to-white p-4 mb-4" aria-labelledby="unit-converter-title">
+      <div class="flex flex-wrap items-start justify-between gap-2 mb-3">
+        <div>
+          <h3 id="unit-converter-title" class="text-sm font-semibold text-sky-950">Unit converter & relationship calculator</h3>
+          <p class="text-[11px] text-sky-800/75 mt-0.5">Convert standard units, bridge mass and volume with density, or measure any local unit with a custom ratio. Calculator values are not saved unless you apply the result.</p>
+        </div>
+        <span class="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-sky-700 ring-1 ring-sky-200">Planning aid</span>
+      </div>
+      <div class="grid sm:grid-cols-[0.7fr_1fr_1fr] gap-3">
+        <label class="text-[11px] font-medium text-stone-600">Amount<input id="converter-amount" type="number" min="0" step="any" value="1" class="mt-1 w-full rounded-md border border-sky-200 bg-white px-2.5 py-2 text-sm"></label>
+        <label class="text-[11px] font-medium text-stone-600">From<select id="converter-from" class="mt-1 w-full rounded-md border border-sky-200 bg-white px-2.5 py-2 text-sm"></select></label>
+        <label class="text-[11px] font-medium text-stone-600">To<select id="converter-to" class="mt-1 w-full rounded-md border border-sky-200 bg-white px-2.5 py-2 text-sm"></select></label>
+      </div>
+      <div id="density-wrap" class="hidden mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+        <label class="text-[11px] font-medium text-amber-900">Material density (kg/L)<input id="converter-density" type="number" min="0.000001" step="any" placeholder="e.g. water 1.0, cooking oil about 0.92" class="mt-1 w-full rounded-md border border-amber-300 bg-white px-2.5 py-2 text-sm"></label>
+        <p class="text-[10px] text-amber-700 mt-1">Required for mass ↔ volume. Use the supplier specification or a measured density; StoreTrack will not guess because temperature and material composition change this relationship.</p>
+      </div>
+      <div id="custom-ratio-wrap" class="hidden mt-3 rounded-lg border border-violet-200 bg-violet-50 p-3">
+        <label class="text-[11px] font-medium text-violet-900">Measured relationship: 1 source unit equals how many target units?<input id="converter-custom-factor" type="number" min="0.000001" step="any" placeholder="e.g. 200 spoons per kg" class="mt-1 w-full rounded-md border border-violet-300 bg-white px-2.5 py-2 text-sm"></label>
+        <p class="text-[10px] text-violet-700 mt-1">Use this for spoons, caps, scoops, sachets, buckets, rolls, pallets, or any business-specific unit without a universal physical definition.</p>
+      </div>
+      <div class="mt-3 flex flex-wrap items-center gap-2">
+        <button id="converter-calculate" type="button" class="rounded-md bg-sky-700 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-800">Calculate</button>
+        <button id="converter-apply" type="button" disabled class="rounded-md border border-sky-300 bg-white px-3 py-2 text-xs font-semibold text-sky-800 disabled:cursor-not-allowed disabled:opacity-40">Apply ratio to Usage conversion</button>
+        <div id="converter-result" class="min-w-[220px] flex-1 rounded-md bg-white px-3 py-2 text-sm font-mono text-stone-600 ring-1 ring-sky-100" aria-live="polite">Choose units, then calculate.</div>
+      </div>
+    </section>
+
+    <section class="rounded-xl border border-[#D9CFB4] bg-white p-4 mb-4">
+      <h3 class="text-xs font-semibold uppercase tracking-wider text-stone-600">Live stock relationship</h3>
+      <div id="unit-relationship-preview" class="mt-2 text-sm text-stone-700">Complete the purchase, package, and usage fields to preview the relationship.</div>
+      <div id="stock-relationship-preview" class="mt-1 text-xs text-stone-500"></div>
+    </section>
     <div class="grid grid-cols-2 gap-3">
       {% include "_field.html" with field=form.cost_per_purchase_unit %}
       {% include "_field.html" with field=form.stock_purchase_units %}
@@ -42,4 +82,152 @@
     </div>
   </form>
 </div>
+<script>
+(() => {
+  const unitGroups = [
+    ['Mass / weight', [
+      ['mcg','Microgram (µg)','mass',0.000000001], ['mg','Milligram (mg)','mass',0.000001],
+      ['g','Gram (g)','mass',0.001], ['kg','Kilogram (kg)','mass',1], ['t','Metric tonne (t)','mass',1000],
+      ['oz','Ounce (oz)','mass',0.028349523125], ['lb','Pound (lb)','mass',0.45359237],
+      ['st','Stone (st)','mass',6.35029318], ['short_ton','US short ton','mass',907.18474], ['long_ton','Imperial long ton','mass',1016.0469088]
+    ]],
+    ['Volume / capacity', [
+      ['ul','Microlitre (µL)','volume',0.000001], ['ml','Millilitre (mL)','volume',0.001],
+      ['cl','Centilitre (cL)','volume',0.01], ['dl','Decilitre (dL)','volume',0.1], ['l','Litre (L)','volume',1],
+      ['m3','Cubic metre (m³)','volume',1000], ['tsp_us','Teaspoon (US)','volume',0.00492892159375],
+      ['tbsp_us','Tablespoon (US)','volume',0.01478676478125], ['floz_us','Fluid ounce (US)','volume',0.0295735295625],
+      ['cup_us','Cup (US)','volume',0.2365882365], ['pt_us','Pint (US)','volume',0.473176473],
+      ['qt_us','Quart (US)','volume',0.946352946], ['gal_us','Gallon (US)','volume',3.785411784],
+      ['tsp_imp','Teaspoon (Imperial)','volume',0.005919388020833], ['tbsp_imp','Tablespoon (Imperial)','volume',0.0177581640625],
+      ['floz_imp','Fluid ounce (Imperial)','volume',0.0284130625], ['pt_imp','Pint (Imperial)','volume',0.56826125],
+      ['qt_imp','Quart (Imperial)','volume',1.1365225], ['gal_imp','Gallon (Imperial)','volume',4.54609],
+      ['cu_in','Cubic inch','volume',0.016387064], ['cu_ft','Cubic foot','volume',28.316846592]
+    ]],
+    ['Count / packaging', [
+      ['piece','Piece / each','count',1], ['pair','Pair','count',2], ['dozen','Dozen','count',12],
+      ['score','Score','count',20], ['gross','Gross','count',144], ['ream','Ream (500)','count',500],
+      ['thousand','Thousand','count',1000]
+    ]],
+    ['Length', [
+      ['mm','Millimetre (mm)','length',0.001], ['cm','Centimetre (cm)','length',0.01], ['m','Metre (m)','length',1],
+      ['km','Kilometre (km)','length',1000], ['in','Inch (in)','length',0.0254], ['ft','Foot (ft)','length',0.3048],
+      ['yd','Yard (yd)','length',0.9144], ['mi','Mile (mi)','length',1609.344]
+    ]],
+    ['Area', [
+      ['mm2','Square millimetre','area',0.000001], ['cm2','Square centimetre','area',0.0001], ['m2','Square metre','area',1],
+      ['ha','Hectare','area',10000], ['km2','Square kilometre','area',1000000], ['in2','Square inch','area',0.00064516],
+      ['ft2','Square foot','area',0.09290304], ['yd2','Square yard','area',0.83612736], ['acre','Acre','area',4046.8564224]
+    ]],
+    ['Custom / local', [['custom','Custom measured unit','custom',1]]]
+  ];
+  const aliases = {
+    'µg':'mcg','ug':'mcg','microgram':'mcg','micrograms':'mcg','milligram':'mg','milligrams':'mg','gram':'g','grams':'g',
+    'kilogram':'kg','kilograms':'kg','kgs':'kg','tonne':'t','tonnes':'t','liter':'l','litre':'l','litres':'l','liters':'l',
+    'milliliter':'ml','millilitre':'ml','millilitres':'ml','milliliters':'ml','pcs':'piece','pc':'piece','pieces':'piece','each':'piece',
+    'meter':'m','metre':'m','meters':'m','metres':'m','feet':'ft','foot':'ft','inches':'in','inch':'in','yard':'yd','yards':'yd'
+  };
+  const units = {};
+  const from = document.getElementById('converter-from');
+  const to = document.getElementById('converter-to');
+  unitGroups.forEach(([groupLabel, rows]) => {
+    [from, to].forEach(select => {
+      const group = document.createElement('optgroup'); group.label = groupLabel;
+      rows.forEach(([key,label,dimension,factor]) => {
+        units[key] = {key,label,dimension,factor};
+        const option = document.createElement('option'); option.value = key; option.textContent = label; group.appendChild(option);
+      });
+      select.appendChild(group);
+    });
+  });
+  from.value = 'kg'; to.value = 'g';
+  const amount = document.getElementById('converter-amount');
+  const density = document.getElementById('converter-density');
+  const customFactor = document.getElementById('converter-custom-factor');
+  const densityWrap = document.getElementById('density-wrap');
+  const customWrap = document.getElementById('custom-ratio-wrap');
+  const result = document.getElementById('converter-result');
+  const apply = document.getElementById('converter-apply');
+  let lastRatio = null;
+
+  function updateBridgeFields() {
+    const a = units[from.value], b = units[to.value];
+    const crossMassVolume = a && b && new Set([a.dimension,b.dimension]).size === 2 && [a.dimension,b.dimension].every(x => ['mass','volume'].includes(x));
+    densityWrap.classList.toggle('hidden', !crossMassVolume);
+    customWrap.classList.toggle('hidden', !(a?.dimension === 'custom' || b?.dimension === 'custom'));
+    lastRatio = null; apply.disabled = true;
+  }
+  function calculate() {
+    const value = Number(amount.value), a = units[from.value], b = units[to.value];
+    if (!(value >= 0) || !a || !b) { result.textContent = 'Enter a valid non-negative amount.'; return; }
+    let converted;
+    if (a.dimension === 'custom' || b.dimension === 'custom') {
+      const ratio = Number(customFactor.value);
+      if (!(ratio > 0)) { result.textContent = 'Enter the measured custom ratio.'; return; }
+      converted = value * ratio;
+    } else if (a.dimension === b.dimension) {
+      converted = value * a.factor / b.factor;
+    } else if (a.dimension === 'mass' && b.dimension === 'volume') {
+      const rho = Number(density.value);
+      if (!(rho > 0)) { result.textContent = 'Density in kg/L is required for mass → volume.'; return; }
+      converted = (value * a.factor / rho) / b.factor;
+    } else if (a.dimension === 'volume' && b.dimension === 'mass') {
+      const rho = Number(density.value);
+      if (!(rho > 0)) { result.textContent = 'Density in kg/L is required for volume → mass.'; return; }
+      converted = (value * a.factor * rho) / b.factor;
+    } else {
+      result.textContent = 'These dimensions are not physically convertible. Choose Custom and enter a measured relationship.'; return;
+    }
+    lastRatio = value > 0 ? converted / value : null;
+    result.textContent = `${value.toLocaleString()} ${a.label} = ${converted.toLocaleString(undefined,{maximumFractionDigits:8})} ${b.label}`;
+    apply.disabled = !(lastRatio > 0);
+  }
+  function normalizedUnit(value) {
+    const key = String(value || '').trim().toLowerCase().replaceAll(' ','_');
+    return units[key] ? key : (aliases[key] || null);
+  }
+  function syncFromMaterialFields() {
+    const packageKey = normalizedUnit(document.getElementById('id_package_unit')?.value);
+    const usageKey = normalizedUnit(document.getElementById('id_usage_unit')?.value);
+    if (packageKey) from.value = packageKey;
+    if (usageKey) to.value = usageKey;
+    updateBridgeFields(); updateRelationship();
+  }
+  function updateRelationship() {
+    const purchase = document.getElementById('id_purchase_unit')?.value.trim() || 'purchase unit';
+    const packageQty = Number(document.getElementById('id_package_qty')?.value);
+    const packageUnit = document.getElementById('id_package_unit')?.value.trim() || 'package units';
+    const usageUnit = document.getElementById('id_usage_unit')?.value.trim() || 'usage units';
+    const factor = Number(document.getElementById('id_usage_conversion_factor')?.value);
+    const stock = Number(document.getElementById('id_stock_purchase_units')?.value || 0);
+    const reorder = Number(document.getElementById('id_reorder_level_purchase_units')?.value || 0);
+    const relation = document.getElementById('unit-relationship-preview');
+    const stockPreview = document.getElementById('stock-relationship-preview');
+    if (packageQty > 0 && factor > 0) {
+      const usagePerPurchase = packageQty * factor;
+      relation.textContent = `1 ${purchase} = ${packageQty.toLocaleString()} ${packageUnit} = ${usagePerPurchase.toLocaleString(undefined,{maximumFractionDigits:8})} ${usageUnit}`;
+      stockPreview.textContent = `${stock.toLocaleString()} ${purchase} currently represents ${(stock * usagePerPurchase).toLocaleString(undefined,{maximumFractionDigits:8})} ${usageUnit}; reorder at ${reorder.toLocaleString()} ${purchase} (${(reorder * usagePerPurchase).toLocaleString(undefined,{maximumFractionDigits:8})} ${usageUnit}).`;
+    } else {
+      relation.textContent = 'Enter positive package quantity and usage conversion values.'; stockPreview.textContent = '';
+    }
+  }
+  [from,to].forEach(el => el.addEventListener('change', updateBridgeFields));
+  document.getElementById('converter-calculate').addEventListener('click', calculate);
+  apply.addEventListener('click', () => {
+    if (!(lastRatio > 0)) return;
+    const field = document.getElementById('id_usage_conversion_factor');
+    const storedRatio = Number(lastRatio.toFixed(6));
+    if (!(storedRatio > 0)) {
+      result.textContent = 'This ratio is smaller than the supported six-decimal storage precision. Reverse the unit direction or use a larger package unit.';
+      return;
+    }
+    field.value = storedRatio.toString();
+    field.dispatchEvent(new Event('input', {bubbles:true}));
+    result.textContent += ' · ratio applied below';
+  });
+  ['id_purchase_unit','id_package_qty','id_package_unit','id_usage_unit','id_usage_conversion_factor','id_stock_purchase_units','id_reorder_level_purchase_units'].forEach(id => {
+    document.getElementById(id)?.addEventListener('input', id === 'id_package_unit' || id === 'id_usage_unit' ? syncFromMaterialFields : updateRelationship);
+  });
+  syncFromMaterialFields(); calculate();
+})();
+</script>
 {% endblock %}

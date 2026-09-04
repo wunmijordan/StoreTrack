@@ -4,13 +4,13 @@
   <div class="flex justify-between items-end mb-4">
     <div>
       <h2 class="text-xl font-semibold font-display text-[#8f172d]">{% if run %}Edit{% else %}New{% endif %} Shared Production Run</h2>
-      <p class="text-sm text-stone-500 mt-1">Group several customer/store orders into one coordinated production exercise. Each order keeps its own exact quantities and proportional recipe usage.</p>
+      <p class="text-sm text-stone-500 mt-1">Group several customer/store orders into one coordinated production exercise. Each order keeps its own exact quantities and proportional {{ vertical_ui.recipe_label|lower }} usage.</p>
     </div>
     <a href="{% url 'production_runs' %}" class="text-sm text-stone-500">Back to runs</a>
   </div>
 
   <div class="rounded-lg border border-sky-200 bg-sky-50 p-4 mb-4 text-sm text-sky-900">
-    <b>How this works:</b> select any Pending orders that already exist, save the run, then add new customer orders from the run page if needed. A 50-piece order for a product whose registered batch yields 110 pieces still consumes only 50/110 of that product's batch recipe. The run simply combines those proportional requirements for one approval/release.
+    <b>How this works:</b> select any Pending orders that already exist, save the run, then add new customer orders from the run page if needed. A 50-piece order for a product whose registered batch yields 110 pieces still consumes only 50/110 of that product's batch {{ vertical_ui.recipe_label|lower }}. The run simply combines those proportional requirements for one approval/release.
   </div>
 
   <form method="post">{% csrf_token %}
@@ -27,7 +27,7 @@
     </div>
 
     <div class="rounded-lg border border-[#E7DFCC] bg-stone-50 p-4 mb-4 text-xs text-stone-600">
-      <b>No common-material quantities are entered here.</b> StoreTrack uses each selected/new order's existing product recipe and production plan exactly as it would for individual approval, then sums the proportional requirements across the run. Flexible recipe items remain adjustable at run approval.
+      <b>No common-material quantities are entered here.</b> StoreTrack uses each selected/new order's existing product {{ vertical_ui.recipe_label|lower }} and production plan exactly as it would for individual approval, then sums the proportional requirements across the run. Flexible {{ vertical_ui.recipe_item_label|lower }} quantities remain adjustable at run approval.
     </div>
 
     <button type="submit" class="px-4 py-2 rounded-md bg-[#8f172d] text-white text-sm font-medium">Save Shared Run</button>
