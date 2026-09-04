@@ -10,6 +10,7 @@ from core.models import Business, CashAccount
 from core.pdf_fonts import PDF_MONO_MEDIUM_FONT
 from sales.forms import SaleItemForm
 from sales.models import Customer, Sale
+from .forms import RawMaterialForm
 from .models import (
     DistributionReturn,
     FinishedGood,
@@ -61,6 +62,54 @@ class RawMaterialPdfStockBreakdownTests(SimpleTestCase):
 
         self.assertIn("<i>carton</i>", markup)
         self.assertIn(f"<font name='{PDF_MONO_MEDIUM_FONT}'>5.00</font>", markup)
+
+
+class RawMaterialManualStockInputTests(SimpleTestCase):
+    def test_six_decimal_purchase_fraction_preserves_three_decimal_stock(self):
+        business = Business(name="Butter Bakery", vertical=Business.VERTICAL_BAKERY)
+        form = RawMaterialForm(
+            data={
+                "name": "Butter",
+                "category": RawMaterial.CATEGORY_INGREDIENT,
+                "purchase_unit": "carton",
+                "package_qty": "15",
+                "package_unit": "kg",
+                "usage_unit": "kg",
+                "usage_conversion_factor": "1",
+                "reorder_level_purchase_units": "0",
+                "stock_purchase_units": "0.750133",
+                "cost_per_purchase_unit": "0",
+            },
+            business=business,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        material = form.save(commit=False)
+        self.assertEqual(material.stock, Decimal("11.252"))
+
+    def test_density_based_volume_package_fraction_preserves_weighed_stock(self):
+        business = Business(name="Milk Bakery", vertical=Business.VERTICAL_BAKERY)
+        form = RawMaterialForm(
+            data={
+                "name": "Powdered Milk",
+                "category": RawMaterial.CATEGORY_INGREDIENT,
+                "purchase_unit": "container",
+                "package_qty": "4",
+                "package_unit": "litre",
+                "usage_unit": "kg",
+                # 1 litre of this powder weighs 0.56kg.
+                "usage_conversion_factor": "0.56",
+                "reorder_level_purchase_units": "0",
+                # 1.356kg / (4L * 0.56kg/L) = 0.605357 container.
+                "stock_purchase_units": "0.605357",
+                "cost_per_purchase_unit": "0",
+            },
+            business=business,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        material = form.save(commit=False)
+        self.assertEqual(material.stock, Decimal("1.356"))
 
 
 class RawMaterialPdfThemeTests(TestCase):

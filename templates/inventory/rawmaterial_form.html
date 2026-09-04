@@ -36,7 +36,6 @@
       {% include "_field.html" with field=form.package_unit %}
       {% include "_field.html" with field=form.usage_unit %}
     </div>
-    {% include "_field.html" with field=form.usage_conversion_factor %}
 
     <section class="rounded-xl border border-sky-200 bg-gradient-to-br from-sky-50 to-white p-4 mb-4" aria-labelledby="unit-converter-title">
       <div class="flex flex-wrap items-start justify-between gap-2 mb-3">
@@ -64,7 +63,29 @@
         <button id="converter-apply" type="button" disabled class="rounded-md border border-sky-300 bg-white px-3 py-2 text-xs font-semibold text-sky-800 disabled:cursor-not-allowed disabled:opacity-40">Apply ratio to Usage conversion</button>
         <div id="converter-result" class="min-w-[220px] flex-1 rounded-md bg-white px-3 py-2 text-sm font-mono text-stone-600 ring-1 ring-sky-100" aria-live="polite">Choose units, then calculate.</div>
       </div>
+
+      <div class="mt-4 border-t border-sky-200/80 pt-4" aria-labelledby="stock-fraction-title">
+        <div class="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h4 id="stock-fraction-title" class="text-xs font-semibold text-sky-950">Manual stock count → purchase-unit fraction</h4>
+            <p class="mt-0.5 text-[11px] text-sky-800/75">Enter the weighed stock in kg or g. StoreTrack relates that weight to this item's configured package quantity/unit, then fills Stock as a fraction of one purchase unit.</p>
+          </div>
+          <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200">Opening / manual count</span>
+        </div>
+        <div class="mt-3 grid sm:grid-cols-[0.8fr_1fr_auto] gap-3 items-end">
+          <label class="text-[11px] font-medium text-stone-600">Measured stock<input id="stock-measured-amount" type="number" min="0" step="any" placeholder="e.g. 11.252" class="mt-1 w-full rounded-md border border-sky-200 bg-white px-2.5 py-2 text-sm"></label>
+          <label class="text-[11px] font-medium text-stone-600">Weight unit<select id="stock-measured-basis" class="mt-1 w-full rounded-md border border-sky-200 bg-white px-2.5 py-2 text-sm"><option value="kg">Kilogram (kg)</option><option value="g">Gram (g)</option></select></label>
+          <button id="stock-fraction-calculate" type="button" class="rounded-md bg-emerald-700 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-800">Calculate fraction</button>
+        </div>
+        <div class="mt-3 flex flex-wrap items-center gap-2">
+          <button id="stock-fraction-apply" type="button" disabled class="rounded-md border border-emerald-300 bg-white px-3 py-2 text-xs font-semibold text-emerald-800 disabled:cursor-not-allowed disabled:opacity-40">Apply to Stock</button>
+          <div id="stock-fraction-result" class="min-w-[240px] flex-1 whitespace-pre-line rounded-md bg-white px-3 py-2 text-sm font-mono text-stone-600 ring-1 ring-emerald-100" aria-live="polite">Enter the measured stock to calculate its purchase-unit fraction.</div>
+        </div>
+        <p class="mt-2 text-[10px] text-sky-700">For volume packages, this shares the amber Density field above. Example: a 4 L package at 0.56 kg/L weighs 2.24 kg when full; 1.356 kg remaining is 0.605357 of that package.</p>
+      </div>
     </section>
+
+    {% include "_field.html" with field=form.usage_conversion_factor %}
 
     <section class="rounded-xl border border-[#D9CFB4] bg-white p-4 mb-4">
       <h3 class="text-xs font-semibold uppercase tracking-wider text-stone-600">Live stock relationship</h3>
@@ -122,8 +143,13 @@
   ];
   const aliases = {
     'µg':'mcg','ug':'mcg','microgram':'mcg','micrograms':'mcg','milligram':'mg','milligrams':'mg','gram':'g','grams':'g',
-    'kilogram':'kg','kilograms':'kg','kgs':'kg','tonne':'t','tonnes':'t','liter':'l','litre':'l','litres':'l','liters':'l',
-    'milliliter':'ml','millilitre':'ml','millilitres':'ml','milliliters':'ml','pcs':'piece','pc':'piece','pieces':'piece','each':'piece',
+    'kilogram':'kg','kilograms':'kg','kgs':'kg','ton':'t','tons':'t','tonne':'t','tonnes':'t','ounce':'oz','ounces':'oz',
+    'pound':'lb','pounds':'lb','lbs':'lb','liter':'l','litre':'l','litres':'l','liters':'l','ltr':'l','ltrs':'l',
+    'milliliter':'ml','millilitre':'ml','millilitres':'ml','milliliters':'ml','centilitre':'cl','centiliter':'cl',
+    'microlitre':'ul','microliter':'ul','gallon':'gal_us','gallons':'gal_us','us_gallon':'gal_us','imperial_gallon':'gal_imp',
+    'cup':'cup_us','cups':'cup_us','pint':'pt_us','pints':'pt_us','quart':'qt_us','quarts':'qt_us',
+    'teaspoon':'tsp_us','teaspoons':'tsp_us','tablespoon':'tbsp_us','tablespoons':'tbsp_us',
+    'pcs':'piece','pc':'piece','pieces':'piece','each':'piece','pairs':'pair','dozens':'dozen',
     'meter':'m','metre':'m','meters':'m','metres':'m','feet':'ft','foot':'ft','inches':'in','inch':'in','yard':'yd','yards':'yd'
   };
   const units = {};
@@ -147,12 +173,47 @@
   const customWrap = document.getElementById('custom-ratio-wrap');
   const result = document.getElementById('converter-result');
   const apply = document.getElementById('converter-apply');
+  const stockMeasuredAmount = document.getElementById('stock-measured-amount');
+  const stockMeasuredBasis = document.getElementById('stock-measured-basis');
+  const stockFractionResult = document.getElementById('stock-fraction-result');
+  const stockFractionApply = document.getElementById('stock-fraction-apply');
   let lastRatio = null;
+  let lastStockFraction = null;
+
+  function isMassVolumePair(a, b) {
+    return a && b && a.dimension !== b.dimension
+      && [a.dimension, b.dimension].every(dimension => ['mass', 'volume'].includes(dimension));
+  }
+
+  function convertPhysicalAmount(value, a, b) {
+    if (a.dimension === 'custom' || b.dimension === 'custom') {
+      const ratio = Number(customFactor.value);
+      if (!(ratio > 0)) throw new Error('Enter the measured custom ratio.');
+      return value * ratio;
+    }
+    if (a.dimension === b.dimension) return value * a.factor / b.factor;
+    if (a.dimension === 'mass' && b.dimension === 'volume') {
+      const rho = Number(density.value);
+      if (!(rho > 0)) throw new Error('Density in kg/L is required for mass → volume.');
+      return (value * a.factor / rho) / b.factor;
+    }
+    if (a.dimension === 'volume' && b.dimension === 'mass') {
+      const rho = Number(density.value);
+      if (!(rho > 0)) throw new Error('Density in kg/L is required for volume → mass.');
+      return (value * a.factor * rho) / b.factor;
+    }
+    throw new Error('These dimensions are not physically convertible. Choose a configured unit or use a measured custom relationship.');
+  }
 
   function updateBridgeFields() {
     const a = units[from.value], b = units[to.value];
-    const crossMassVolume = a && b && new Set([a.dimension,b.dimension]).size === 2 && [a.dimension,b.dimension].every(x => ['mass','volume'].includes(x));
-    densityWrap.classList.toggle('hidden', !crossMassVolume);
+    const packageTarget = units[normalizedUnit(document.getElementById('id_package_unit')?.value)];
+    const usageTarget = units[normalizedUnit(document.getElementById('id_usage_unit')?.value)];
+    const stockNeedsDensity = packageTarget?.dimension === 'volume'
+      || (!packageTarget && usageTarget?.dimension === 'volume');
+    const needsDensity = isMassVolumePair(a, b)
+      || stockNeedsDensity;
+    densityWrap.classList.toggle('hidden', !needsDensity);
     customWrap.classList.toggle('hidden', !(a?.dimension === 'custom' || b?.dimension === 'custom'));
     lastRatio = null; apply.disabled = true;
   }
@@ -160,22 +221,11 @@
     const value = Number(amount.value), a = units[from.value], b = units[to.value];
     if (!(value >= 0) || !a || !b) { result.textContent = 'Enter a valid non-negative amount.'; return; }
     let converted;
-    if (a.dimension === 'custom' || b.dimension === 'custom') {
-      const ratio = Number(customFactor.value);
-      if (!(ratio > 0)) { result.textContent = 'Enter the measured custom ratio.'; return; }
-      converted = value * ratio;
-    } else if (a.dimension === b.dimension) {
-      converted = value * a.factor / b.factor;
-    } else if (a.dimension === 'mass' && b.dimension === 'volume') {
-      const rho = Number(density.value);
-      if (!(rho > 0)) { result.textContent = 'Density in kg/L is required for mass → volume.'; return; }
-      converted = (value * a.factor / rho) / b.factor;
-    } else if (a.dimension === 'volume' && b.dimension === 'mass') {
-      const rho = Number(density.value);
-      if (!(rho > 0)) { result.textContent = 'Density in kg/L is required for volume → mass.'; return; }
-      converted = (value * a.factor * rho) / b.factor;
-    } else {
-      result.textContent = 'These dimensions are not physically convertible. Choose Custom and enter a measured relationship.'; return;
+    try {
+      converted = convertPhysicalAmount(value, a, b);
+    } catch (error) {
+      result.textContent = error.message;
+      return;
     }
     lastRatio = value > 0 ? converted / value : null;
     result.textContent = `${value.toLocaleString()} ${a.label} = ${converted.toLocaleString(undefined,{maximumFractionDigits:8})} ${b.label}`;
@@ -210,6 +260,108 @@
       relation.textContent = 'Enter positive package quantity and usage conversion values.'; stockPreview.textContent = '';
     }
   }
+
+  function invalidateStockFraction(message = 'The package relationship changed. Recalculate the stock fraction.') {
+    lastStockFraction = null;
+    stockFractionApply.disabled = true;
+    if (stockMeasuredAmount.value !== '') stockFractionResult.textContent = message;
+  }
+
+  function calculateStockFraction() {
+    const measured = Number(stockMeasuredAmount.value);
+    const packageQty = Number(document.getElementById('id_package_qty')?.value);
+    const usageFactor = Number(document.getElementById('id_usage_conversion_factor')?.value);
+    const densityValue = Number(density.value);
+    const purchaseUnit = document.getElementById('id_purchase_unit')?.value.trim() || 'purchase unit';
+    const packageUnit = document.getElementById('id_package_unit')?.value.trim() || 'package unit';
+    const usageUnit = document.getElementById('id_usage_unit')?.value.trim() || 'usage unit';
+    if (!(measured >= 0)) {
+      stockFractionResult.textContent = 'Enter a valid non-negative measured stock amount.';
+      invalidateStockFraction(stockFractionResult.textContent);
+      return;
+    }
+    if (!(packageQty > 0) || !(usageFactor > 0)) {
+      stockFractionResult.textContent = 'Enter positive package quantity and usage conversion values first.';
+      invalidateStockFraction(stockFractionResult.textContent);
+      return;
+    }
+    const measuredUnit = stockMeasuredBasis.value;
+    const measuredKg = measured * units[measuredUnit].factor;
+    const packageTarget = units[normalizedUnit(packageUnit)];
+    const usageTarget = units[normalizedUnit(usageUnit)];
+    let fullPurchaseKg;
+    let remainingPackageUnits = null;
+    let relationshipLine;
+
+    if (packageTarget?.dimension === 'mass') {
+      fullPurchaseKg = packageQty * packageTarget.factor;
+      remainingPackageUnits = measuredKg / packageTarget.factor;
+      relationshipLine = `1 ${purchaseUnit} = ${packageQty.toLocaleString()} ${packageUnit} = ${fullPurchaseKg.toLocaleString(undefined,{maximumFractionDigits:6})} kg`;
+    } else if (packageTarget?.dimension === 'volume') {
+      if (!(densityValue > 0)) {
+        stockFractionResult.textContent = `Enter density in kg/L above to relate the ${packageUnit} package to the weighed stock.`;
+        invalidateStockFraction(stockFractionResult.textContent);
+        return;
+      }
+      const fullPurchaseLitres = packageQty * packageTarget.factor;
+      fullPurchaseKg = fullPurchaseLitres * densityValue;
+      const remainingLitres = measuredKg / densityValue;
+      remainingPackageUnits = remainingLitres / packageTarget.factor;
+      relationshipLine = `1 ${packageUnit} = ${(packageTarget.factor * densityValue).toLocaleString(undefined,{maximumFractionDigits:6})} kg at ${densityValue.toLocaleString()} kg/L\n1 ${purchaseUnit} = ${packageQty.toLocaleString()} ${packageUnit} = ${fullPurchaseKg.toLocaleString(undefined,{maximumFractionDigits:6})} kg`;
+    } else if (usageTarget && ['mass', 'volume'].includes(usageTarget.dimension)) {
+      const usagePerPurchase = packageQty * usageFactor;
+      if (usageTarget.dimension === 'mass') {
+        fullPurchaseKg = usagePerPurchase * usageTarget.factor;
+      } else {
+        if (!(densityValue > 0)) {
+          stockFractionResult.textContent = `Enter density in kg/L above to relate the configured ${usageUnit} usage unit to the weighed stock.`;
+          invalidateStockFraction(stockFractionResult.textContent);
+          return;
+        }
+        fullPurchaseKg = usagePerPurchase * usageTarget.factor * densityValue;
+      }
+      relationshipLine = `Configured relationship: 1 ${purchaseUnit} = ${usagePerPurchase.toLocaleString(undefined,{maximumFractionDigits:6})} ${usageUnit} = ${fullPurchaseKg.toLocaleString(undefined,{maximumFractionDigits:6})} kg`;
+    } else {
+      stockFractionResult.textContent = `The ${packageUnit} package is not a recognised mass or volume unit. Set Usage unit to kg/g (or a volume unit with density) and enter how many usage units are in one ${packageUnit}.`;
+      invalidateStockFraction(stockFractionResult.textContent);
+      return;
+    }
+
+    if (!(fullPurchaseKg > 0)) {
+      stockFractionResult.textContent = 'The configured package relationship does not produce a positive full-package weight.';
+      invalidateStockFraction(stockFractionResult.textContent);
+      return;
+    }
+    const fraction = measuredKg / fullPurchaseKg;
+    const storedFraction = Number(fraction.toFixed(6));
+    if (fraction > 0 && !(storedFraction > 0)) {
+      stockFractionResult.textContent = 'This fraction is smaller than the supported six-decimal stock-entry precision.';
+      invalidateStockFraction(stockFractionResult.textContent);
+      return;
+    }
+    if (packageTarget && usageTarget) {
+      try {
+        const expectedUsageFactor = convertPhysicalAmount(1, packageTarget, usageTarget);
+        const tolerance = Math.max(0.000001, Math.abs(expectedUsageFactor) * 0.0001);
+        if (Math.abs(expectedUsageFactor - usageFactor) > tolerance) {
+          stockFractionResult.textContent = `${relationshipLine}\n${measured.toLocaleString(undefined,{maximumFractionDigits:6})} ${measuredUnit} gives ${storedFraction.toLocaleString(undefined,{maximumFractionDigits:6})} ${purchaseUnit}.\nBefore applying Stock, set Usage conversion to ${expectedUsageFactor.toLocaleString(undefined,{maximumFractionDigits:6})} ${usageUnit} per ${packageUnit} using the converter above.`;
+          invalidateStockFraction(stockFractionResult.textContent);
+          return;
+        }
+      } catch (error) {
+        // A local/non-physical usage unit can still scale safely by purchase
+        // fraction; there is no universal physical ratio to cross-check.
+      }
+    }
+
+    const remainingLine = remainingPackageUnits === null
+      ? ''
+      : `\n${measured.toLocaleString(undefined,{maximumFractionDigits:6})} ${measuredUnit} = ${remainingPackageUnits.toLocaleString(undefined,{maximumFractionDigits:6})} ${packageUnit} remaining`;
+    lastStockFraction = storedFraction;
+    stockFractionApply.disabled = false;
+    stockFractionResult.textContent = `${relationshipLine}${remainingLine}\n${measuredKg.toLocaleString(undefined,{maximumFractionDigits:6})} kg ÷ ${fullPurchaseKg.toLocaleString(undefined,{maximumFractionDigits:6})} kg per ${purchaseUnit} = ${storedFraction.toLocaleString(undefined,{maximumFractionDigits:6})} ${purchaseUnit}`;
+  }
+
   [from,to].forEach(el => el.addEventListener('change', updateBridgeFields));
   document.getElementById('converter-calculate').addEventListener('click', calculate);
   apply.addEventListener('click', () => {
@@ -224,9 +376,28 @@
     field.dispatchEvent(new Event('input', {bubbles:true}));
     result.textContent += ' · ratio applied below';
   });
+  document.getElementById('stock-fraction-calculate').addEventListener('click', calculateStockFraction);
+  stockFractionApply.addEventListener('click', () => {
+    if (lastStockFraction === null) return;
+    const field = document.getElementById('id_stock_purchase_units');
+    field.value = lastStockFraction.toFixed(6);
+    field.dispatchEvent(new Event('input', {bubbles:true}));
+    stockFractionResult.textContent += ' · applied to Stock below';
+  });
   ['id_purchase_unit','id_package_qty','id_package_unit','id_usage_unit','id_usage_conversion_factor','id_stock_purchase_units','id_reorder_level_purchase_units'].forEach(id => {
     document.getElementById(id)?.addEventListener('input', id === 'id_package_unit' || id === 'id_usage_unit' ? syncFromMaterialFields : updateRelationship);
   });
+  ['id_purchase_unit','id_package_qty','id_package_unit','id_usage_unit','id_usage_conversion_factor'].forEach(id => {
+    document.getElementById(id)?.addEventListener('input', () => {
+      updateBridgeFields();
+      invalidateStockFraction();
+    });
+  });
+  stockMeasuredBasis.addEventListener('change', () => {
+    updateBridgeFields();
+    invalidateStockFraction('Measurement unit changed. Recalculate the stock fraction.');
+  });
+  stockMeasuredAmount.addEventListener('input', () => invalidateStockFraction('Measured stock changed. Calculate the purchase-unit fraction.'));
   syncFromMaterialFields(); calculate();
 })();
 </script>

@@ -61,9 +61,12 @@ class RawMaterialForm(StyledModelForm):
         help_text="How many purchase units should trigger a reorder, e.g. 2 bags.",
     )
     stock_purchase_units = forms.DecimalField(
-        label="Stock (in purchase units)", max_digits=14, decimal_places=3,
+        label="Stock (in purchase units)", max_digits=18, decimal_places=6,
         required=False, initial=0,
-        help_text="How many purchase units you currently have, e.g. 3 or 2.375 (bags). Up to 3 decimal places are accepted.",
+        help_text=(
+            "How many purchase units you currently have, including a calculated fraction such as "
+            "0.750133 carton. This opening/manual balance is converted to the fine usage unit on save."
+        ),
     )
     cost_per_purchase_unit = forms.DecimalField(
         label="Cost (per purchase unit)", max_digits=14, decimal_places=2,
@@ -110,10 +113,11 @@ class RawMaterialForm(StyledModelForm):
                 )
         if self.instance and self.instance.pk:
             factor = self.instance.total_conversion_factor or Decimal("1")
-            # Stock entry supports 3dp so fractional purchase-unit counts can
-            # be preserved more accurately (e.g. 2.375 bags). Cost and reorder
-            # fields intentionally retain their existing 2dp precision.
-            self.fields["stock_purchase_units"].initial = (self.instance.stock / factor).quantize(Decimal("0.001"))
+            # The temporary purchase-unit entry supports 6dp so a measured
+            # three-decimal usage balance can survive division by a large pack
+            # size. Stored RawMaterial stock remains the authoritative 3dp
+            # value; cost and reorder fields retain their existing precision.
+            self.fields["stock_purchase_units"].initial = (self.instance.stock / factor).quantize(Decimal("0.000001"))
             self.fields["cost_per_purchase_unit"].initial = (self.instance.cost_per_unit * factor).quantize(Decimal("0.01"))
             self.fields["reorder_level_purchase_units"].initial = (self.instance.reorder_level / factor).quantize(Decimal("0.01"))
 

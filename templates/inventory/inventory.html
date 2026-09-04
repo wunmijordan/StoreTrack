@@ -254,7 +254,7 @@
 
       <div id="stock-history-content" class="hidden p-5 space-y-5">
         <div id="stock-history-flow-card" class="hidden rounded-xl border border-[#D9CFB4] bg-gradient-to-br from-[#FFFDF8] via-white to-[#F5EFE0] p-4 overflow-hidden">
-          <div class="flex flex-wrap items-start justify-between gap-2 mb-4"><div><div id="stock-history-flow-title" class="text-xs font-bold uppercase tracking-wider text-[#8f172d]">Operational Flow</div><div class="text-[10px] text-stone-500 mt-0.5">A visual simulation of how this product moves through the active vertical.</div></div><span class="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-stone-500 ring-1 ring-[#D9CFB4]">Configured workflow</span></div>
+          <div class="flex flex-wrap items-start justify-between gap-2 mb-4"><div><div id="stock-history-flow-title" class="text-xs font-bold uppercase tracking-wider text-[#8f172d]">Operational Flow</div><div class="text-[10px] text-stone-500 mt-0.5">Select any stage to animate the workflow from that point, or replay the full journey.</div></div><div class="flex items-center gap-2"><span class="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-stone-500 ring-1 ring-[#D9CFB4]">Configured workflow</span><button id="stock-history-flow-replay" type="button" class="rounded-full bg-[#8f172d] px-3 py-1 text-[10px] font-semibold text-white shadow-sm motion-safe:transition motion-safe:hover:-translate-y-0.5 hover:bg-[#4D1C25] focus:outline-none focus:ring-2 focus:ring-[#8f172d]/30" aria-label="Replay product workflow animation">↻ Replay</button></div></div>
           <div id="stock-history-flow" class="flex flex-col lg:flex-row items-stretch lg:items-center gap-2"></div>
         </div>
         <div id="stock-history-arrivals-card" class="hidden rounded-lg border border-[#E7DFCC] overflow-hidden">
@@ -356,6 +356,7 @@
   const historyFlowCard = document.getElementById('stock-history-flow-card');
   const historyFlowTitle = document.getElementById('stock-history-flow-title');
   const historyFlow = document.getElementById('stock-history-flow');
+  const historyFlowReplay = document.getElementById('stock-history-flow-replay');
   const historyArrivalsCard = document.getElementById('stock-history-arrivals-card');
   const historyArrivalRows = document.getElementById('stock-history-arrival-rows');
   const historyMaterialsCard = document.getElementById('stock-history-materials-card');
@@ -369,6 +370,7 @@
   let stockHistoryData = null;
   let selectedDays = 7;
   let previousActiveElement = null;
+  let flowAnimationRun = 0;
 
   function setHistoryState(state, message = '') {
     historyLoading.classList.toggle('hidden', state !== 'loading');
@@ -618,17 +620,68 @@
       rose: 'border-rose-200 bg-rose-50 text-rose-950',
       stone: 'border-stone-200 bg-white text-stone-800'
     };
-    return `<div class="relative flex-1 min-w-0 rounded-xl border ${tones[tone]} p-3 shadow-sm"><div class="text-[9px] uppercase tracking-[0.16em] font-bold opacity-60">${escapeFlowText(kicker)}</div><div class="mt-1 text-sm font-semibold leading-tight">${escapeFlowText(title)}</div><div class="mt-1 text-[10px] leading-4 opacity-70">${escapeFlowText(detail)}</div></div>`;
+    const accessibleLabel = `${kicker}: ${title}. ${detail}`;
+    return `<button type="button" data-flow-node class="relative flex-1 min-w-0 rounded-xl border ${tones[tone]} p-3 text-left shadow-sm motion-safe:transition motion-safe:duration-200 motion-safe:hover:-translate-y-1 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-rose-300" aria-label="${escapeFlowText(accessibleLabel)}"><span class="absolute right-3 top-3 h-2 w-2 rounded-full bg-current opacity-20" aria-hidden="true"></span><span class="block text-[9px] uppercase tracking-[0.16em] font-bold opacity-60">${escapeFlowText(kicker)}</span><span class="mt-1 block text-sm font-semibold leading-tight">${escapeFlowText(title)}</span><span class="mt-1 block text-[10px] leading-4 opacity-70">${escapeFlowText(detail)}</span></button>`;
   }
 
   function flowArrow() {
-    return '<div class="self-center shrink-0 text-[#8f172d] font-bold text-lg rotate-90 lg:rotate-0" aria-hidden="true">→</div>';
+    return '<div data-flow-arrow class="self-center shrink-0 text-[#8f172d] font-bold text-lg rotate-90 opacity-30 motion-safe:transition lg:rotate-0" aria-hidden="true">→</div>';
+  }
+
+  function animateProductFlow(startIndex = 0) {
+    const nodes = [...historyFlow.querySelectorAll('[data-flow-node]')];
+    const arrows = [...historyFlow.querySelectorAll('[data-flow-arrow]')];
+    if (!nodes.length) return;
+    const run = ++flowAnimationRun;
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    nodes.forEach(node => node.classList.remove('ring-2', 'ring-rose-300'));
+    arrows.forEach(arrow => arrow.classList.add('opacity-30'));
+
+    nodes.slice(startIndex).forEach((node, offset) => {
+      const nodeIndex = startIndex + offset;
+      window.setTimeout(() => {
+        if (run !== flowAnimationRun) return;
+        nodes.forEach(item => item.classList.remove('ring-2', 'ring-rose-300'));
+        node.classList.add('ring-2', 'ring-rose-300');
+        if (nodeIndex > 0 && arrows[nodeIndex - 1]) {
+          arrows[nodeIndex - 1].classList.remove('opacity-30');
+          if (!reducedMotion && arrows[nodeIndex - 1].animate) {
+            arrows[nodeIndex - 1].animate(
+              [{opacity: 0.25}, {opacity: 1}, {opacity: 0.55}],
+              {duration: 520, easing: 'ease-out'}
+            );
+          }
+        }
+        if (!reducedMotion && node.animate) {
+          node.animate(
+            [
+              {transform: 'translateY(0) scale(1)', boxShadow: '0 1px 2px rgba(0,0,0,.05)'},
+              {transform: 'translateY(-5px) scale(1.025)', boxShadow: '0 12px 24px rgba(143,23,45,.16)'},
+              {transform: 'translateY(0) scale(1)', boxShadow: '0 1px 2px rgba(0,0,0,.05)'},
+            ],
+            {duration: 620, easing: 'ease-in-out'}
+          );
+        }
+      }, reducedMotion ? 0 : offset * 430);
+    });
+  }
+
+  function wireProductFlowAnimation() {
+    const nodes = [...historyFlow.querySelectorAll('[data-flow-node]')];
+    nodes.forEach((node, index) => {
+      node.addEventListener('click', () => animateProductFlow(index));
+    });
+    window.requestAnimationFrame(() => animateProductFlow(0));
   }
 
   function renderProductFlow() {
     const isProduct = stockHistoryData?.kind === 'finished';
     historyFlowCard.classList.toggle('hidden', !isProduct);
-    if (!isProduct) return;
+    historyFlowReplay.disabled = !isProduct;
+    if (!isProduct) {
+      flowAnimationRun += 1;
+      return;
+    }
     const materials = Array.isArray(stockHistoryData.materials) ? stockHistoryData.materials : [];
     const arrivals = Array.isArray(stockHistoryData.arrivals) ? stockHistoryData.arrivals : [];
     const product = stockHistoryData.name || 'Product';
@@ -660,6 +713,7 @@
         flowNode('Sale', inventoryVertical.sales, inventoryVertical.direct_sale_channel === 'distribution' ? 'Trade customer pricing, credit, receivable, and COGS are snapshotted.' : 'Immediate POS sale reduces available shop stock and records COGS.', 'rose')
       ].join('');
     }
+    wireProductFlowAnimation();
   }
 
   function renderArrivals() {
@@ -741,6 +795,7 @@
   }
 
   function closeStockHistory() {
+    flowAnimationRun += 1;
     historyModal.classList.add('hidden');
     historyModal.classList.remove('flex');
     historyModal.setAttribute('aria-hidden', 'true');
@@ -766,5 +821,6 @@
   periodButtons.forEach(button => {
     button.addEventListener('click', () => setActivePeriod(button.dataset.days));
   });
+  historyFlowReplay.addEventListener('click', () => animateProductFlow(0));
 </script>
 {% endblock %}

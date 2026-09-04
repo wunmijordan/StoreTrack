@@ -220,7 +220,16 @@ class DirectProductProcurementTests(TestCase):
         self.assertContains(raw_form, "Unit converter & relationship calculator")
         self.assertContains(raw_form, "Material density (kg/L)")
         self.assertContains(raw_form, "Custom measured unit")
+        self.assertContains(raw_form, "Manual stock count → purchase-unit fraction")
+        self.assertContains(raw_form, "a 4 L package at 0.56 kg/L weighs 2.24 kg")
+        self.assertContains(raw_form, 'id="stock-fraction-apply"')
+        self.assertLess(
+            raw_form.content.index(b'id="unit-converter-title"'),
+            raw_form.content.index(b'id="id_usage_conversion_factor"'),
+        )
 
         inventory = self.client.get(reverse("inventory"))
         self.assertContains(inventory, 'id="stock-history-flow-card"')
         self.assertContains(inventory, "Procurement · stock arrival · sale")
+        self.assertContains(inventory, 'id="stock-history-flow-replay"')
+        self.assertContains(inventory, "animateProductFlow")
