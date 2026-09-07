@@ -6,4 +6,5 @@ db.sqlite3
 .env
 .env.prod
 staticfiles/
+media/
 .vscode/

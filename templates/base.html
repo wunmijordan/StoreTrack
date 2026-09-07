@@ -17,6 +17,18 @@
     [x-cloak] { display: none !important; }
     .field-client-invalid { border-color: #e11d48 !important; box-shadow: 0 0 0 1px rgba(225,29,72,.15); }
     .field-has-error input, .field-has-error select, .field-has-error textarea { border-color: #e11d48 !important; }
+    :root { --st-card-shadow: 0 2px 8px #000000d2; --st-modal-shadow: 0 18px 48px rgba(0,0,0,.42); }
+    .st-card-shadow,
+    main :where(article, section, form)[class~="border"]:is([class~="rounded-lg"], [class~="rounded-xl"], [class~="rounded-2xl"], [class~="rounded-3xl"]),
+    main div[class~="border"]:is([class~="rounded-lg"], [class~="rounded-xl"], [class~="rounded-2xl"], [class~="rounded-3xl"]):is([class~="bg-white"], [class~="bg-[#FFFDF8]"], [class~="bg-[#F5EFE0]"]),
+    main :where(div)[class~="border"]:is([class~="rounded-lg"], [class~="rounded-xl"], [class~="rounded-2xl"]):has(> table) {
+      box-shadow: var(--st-card-shadow) !important;
+    }
+    .st-modal-surface,
+    main [role="dialog"],
+    main :where([class~="fixed"][class~="inset-0"]) > :where(div)[class~="border"] {
+      box-shadow: var(--st-modal-shadow) !important;
+    }
     .tenant-sidebar { background: var(--tenant-background); color: var(--tenant-background-contrast); }
     .text-\[\#8f172d\], .text-\[\#8F172D\] { color: var(--tenant-button) !important; }
     .bg-\[\#8f172d\], .bg-\[\#8F172D\] { background-color: var(--tenant-button) !important; color: var(--tenant-button-contrast) !important; }

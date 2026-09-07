@@ -15,6 +15,7 @@ from sales.models import CustomerPayment, Sale
 
 from .models import (
     CommerceGatewayEvent,
+    CommerceCheckoutSession,
     CommerceIntake,
     CommercePayment,
     CommercePaymentAllocation,
@@ -60,9 +61,45 @@ def _method_enabled(config, method):
     return bool(checks.get(method))
 
 
+def _configured_active_account(account, business):
+    return bool(account and account.active and account.business_id == business.pk)
+
+
+def eligible_payment_methods(business):
+    """Return only enabled methods with enough tenant configuration to settle safely."""
+    config = payment_configuration(business)
+    methods = []
+    if (
+        config.paystack_enabled
+        and bool(config.paystack_secret_key)
+        and _configured_active_account(config.paystack_account, business)
+    ):
+        methods.append({"code": CommercePayment.METHOD_PAYSTACK, "label": "Paystack"})
+    if (
+        config.monnify_enabled
+        and bool(config.monnify_api_key and config.monnify_secret_key and config.monnify_contract_code and config.monnify_base_url)
+        and _configured_active_account(config.monnify_account, business)
+    ):
+        methods.append({"code": CommercePayment.METHOD_MONNIFY, "label": "Monnify"})
+    if (
+        config.bank_transfer_enabled
+        and bool(config.bank_name and config.bank_account_name and config.bank_account_number)
+        and _configured_active_account(config.bank_cash_account, business)
+    ):
+        methods.append({"code": CommercePayment.METHOD_BANK_TRANSFER, "label": "Bank transfer"})
+    if config.cash_enabled and _configured_active_account(config.cash_account, business):
+        methods.append({"code": CommercePayment.METHOD_CASH, "label": "Cash"})
+    return methods
+
+
+def _assert_method_eligible(business, method):
+    if method not in {row["code"] for row in eligible_payment_methods(business)}:
+        raise ValidationError("This payment method is not enabled and fully configured for this storefront.")
+
+
 def _manual_instructions(config, method):
     if method == CommercePayment.METHOD_BANK_TRANSFER:
-        return config.bank_instructions or "Use the order/payment reference when transferring, then submit your transfer reference for verification."
+        return config.bank_instructions or "Use the checkout/payment reference when transferring, then submit your transfer reference for staff verification."
     if method == CommercePayment.METHOD_CASH:
         return config.cash_instructions or "Pay an authorized staff member. Cash remains pending until the receipt is confirmed in StoreTrack."
     return ""
@@ -70,6 +107,15 @@ def _manual_instructions(config, method):
 
 def current_payment(intake):
     return intake.payments.exclude(status=CommercePayment.STATUS_CANCELLED).order_by("-created_at", "-id").first()
+
+
+def current_checkout_payment(checkout):
+    qs = CommercePayment.raw_objects.filter(business=checkout.business)
+    if checkout.materialized_intake_id:
+        qs = qs.filter(Q(checkout=checkout) | Q(intake_id=checkout.materialized_intake_id))
+    else:
+        qs = qs.filter(checkout=checkout)
+    return qs.exclude(status=CommercePayment.STATUS_CANCELLED).order_by("-created_at", "-id").first()
 
 
 def serialize_payment(payment, config=None):
@@ -100,6 +146,8 @@ def serialize_payment(payment, config=None):
         "balance": f"{payment.balance:.2f}",
         "verified_at": payment.verified_at.isoformat() if payment.verified_at else None,
         "settled_at": payment.settled_at.isoformat() if payment.settled_at else None,
+        "checkout_id": str(payment.checkout.public_id) if payment.checkout_id else None,
+        "order_id": str(payment.intake.public_id) if payment.intake_id else None,
         "claim": ({
             "payer_name": latest_claim.payer_name,
             "transfer_reference": latest_claim.transfer_reference,
@@ -122,6 +170,9 @@ def _account_for(config, method, business, actor):
         if configured.business_id != business.pk:
             raise ValidationError("The configured settlement account belongs to another business.")
         return configured
+    # Legacy intake payments historically allowed a fallback account. Keep that
+    # behavior for old records/endpoints; new checkout initiation requires an
+    # explicitly configured account through _assert_method_eligible().
     preferred_type = "cash" if method == CommercePayment.METHOD_CASH else "bank"
     account = CashAccount.raw_objects.filter(
         business=business, active=True, account_type=preferred_type
@@ -140,7 +191,29 @@ def _account_for(config, method, business, actor):
     return account
 
 
-def initiate_payment(*, intake, method, idempotency_key, return_url=""):
+def _payment_target(payment):
+    return payment.checkout if payment.checkout_id else payment.intake
+
+
+def _payment_display_reference(payment):
+    if payment.intake_id:
+        return payment.intake.public_number
+    if payment.checkout_id:
+        return f"checkout {payment.checkout.public_id}"
+    return payment.reference
+
+
+def _target_amount(target):
+    if isinstance(target, CommerceCheckoutSession):
+        return Decimal(target.amount).quantize(Decimal("0.01"))
+    return Decimal(target.total).quantize(Decimal("0.01"))
+
+
+def initiate_payment(*, intake=None, checkout=None, method, idempotency_key, return_url=""):
+    """Initialize payment for either a legacy intake or a pre-intake checkout."""
+    if (intake is None) == (checkout is None):
+        raise ValidationError("Choose exactly one payment target.")
+    target = checkout or intake
     method = (method or "").strip().lower()
     idempotency_key = (idempotency_key or "").strip()
     if not idempotency_key:
@@ -150,23 +223,37 @@ def initiate_payment(*, intake, method, idempotency_key, return_url=""):
     if method not in dict(CommercePayment.METHOD_CHOICES):
         raise ValidationError("Choose a supported payment method.")
     return_url = _validate_return_url(return_url)
-    config = payment_configuration(intake.business)
-    if not _method_enabled(config, method):
+    config = payment_configuration(target.business)
+    if checkout is not None:
+        _assert_method_eligible(target.business, method)
+    elif not _method_enabled(config, method):
         raise ValidationError("This payment method is not enabled for this storefront.")
     if method in {CommercePayment.METHOD_PAYSTACK, CommercePayment.METHOD_MONNIFY} and not return_url:
         raise ValidationError("return_url is required for online gateway payments.")
 
     with transaction.atomic():
-        locked = CommerceIntake.raw_objects.select_for_update().prefetch_related("items").get(
-            pk=intake.pk, business=intake.business
-        )
-        if locked.status in {CommerceIntake.STATUS_CANCELLED, CommerceIntake.STATUS_REJECTED}:
-            raise ValidationError("Payment is not available for a cancelled or rejected order.")
-        amount = Decimal(locked.total).quantize(Decimal("0.01"))
+        if checkout is not None:
+            from .checkout_services import expire_checkout_if_needed
+            locked = CommerceCheckoutSession.raw_objects.select_for_update().prefetch_related("items").get(
+                pk=target.pk, business=target.business
+            )
+            expire_checkout_if_needed(locked)
+            if locked.status != CommerceCheckoutSession.STATUS_AWAITING_PAYMENT:
+                raise ValidationError("Payment can only start while this checkout is awaiting payment and its reservation is valid.")
+            target_filter = {"checkout": locked}
+        else:
+            locked = CommerceIntake.raw_objects.select_for_update().prefetch_related("items").get(
+                pk=target.pk, business=target.business
+            )
+            if locked.status in {CommerceIntake.STATUS_CANCELLED, CommerceIntake.STATUS_REJECTED}:
+                raise ValidationError("Payment is not available for a cancelled or rejected order.")
+            target_filter = {"intake": locked}
+
+        amount = _target_amount(locked)
         if amount <= 0:
-            raise ValidationError("This order has no payable balance.")
+            raise ValidationError("This checkout/order has no payable balance.")
         existing = CommercePayment.raw_objects.filter(
-            business=locked.business, intake=locked, idempotency_key=idempotency_key
+            business=locked.business, idempotency_key=idempotency_key, **target_filter
         ).first()
         if existing:
             if existing.method != method:
@@ -174,31 +261,35 @@ def initiate_payment(*, intake, method, idempotency_key, return_url=""):
             payment = existing
         else:
             compatible = CommercePayment.raw_objects.filter(
-                business=locked.business, intake=locked, method=method,
-                status__in=CommercePayment.ACTIVE_STATUSES, amount=amount,
+                business=locked.business, method=method,
+                status__in=CommercePayment.ACTIVE_STATUSES, amount=amount, **target_filter
             ).order_by("-created_at", "-id").first()
             if compatible:
                 payment = compatible
             else:
                 blocking = CommercePayment.raw_objects.filter(
-                    business=locked.business, intake=locked,
+                    business=locked.business,
                     status__in=[CommercePayment.STATUS_AWAITING_VERIFICATION, CommercePayment.STATUS_PARTIALLY_PAID],
+                    **target_filter,
                 ).exclude(method=method).first()
                 if blocking:
                     raise ValidationError("Resolve the current claimed or partially paid payment before selecting another method.")
                 CommercePayment.raw_objects.filter(
-                    business=locked.business, intake=locked,
+                    business=locked.business,
                     status__in=[CommercePayment.STATUS_PENDING, CommercePayment.STATUS_AWAITING_CUSTOMER],
+                    **target_filter,
                 ).exclude(method=method).update(status=CommercePayment.STATUS_CANCELLED)
                 payment = CommercePayment.raw_objects.create(
                     business=locked.business,
-                    intake=locked,
+                    intake=locked if checkout is None else None,
+                    checkout=locked if checkout is not None else None,
                     method=method,
                     amount=amount,
                     currency=config.currency.upper(),
                     reference=f"STP-{uuid4().hex[:20].upper()}",
                     idempotency_key=idempotency_key,
                     return_url=return_url,
+                    expires_at=(locked.reservation_expires_at if checkout is not None else None),
                     instructions=_manual_instructions(config, method),
                     status=(CommercePayment.STATUS_PENDING if method in {
                         CommercePayment.METHOD_BANK_TRANSFER, CommercePayment.METHOD_CASH
@@ -256,7 +347,7 @@ def submit_bank_claim(*, payment, payer_name, transfer_reference):
     payment.save(update_fields=["status", "updated_at"])
     audit(
         payment.business, None, "payment_claim", claim,
-        f"Bank transfer claim submitted for {payment.intake.public_number}",
+        f"Bank transfer claim submitted for {_payment_display_reference(payment)}",
         {"payment_reference": payment.reference, "transfer_reference": transfer_reference},
     )
     return claim, True
@@ -349,12 +440,13 @@ def _refresh_payment(payment):
         payment.status = CommercePayment.STATUS_PENDING
         payment.settled_at = None
     payment.save(update_fields=["amount_paid", "status", "settled_at", "updated_at"])
-    payment.intake.payment_state = (
-        CommerceIntake.PAYMENT_CONFIRMED if payment.status == CommercePayment.STATUS_PAID
-        else CommerceIntake.PAYMENT_FAILED if payment.status == CommercePayment.STATUS_FAILED
-        else CommerceIntake.PAYMENT_PENDING
-    )
-    payment.intake.save(update_fields=["payment_state", "updated_at"])
+    if payment.intake_id:
+        payment.intake.payment_state = (
+            CommerceIntake.PAYMENT_CONFIRMED if payment.status == CommercePayment.STATUS_PAID
+            else CommerceIntake.PAYMENT_FAILED if payment.status == CommercePayment.STATUS_FAILED
+            else CommerceIntake.PAYMENT_PENDING
+        )
+        payment.intake.save(update_fields=["payment_state", "updated_at"])
 
 
 @transaction.atomic
@@ -362,7 +454,7 @@ def record_verified_payment(
     *, payment, amount, actor, idempotency_key, external_reference="", note="",
     location="", claim=None, verified_at=None,
 ):
-    payment = CommercePayment.raw_objects.select_for_update().select_related("intake").get(
+    payment = CommercePayment.raw_objects.select_for_update().select_related("intake", "checkout").get(
         pk=payment.pk, business=payment.business
     )
     existing = CommercePaymentReceipt.raw_objects.filter(
@@ -400,7 +492,7 @@ def record_verified_payment(
         amount=amount,
         transaction_type=FinancialTransaction.INCOME,
         category="Commerce customer payment",
-        description=f"Payment received for commerce order {payment.intake.public_number}",
+        description=f"Payment received for commerce {_payment_display_reference(payment)}",
         payment_method=PAYMENT_METHOD_TO_SALE_METHOD[payment.method],
         reference=payment.reference,
         account=account,
@@ -435,10 +527,15 @@ def record_verified_payment(
     payment.verified_at = verified_at
     payment.save(update_fields=["verified_by", "verified_at", "updated_at"])
     _refresh_payment(payment)
-    sync_payment_receipts_to_sales(payment.intake)
+    if payment.intake_id:
+        sync_payment_receipts_to_sales(payment.intake)
+    elif payment.checkout_id and payment.status == CommercePayment.STATUS_PAID:
+        from .checkout_services import attempt_materialize_paid_checkout
+        attempt_materialize_paid_checkout(payment.checkout, actor=actor)
+        payment.refresh_from_db(fields=["intake", "checkout"])
     audit(
         payment.business, actor, "payment_verify", receipt,
-        f"Payment verified for {payment.intake.public_number}",
+        f"Payment verified for {_payment_display_reference(payment)}",
         {"payment_reference": payment.reference, "amount": str(amount), "method": payment.method},
     )
     return receipt, True
@@ -446,7 +543,7 @@ def record_verified_payment(
 
 @transaction.atomic
 def reject_bank_claim(*, claim, actor, reason):
-    claim = CommercePaymentClaim.raw_objects.select_for_update().select_related("payment__intake").get(
+    claim = CommercePaymentClaim.raw_objects.select_for_update().select_related("payment__intake", "payment__checkout").get(
         pk=claim.pk, business=claim.business
     )
     if claim.status != CommercePaymentClaim.STATUS_SUBMITTED:
@@ -462,7 +559,7 @@ def reject_bank_claim(*, claim, actor, reason):
     _refresh_payment(claim.payment)
     audit(
         claim.business, actor, "payment_claim_reject", claim,
-        f"Bank transfer claim rejected for {claim.payment.intake.public_number}",
+        f"Bank transfer claim rejected for {_payment_display_reference(claim.payment)}",
         {"payment_reference": claim.payment.reference, "reason": reason},
     )
     return claim
@@ -470,7 +567,7 @@ def reject_bank_claim(*, claim, actor, reason):
 
 @transaction.atomic
 def reverse_payment_receipt(*, receipt, actor, reason):
-    receipt = CommercePaymentReceipt.raw_objects.select_for_update().select_related("payment__intake", "account").get(
+    receipt = CommercePaymentReceipt.raw_objects.select_for_update().select_related("payment__intake", "payment__checkout", "account").get(
         pk=receipt.pk, business=receipt.business
     )
     if receipt.reversed_at:
@@ -486,7 +583,7 @@ def reverse_payment_receipt(*, receipt, actor, reason):
         amount=receipt.amount,
         transaction_type=FinancialTransaction.OUTFLOW,
         category="Commerce payment reversal",
-        description=f"Reversal of payment for commerce order {receipt.payment.intake.public_number}",
+        description=f"Reversal of payment for commerce {_payment_display_reference(receipt.payment)}",
         payment_method=PAYMENT_METHOD_TO_SALE_METHOD[receipt.payment.method],
         reference=f"REV-{receipt.payment.reference}"[:80],
         account=receipt.account,
@@ -525,7 +622,7 @@ def reverse_payment_receipt(*, receipt, actor, reason):
     _refresh_payment(receipt.payment)
     audit(
         receipt.business, actor, "payment_reverse", receipt,
-        f"Payment receipt reversed for {receipt.payment.intake.public_number}",
+        f"Payment receipt reversed for {_payment_display_reference(receipt.payment)}",
         {"payment_reference": receipt.payment.reference, "amount": str(receipt.amount), "reason": reason},
     )
     return receipt, True
@@ -533,7 +630,7 @@ def reverse_payment_receipt(*, receipt, actor, reason):
 
 def process_gateway_event(*, event):
     """Verify remotely outside a DB transaction, then settle exactly once."""
-    payment = CommercePayment.raw_objects.select_related("intake", "business").get(pk=event.payment_id)
+    payment = CommercePayment.raw_objects.select_related("intake", "checkout", "business").get(pk=event.payment_id)
     config = payment_configuration(payment.business)
     verified, verification = verify_gateway(payment, config)
     with transaction.atomic():

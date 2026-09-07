@@ -56,8 +56,25 @@ def paystack_signature_valid(config, raw_body, signature):
     return bool(signature) and hmac.compare_digest(expected, signature)
 
 
+
+def _payment_customer(payment):
+    target = payment.checkout if payment.checkout_id else payment.intake
+    if target is None:
+        raise GatewayError("Payment is not attached to a checkout or order.")
+    return target
+
+
+def _payment_metadata(payment):
+    return {
+        "storetrack_payment_id": str(payment.public_id),
+        "storetrack_checkout_id": str(payment.checkout.public_id) if payment.checkout_id else "",
+        "storetrack_order_id": str(payment.intake.public_id) if payment.intake_id else "",
+        "business_id": str(payment.business_id),
+    }
+
 def initialize_paystack(payment, config):
-    email = _require(payment.intake.customer_email, "A customer email is required for Paystack checkout.")
+    target = _payment_customer(payment)
+    email = _require(target.customer_email, "A customer email is required for Paystack checkout.")
     amount_minor = int((Decimal(payment.amount) * Decimal("100")).quantize(Decimal("1")))
     response = _json_request(
         "https://api.paystack.co/transaction/initialize",
@@ -69,11 +86,7 @@ def initialize_paystack(payment, config):
             "currency": payment.currency,
             "reference": payment.reference,
             "callback_url": payment.return_url,
-            "metadata": json.dumps({
-                "storetrack_payment_id": str(payment.public_id),
-                "storetrack_order_id": str(payment.intake.public_id),
-                "business_id": payment.business_id,
-            }),
+            "metadata": json.dumps(_payment_metadata(payment)),
         },
     )
     data = response.get("data") or {}
@@ -109,7 +122,8 @@ def verify_paystack(payment, config):
         and amount == Decimal(payment.amount)
         and str(data.get("currency") or "").upper() == payment.currency.upper()
         and str(metadata.get("storetrack_payment_id") or "") == str(payment.public_id)
-        and str(metadata.get("storetrack_order_id") or "") == str(payment.intake.public_id)
+        and str(metadata.get("storetrack_checkout_id") or "") == (str(payment.checkout.public_id) if payment.checkout_id else "")
+        and str(metadata.get("storetrack_order_id") or "") == (str(payment.intake.public_id) if payment.intake_id else "")
         and str(metadata.get("business_id") or "") == str(payment.business_id)
     )
     return verified, {
@@ -157,7 +171,8 @@ def monnify_signature_valid(config, raw_body, signature):
 
 
 def initialize_monnify(payment, config):
-    email = _require(payment.intake.customer_email, "A customer email is required for Monnify checkout.")
+    target = _payment_customer(payment)
+    email = _require(target.customer_email, "A customer email is required for Monnify checkout.")
     _, _, contract_code = _monnify_credentials(config)
     response = _json_request(
         f"{config.monnify_base_url.rstrip('/')}/api/v1/merchant/transactions/init-transaction",
@@ -165,17 +180,18 @@ def initialize_monnify(payment, config):
         headers={"Authorization": f"Bearer {_monnify_token(config)}", "Content-Type": "application/json"},
         payload={
             "amount": str(payment.amount),
-            "customerName": payment.intake.customer_name,
+            "customerName": target.customer_name,
             "customerEmail": email,
             "paymentReference": payment.reference,
-            "paymentDescription": f"Commerce order {payment.intake.public_number}",
+            "paymentDescription": f"StoreTrack commerce {payment.reference}",
             "currencyCode": payment.currency,
             "contractCode": contract_code,
             "redirectUrl": payment.return_url,
             "paymentMethods": ["CARD", "ACCOUNT_TRANSFER", "USSD"],
             "metaData": {
                 "storetrackPaymentId": str(payment.public_id),
-                "storetrackOrderId": str(payment.intake.public_id),
+                "storetrackCheckoutId": str(payment.checkout.public_id) if payment.checkout_id else "",
+                "storetrackOrderId": str(payment.intake.public_id) if payment.intake_id else "",
                 "businessId": str(payment.business_id),
             },
         },
@@ -208,7 +224,8 @@ def verify_monnify(payment, config):
         and amount == Decimal(payment.amount)
         and str(body.get("currencyCode") or body.get("currency") or "").upper() == payment.currency.upper()
         and str(metadata.get("storetrackPaymentId") or "") == str(payment.public_id)
-        and str(metadata.get("storetrackOrderId") or "") == str(payment.intake.public_id)
+        and str(metadata.get("storetrackCheckoutId") or "") == (str(payment.checkout.public_id) if payment.checkout_id else "")
+        and str(metadata.get("storetrackOrderId") or "") == (str(payment.intake.public_id) if payment.intake_id else "")
         and str(metadata.get("businessId") or "") == str(payment.business_id)
     )
     return verified, {

@@ -7,7 +7,14 @@ from .models import (
     SubscriptionPayment, SubscriptionPaymentSettings, SubscriptionService, UserBusiness,
 )
 from .services import business_has_module, seed_business_roles
-from .subscription_services import apply_subscription_entitlements, ensure_default_plans, payment_amount
+from .subscription_services import (
+    apply_subscription_entitlements,
+    create_payment_request,
+    ensure_default_plans,
+    grant_founder_lifetime,
+    payment_amount,
+    payment_is_locked,
+)
 
 
 class TenantSignupTests(TestCase):
@@ -224,6 +231,28 @@ class SubscriptionEntitlementTests(TestCase):
         self.assertIn("Trial", subscription.trial_status_label)
         self.assertIn(str(subscription.trial_ends_at.year), subscription.trial_status_label)
 
+    def test_current_trial_plan_payment_stays_locked_until_final_seven_days(self):
+        from django.core.exceptions import ValidationError
+
+        subscription = self._subscribe("starter")
+        self.plans["starter"].monthly_price = 1000
+        self.plans["starter"].save(update_fields=["monthly_price"])
+        self.assertTrue(payment_is_locked(subscription, self.plans["starter"]))
+        with self.assertRaisesMessage(ValidationError, "opens within 7 days"):
+            create_payment_request(subscription, self.plans["starter"], provider="paystack")
+
+        subscription.trial_ends_at = self.timezone.now() + self.timezone.timedelta(days=6, hours=12)
+        subscription.save(update_fields=["trial_ends_at"])
+        self.assertFalse(payment_is_locked(subscription, self.plans["starter"]))
+
+    def test_founder_plan_is_locked_but_other_plan_remains_open(self):
+        founder = CustomUser.objects.create_superuser(username="grant-founder", password="safe-password-123")
+        subscription = self._subscribe("starter")
+        grant_founder_lifetime(subscription, self.plans["starter"], founder)
+        subscription.refresh_from_db()
+        self.assertTrue(payment_is_locked(subscription, self.plans["starter"]))
+        self.assertFalse(payment_is_locked(subscription, self.plans["production"]))
+
 
 class FounderPaymentSettingsTests(TestCase):
     def setUp(self):
@@ -245,6 +274,28 @@ class FounderPaymentSettingsTests(TestCase):
         self.assertTrue(payment_settings.monnify_enabled)
         self.assertEqual(payment_settings.updated_by, self.user)
 
+    def test_active_plan_card_is_marked_and_current_trial_payment_is_disabled(self):
+        from .subscription_services import start_trial_for_business
+
+        start_trial_for_business(self.business, self.plans["starter"])
+        response = self.client.get(reverse("subscription_plans"))
+        self.assertContains(response, "Current · Free trial")
+        self.assertContains(response, "Renewal opens in final 7 days")
+
+    def test_active_plan_change_requires_explicit_acknowledgement(self):
+        from .subscription_services import start_trial_for_business
+
+        start_trial_for_business(self.business, self.plans["starter"])
+        selected = self.plans["production"]
+        selected.monthly_price = 1000
+        selected.save(update_fields=["monthly_price"])
+        url = reverse("subscription_payment_plan", args=[selected.code])
+        response = self.client.post(url, {
+            "provider": "paystack", "billing_cycle": "monthly", "months": "1",
+        })
+        self.assertRedirects(response, url, fetch_redirect_response=False)
+        self.assertFalse(SubscriptionPayment.objects.exists())
+
     def test_disabled_provider_is_hidden_and_rejected_for_new_checkout(self):
         payment_settings = SubscriptionPaymentSettings.load()
         payment_settings.paystack_enabled = False
@@ -254,6 +305,10 @@ class FounderPaymentSettingsTests(TestCase):
 
         response = self.client.get(url)
         self.assertEqual(response.context["available_payment_providers"], [("monnify", "Monnify")])
+        subscription = BusinessSubscription.objects.get(primary_business=self.business)
+        from django.utils import timezone
+        subscription.trial_ends_at = timezone.now() + timezone.timedelta(days=6)
+        subscription.save(update_fields=["trial_ends_at"])
         response = self.client.post(url, {
             "provider": "paystack", "billing_cycle": "monthly", "months": "1",
         })

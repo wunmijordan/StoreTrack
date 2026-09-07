@@ -1,12 +1,23 @@
 import secrets
 import uuid
 from decimal import Decimal
+from pathlib import Path
 
 from django.conf import settings
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+from django.utils import timezone
 
 from core.models import BusinessOwnedModel
+
+
+def storefront_product_image_upload_to(instance, filename):
+    """Keep uploads tenant-partitioned and avoid trusting client filenames."""
+    extension = Path(filename or "").suffix.lower()
+    if extension not in {".avif", ".gif", ".jpeg", ".jpg", ".png", ".webp"}:
+        extension = ".jpg"
+    business_id = instance.business_id or "unassigned"
+    return f"commerce/products/business-{business_id}/{uuid.uuid4().hex}{extension}"
 
 
 class CommerceSettings(BusinessOwnedModel):
@@ -28,6 +39,10 @@ class CommerceSettings(BusinessOwnedModel):
     connector_enabled = models.BooleanField(default=False)
     insufficient_stock_policy = models.CharField(max_length=20, choices=POLICY_CHOICES, default=POLICY_INVITE)
     public_note = models.CharField(max_length=255, blank=True, default="")
+    checkout_reservation_minutes = models.PositiveSmallIntegerField(
+        default=15, validators=[MinValueValidator(5), MaxValueValidator(120)],
+        help_text="How long Physical Store stock is held while a customer completes payment.",
+    )
 
     class Meta:
         verbose_name_plural = "commerce settings"
@@ -63,6 +78,8 @@ class StorefrontProduct(BusinessOwnedModel):
     published = models.BooleanField(default=False)
     public_name = models.CharField(max_length=140, blank=True, default="")
     description = models.TextField(blank=True, default="")
+    image = models.ImageField(upload_to=storefront_product_image_upload_to, blank=True)
+    # Retained as a read-only legacy fallback for live records created before uploads.
     image_url = models.URLField(blank=True, default="")
     allow_stock_order = models.BooleanField(default=True)
     allow_preorder = models.BooleanField(default=True)
@@ -84,6 +101,15 @@ class StorefrontProduct(BusinessOwnedModel):
     @property
     def available_now(self):
         return Decimal(self.finished_good.physical_saleable_stock or 0)
+
+    @property
+    def public_image_url(self):
+        if self.image:
+            try:
+                return self.image.url
+            except ValueError:
+                pass
+        return self.image_url
 
     @property
     def stock_price(self):
@@ -232,6 +258,103 @@ class CommerceIntakeItem(models.Model):
         return self.requested_quantity * self.unit_price
 
 
+class CommerceCheckoutSession(BusinessOwnedModel):
+    """Validated, tenant-scoped checkout that exists before any CommerceIntake.
+
+    The session snapshots authoritative prices and, for stock orders, holds a
+    short-lived reservation. Only a fully verified payment can materialize one
+    CommerceIntake.
+    """
+
+    SOURCE_API = CommerceIntake.SOURCE_API
+    SOURCE_STOREFRONT = CommerceIntake.SOURCE_STOREFRONT
+    SOURCE_CONNECTOR = CommerceIntake.SOURCE_CONNECTOR
+    SOURCE_CHOICES = CommerceIntake.SOURCE_CHOICES
+
+    STATUS_AWAITING_PAYMENT = "awaiting_payment"
+    STATUS_PAID = "paid"
+    STATUS_MATERIALIZED = "materialized"
+    STATUS_PAID_REVIEW = "paid_review"
+    STATUS_EXPIRED = "expired"
+    STATUS_CANCELLED = "cancelled"
+    STATUS_CHOICES = [
+        (STATUS_AWAITING_PAYMENT, "Awaiting payment"),
+        (STATUS_PAID, "Paid — creating order"),
+        (STATUS_MATERIALIZED, "Order created"),
+        (STATUS_PAID_REVIEW, "Paid — needs fulfilment review"),
+        (STATUS_EXPIRED, "Expired"),
+        (STATUS_CANCELLED, "Cancelled"),
+    ]
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    source = models.CharField(max_length=12, choices=SOURCE_CHOICES, default=SOURCE_API)
+    external_order_id = models.CharField(max_length=120, blank=True, default="")
+    idempotency_key = models.CharField(max_length=120)
+    ordering_mode = models.CharField(max_length=12, choices=CommerceIntake.MODE_CHOICES)
+    sales_channel = models.CharField(max_length=20, choices=CommerceIntake.CHANNEL_CHOICES)
+    customer_name = models.CharField(max_length=160)
+    customer_phone = models.CharField(max_length=40, blank=True, default="")
+    customer_email = models.EmailField(blank=True, default="")
+    customer_address = models.TextField(blank=True, default="")
+    service_mode = models.CharField(max_length=20, blank=True, default="")
+    table_reference = models.CharField(max_length=40, blank=True, default="")
+    currency = models.CharField(max_length=3, default="NGN")
+    amount = models.DecimalField(max_digits=16, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))])
+    status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_AWAITING_PAYMENT)
+    reservation_expires_at = models.DateTimeField(null=True, blank=True)
+    reservation_released_at = models.DateTimeField(null=True, blank=True)
+    paid_at = models.DateTimeField(null=True, blank=True)
+    materialized_intake = models.OneToOneField(
+        CommerceIntake, null=True, blank=True, on_delete=models.PROTECT, related_name="checkout_session"
+    )
+    materialization_error = models.CharField(max_length=500, blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["business", "status", "reservation_expires_at"], name="commerce_checkout_res_idx")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["business", "source", "idempotency_key"],
+                name="unique_checkout_idempotency_key",
+            ),
+            models.UniqueConstraint(
+                fields=["business", "source", "external_order_id"],
+                condition=~models.Q(external_order_id=""),
+                name="unique_checkout_external_order",
+            ),
+        ]
+
+    @property
+    def reservation_active(self):
+        if self.reservation_released_at:
+            return False
+        if self.status == self.STATUS_MATERIALIZED:
+            return True
+        return bool(
+            self.status == self.STATUS_AWAITING_PAYMENT
+            and self.reservation_expires_at
+            and self.reservation_expires_at > timezone.now()
+        )
+
+
+class CommerceCheckoutItem(models.Model):
+    checkout = models.ForeignKey(CommerceCheckoutSession, on_delete=models.CASCADE, related_name="items")
+    storefront_product = models.ForeignKey(StorefrontProduct, on_delete=models.PROTECT)
+    finished_good = models.ForeignKey("inventory.FinishedGood", on_delete=models.PROTECT)
+    requested_quantity = models.DecimalField(max_digits=14, decimal_places=2)
+    payable_quantity = models.DecimalField(max_digits=14, decimal_places=2)
+    reserved_stock_quantity = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    production_quantity = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    unit_price = models.DecimalField(max_digits=14, decimal_places=2)
+
+    class Meta:
+        indexes = [models.Index(fields=["finished_good", "reserved_stock_quantity"], name="commerce_checkout_good_idx")]
+
+    @property
+    def line_total(self):
+        return self.payable_quantity * self.unit_price
+
+
 class CommercePaymentConfiguration(BusinessOwnedModel):
     """Tenant-owned payment credentials and settlement destinations.
 
@@ -314,7 +437,10 @@ class CommercePayment(BusinessOwnedModel):
     }
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    intake = models.ForeignKey(CommerceIntake, on_delete=models.PROTECT, related_name="payments")
+    intake = models.ForeignKey(CommerceIntake, null=True, blank=True, on_delete=models.PROTECT, related_name="payments")
+    checkout = models.ForeignKey(
+        CommerceCheckoutSession, null=True, blank=True, on_delete=models.PROTECT, related_name="payments"
+    )
     method = models.CharField(max_length=20, choices=METHOD_CHOICES)
     status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_PENDING)
     amount = models.DecimalField(max_digits=16, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))])
@@ -341,7 +467,20 @@ class CommercePayment(BusinessOwnedModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["business", "intake", "idempotency_key"],
+                condition=models.Q(intake__isnull=False),
                 name="unique_commerce_payment_idempotency",
+            ),
+            models.UniqueConstraint(
+                fields=["business", "checkout", "idempotency_key"],
+                condition=models.Q(checkout__isnull=False),
+                name="unique_checkout_payment_idempotency",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(intake__isnull=False, checkout__isnull=True)
+                    | models.Q(intake__isnull=True, checkout__isnull=False)
+                ),
+                name="commerce_payment_has_one_target",
             ),
         ]
 

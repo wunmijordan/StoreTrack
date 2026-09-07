@@ -118,3 +118,5 @@ Founder lifetime access applies the selected plan's exact module matrix with `Bu
 ## Billing page presentation
 
 The tenant payment screen lists every service/business profile covered by the subscription, distinguishing the primary profile from discounted additional-service profiles. Monthly duration selections update the displayed amount immediately in the browser, while the server-side `payment_amount()` function remains authoritative when creating the Paystack/Monnify payment request. Plan and payment amounts are rendered with thousands separators and the application's IBM Plex Mono numeric style.
+
+The plan currently providing active access is visibly marked on its card. Its renewal payment remains locked until the final seven days before expiry, including during a trial; a founder lifetime grant stays permanently non-payable on its granted plan. Other plans remain selectable, but changing away from any active trial, paid plan or founder grant requires an explicit warning acknowledgement. StoreTrack enforces these rules server-side as well as in the browser, and does not change entitlements until a provider verifies payment.

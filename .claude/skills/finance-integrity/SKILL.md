@@ -44,3 +44,4 @@ Finance tables and analytics.
 - A browser callback or redirect is never sufficient proof of payment; use provider verification and keep `mark_payment_paid()` idempotent.
 - Webhook signature validation precedes provider verification. The entitlement update happens only after authoritative amount/status verification.
 - Yearly billing applies the founder-configured annual discount to the 12-month subscription total, including additional-service pricing.
+- Customer commerce checkout payments may exist before any `CommerceIntake`; verified receipts remain financial truth even if intake materialization needs recovery. Only full verified settlement can create the intake.

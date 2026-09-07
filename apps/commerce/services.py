@@ -104,8 +104,6 @@ def create_intake(*, business, source, ordering_mode=None, sales_channel=None, c
             raise ValidationError("One of the selected products is not available for this storefront.")
         if not _channel_allowed(product, sales_channel):
             raise ValidationError(f"{product.display_name} is not available through the selected order mode.")
-        if ordering_mode == CommerceIntake.MODE_PREORDER and not product.allow_preorder:
-            raise ValidationError(f"{product.display_name} is not available for made-to-order production.")
         minimum = _channel_minimum(product, sales_channel)
         if sales_channel == CommerceIntake.CHANNEL_DISTRIBUTION and qty < minimum:
             labels = vertical_config(business)["commerce_channels"]
@@ -158,7 +156,9 @@ def _make_physical_sale(intake, quantities, *, user=None):
         if qty <= 0: continue
         good = item.finished_good
         locked = type(good).raw_objects.select_for_update().get(pk=good.pk, business=intake.business)
-        available = Decimal(locked.physical_saleable_stock or 0)
+        from .checkout_services import available_physical_stock
+        checkout = getattr(intake, "checkout_session", None)
+        available = available_physical_stock(locked, exclude_checkout=checkout)
         if qty > available:
             raise ValidationError(f"{good.name} stock changed; only {available:.2f} is now available.")
         upb = good.units_per_batch or Decimal("1")
@@ -187,10 +187,17 @@ def accept_intake(intake, *, user=None):
         intake.status = CommerceIntake.STATUS_ACCEPTED
         intake.save(update_fields=["accepted_order", "status", "updated_at"])
         from core.services import audit
+        from .checkout_services import release_checkout_reservation_for_intake
+        release_checkout_reservation_for_intake(intake)
         audit(intake.business, user, "commerce_accept", intake, f"{intake.public_number} accepted as Pre-order", {"order_id": order.pk})
         return intake
 
-    availability = [(item, min(item.requested_quantity, Decimal(item.finished_good.physical_saleable_stock or 0))) for item in items]
+    from .checkout_services import available_physical_stock
+    checkout = getattr(intake, "checkout_session", None)
+    availability = [
+        (item, min(item.requested_quantity, available_physical_stock(item.finished_good, exclude_checkout=checkout)))
+        for item in items
+    ]
     shortages = [(item, item.requested_quantity - available) for item, available in availability if item.requested_quantity > available]
     policy = settings.insufficient_stock_policy
     if shortages and policy == CommerceSettings.POLICY_REJECT:
@@ -232,6 +239,8 @@ def accept_intake(intake, *, user=None):
         from .payment_services import sync_payment_receipts_to_sales
         sync_payment_receipts_to_sales(intake)
     from core.services import audit
+    from .checkout_services import release_checkout_reservation_for_intake
+    release_checkout_reservation_for_intake(intake)
     audit(intake.business, user, "commerce_accept", intake, f"{intake.public_number} processed from sellable stock", {"sale_id": intake.accepted_sale_id, "split_order_id": intake.split_order_id, "policy": policy})
     return intake
 
@@ -244,7 +253,7 @@ def switch_intake_to_preorder(intake, *, user=None):
     if not intake.business.uses_production:
         raise ValidationError("Pre-order production is not available for this service profile.")
     for item in intake.items.all():
-        if not item.storefront_product.allow_preorder:
+        if not item.storefront_product.allow_online_order:
             raise ValidationError(f"{item.finished_good.name} does not allow Pre-order.")
         item.unit_price = item.finished_good.selling_price_for("online")
         item.save(update_fields=["unit_price"])

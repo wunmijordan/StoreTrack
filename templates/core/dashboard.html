@@ -3,7 +3,7 @@
 {% block content %}
 <style>
   [x-cloak] { display: none !important; }
-  .dashboard-surface { border: 1px solid #E7DFCC; background: rgba(255,255,255,.9); box-shadow: 0 12px 36px rgba(77,28,37,.06); }
+  .dashboard-surface { border: 1px solid #E7DFCC; background: rgba(255,255,255,.9); box-shadow: var(--st-card-shadow); }
   .dashboard-kpi { transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease; }
   .dashboard-kpi:hover { transform: translateY(-2px); border-color: #D9CFB4; box-shadow: 0 12px 28px rgba(77,28,37,.08); }
   @media (prefers-reduced-motion: reduce) { .dashboard-kpi { transition: none; } .dashboard-kpi:hover { transform: none; } }
@@ -68,7 +68,7 @@
 
   <!-- Search detail modal -->
   <div x-show="detail" x-cloak x-transition.opacity class="fixed inset-0 z-[60] bg-stone-950/55 backdrop-blur-sm p-0 sm:p-4 md:p-6 flex items-end sm:items-center justify-center" @keydown.escape.window="closeDetail()">
-    <div @click.away="closeDetail()" class="bg-[#FAF6EF] border border-stone-200 rounded-t-3xl sm:rounded-3xl shadow-2xl w-full max-w-5xl max-h-[94dvh] overflow-hidden flex flex-col">
+    <div @click.away="closeDetail()" role="dialog" aria-modal="true" class="st-modal-surface bg-[#FAF6EF] border border-stone-200 rounded-t-3xl sm:rounded-3xl shadow-2xl w-full max-w-5xl max-h-[94dvh] overflow-hidden flex flex-col">
       <div class="px-4 py-4 md:px-6 border-b border-[#E7DFCC] bg-white flex items-start justify-between gap-4">
         <div class="min-w-0">
           <div class="flex flex-wrap items-center gap-2 mb-1">
@@ -317,7 +317,7 @@
       <!-- Modal Window Container -->
       <div 
         @click.away="openModal = null"
-        class="bg-white border border-stone-200 rounded-xl shadow-xl max-w-md w-full overflow-hidden flex flex-col max-h-[80vh]">
+        role="dialog" aria-modal="true" class="st-modal-surface bg-white border border-stone-200 rounded-xl shadow-xl max-w-md w-full overflow-hidden flex flex-col max-h-[80vh]">
         
         <!-- Modal Header -->
         <div class="px-5 py-4 border-b border-stone-100 flex items-center justify-between bg-stone-50">
@@ -634,7 +634,7 @@
 
         <div
           @click.away="channelModal = null"
-          class="bg-white border border-stone-200 rounded-xl shadow-xl max-w-lg w-full overflow-hidden flex flex-col max-h-[80vh]"
+          role="dialog" aria-modal="true" class="st-modal-surface bg-white border border-stone-200 rounded-xl shadow-xl max-w-lg w-full overflow-hidden flex flex-col max-h-[80vh]"
         >
 
           <!-- Header -->
@@ -961,7 +961,7 @@
      class="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-stone-950/55 backdrop-blur-sm"
      @keydown.escape.window="scope = null"
      @click.self="scope = null">
-  <div class="w-full max-w-5xl max-h-[90vh] overflow-y-auto bg-[#FFFDF8] rounded-2xl border border-[#E7DFCC] shadow-2xl">
+  <div role="dialog" aria-modal="true" class="st-modal-surface w-full max-w-5xl max-h-[90vh] overflow-y-auto bg-[#FFFDF8] rounded-2xl border border-[#E7DFCC] shadow-2xl">
     <div class="px-5 py-4 border-b border-[#E7DFCC] bg-[#F5EFE0] flex items-center justify-between sticky top-0 z-10">
       <div>
         <div class="text-[10px] uppercase tracking-[0.18em] font-bold text-[#8f172d]">Financial scope</div>

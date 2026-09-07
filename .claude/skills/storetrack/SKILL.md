@@ -271,3 +271,9 @@ After editing:
 - During trial, plan UI must explicitly say Trial and show the trial end date.
 - Commerce surfaces (hosted storefront, Order Now, headless API, connector) have independent tenant toggles beneath the BusinessModuleAccess Commerce ceiling.
 - Headless API is tenant-owned website pull/push integration; connector is a signed event-push boundary for external platforms/adapters. Both must create Commerce Intake rather than write Sales/Production directly.
+## Commerce checkout/payment boundary
+
+For new website/headless integrations, unpaid baskets live in `CommerceCheckoutSession`, not `CommerceIntake`. StoreTrack validates tenant scope, publication, channel pricing, quantity rules and availability before payment and snapshots the payable basket. Physical Store checkout quantities are temporarily reserved and direct/POS sales must respect those reservations.
+
+Only a fully verified `CommercePayment` may atomically materialize exactly one `CommerceIntake`. Paystack/Monnify browser redirects never confirm funds; provider webhooks are signature checked and independently verified server-side. Bank transfer claims and cash remain pending until authorized staff confirmation. Late/expired paid checkouts become `paid_review` and are recoverable without a second charge. Legacy `/orders` remains explicitly compatible during migration.
+

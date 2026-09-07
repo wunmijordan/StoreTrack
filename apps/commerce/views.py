@@ -16,8 +16,9 @@ from core.models import Business
 from core.verticals import vertical_config
 from inventory.models import FinishedGood
 from .forms import CommerceIntegrationForm, CommerceSettingsForm, StorefrontProductForm
-from .models import CommerceIntegration, CommerceIntake, CommerceSettings, StorefrontProduct
+from .models import CommerceCheckoutSession, CommerceIntegration, CommerceIntake, CommerceSettings, StorefrontProduct
 from .services import ChannelMinimumError, accept_intake, create_intake, switch_intake_to_preorder
+from .checkout_services import CheckoutAvailabilityError, available_physical_stock, create_checkout, serialize_checkout
 
 
 def _settings_for(business):
@@ -40,8 +41,9 @@ def commerce_dashboard(request):
         )
     products = FinishedGood.objects.select_related("storefront_product").order_by("name")
     intakes = CommerceIntake.objects.prefetch_related("items__finished_good", "payments")[:50]
+    checkouts = CommerceCheckoutSession.objects.select_related("materialized_intake").prefetch_related("payments")[:50]
     integrations = CommerceIntegration.objects.all().order_by("name")
-    return render(request, "commerce/dashboard.html", {"commerce_settings": settings, "products": products, "intakes": intakes, "integrations": integrations if is_business_admin(request.user, request.business) else [], "can_manage_commerce": is_business_admin(request.user, request.business)})
+    return render(request, "commerce/dashboard.html", {"commerce_settings": settings, "products": products, "intakes": intakes, "checkouts": checkouts, "integrations": integrations if is_business_admin(request.user, request.business) else [], "can_manage_commerce": is_business_admin(request.user, request.business)})
 
 
 @login_required
@@ -61,7 +63,7 @@ def storefront_product_edit(request, good_id):
     if not is_business_admin(request.user, request.business): return render(request, "403.html", status=403)
     good = get_object_or_404(FinishedGood, pk=good_id)
     obj, _ = StorefrontProduct.objects.get_or_create(finished_good=good, defaults={"business": request.business, "created_by": request.user, "allow_preorder": request.business.uses_production})
-    form = StorefrontProductForm(request.POST or None, instance=obj, business=request.business)
+    form = StorefrontProductForm(request.POST or None, request.FILES or None, instance=obj, business=request.business)
     if request.method == "POST" and form.is_valid():
         saved=form.save(commit=False); saved.business=request.business; saved.save()
         messages.success(request, f"Storefront settings saved for {good.name}.")
@@ -158,8 +160,8 @@ def api_products(request,business_slug):
         order_modes=[]
         mode_config = [
             ("physical_store", p.allow_stock_order, p.min_quantity),
-            ("online", p.allow_online_order and (not business.uses_production or p.allow_preorder), p.preorder_min_quantity),
-            ("distribution", p.allow_distribution_order and (not business.uses_production or p.allow_preorder), p.distribution_min_quantity),
+            ("online", p.allow_online_order, p.preorder_min_quantity),
+            ("distribution", p.allow_distribution_order, p.distribution_min_quantity),
         ]
         for code, enabled, minimum in mode_config:
             if not enabled:
@@ -172,14 +174,85 @@ def api_products(request,business_slug):
                 "min_quantity": str(minimum),
                 "max_quantity": str(p.max_quantity) if p.max_quantity is not None else None,
                 "fulfilment_mode": fulfilment,
-                "available_now": str(p.available_now) if fulfilment == "stock" else None,
+                "available_now": str(available_physical_stock(p.finished_good)) if fulfilment == "stock" else None,
                 "lead_time": p.preorder_lead_time if fulfilment == "preorder" else "",
             })
         legacy_modes=[]
         if p.allow_stock_order:legacy_modes.append("order")
-        if p.allow_preorder and business.uses_production:legacy_modes.append("preorder")
-        rows.append({"id":str(p.public_id),"name":p.display_name,"description":p.description,"image_url":p.image_url,"unit":p.finished_good.unit,"available_now":str(p.available_now),"order_modes":order_modes,"ordering_modes":legacy_modes,"min_quantity":str(p.min_quantity),"preorder_min_quantity":str(p.preorder_min_quantity),"distribution_min_quantity":str(p.distribution_min_quantity),"max_quantity":str(p.max_quantity) if p.max_quantity is not None else None,"preorder_lead_time":p.preorder_lead_time,"stock_price":str(p.finished_good.selling_price_for("physical_store")),"preorder_price":str(p.finished_good.selling_price_for("online")),"distribution_price":str(p.finished_good.selling_price_for("distribution"))})
+        if business.uses_production and (p.allow_online_order or p.allow_distribution_order):legacy_modes.append("preorder")
+        image_url = p.public_image_url
+        if image_url and image_url.startswith("/"):
+            image_url = request.build_absolute_uri(image_url)
+        rows.append({"id":str(p.public_id),"name":p.display_name,"description":p.description,"image_url":image_url,"unit":p.finished_good.unit,"available_now":str(available_physical_stock(p.finished_good)),"order_modes":order_modes,"ordering_modes":legacy_modes,"min_quantity":str(p.min_quantity),"preorder_min_quantity":str(p.preorder_min_quantity),"distribution_min_quantity":str(p.distribution_min_quantity),"max_quantity":str(p.max_quantity) if p.max_quantity is not None else None,"preorder_lead_time":p.preorder_lead_time,"stock_price":str(p.finished_good.selling_price_for("physical_store")),"preorder_price":str(p.finished_good.selling_price_for("online")),"distribution_price":str(p.finished_good.selling_price_for("distribution"))})
     return JsonResponse({"business":business.name,"service":business.get_vertical_display(),"products":rows})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def api_checkouts(request, business_slug):
+    business, ok = _api_business_and_auth(request, business_slug, write=True)
+    if not ok:
+        return JsonResponse({"detail": "Invalid or disabled commerce API credential."}, status=403)
+    try:
+        data = json.loads(request.body or b"{}")
+        products = {
+            str(p.public_id): p
+            for p in StorefrontProduct.raw_objects.filter(
+                business=business, published=True
+            ).select_related("finished_good__business").prefetch_related("finished_good__channel_prices")
+        }
+        items = []
+        for row in data.get("items") or []:
+            product = products.get(str(row.get("product_id")))
+            if not product:
+                raise ValidationError("Unknown or unpublished product.")
+            items.append({"storefront_product": product, "quantity": row.get("quantity")})
+        checkout, created = create_checkout(
+            business=business,
+            source=CommerceIntake.SOURCE_API,
+            order_mode=data.get("order_mode") or data.get("sales_channel"),
+            ordering_mode=data.get("ordering_mode"),
+            external_order_id=str(data.get("external_order_id") or ""),
+            customer=data.get("customer") or {},
+            service_mode=str(data.get("service_mode") or ""),
+            table_reference=str(data.get("table_reference") or ""),
+            items=items,
+            idempotency_key=request.headers.get("Idempotency-Key", ""),
+        )
+        payload = serialize_checkout(checkout)
+        payload["created"] = created
+        payload["payment_methods_url"] = f"/api/v1/storefronts/{business.slug}/payment-methods"
+        payload["payment_url"] = f"/api/v1/storefronts/{business.slug}/checkouts/{checkout.public_id}/payments"
+        return JsonResponse(payload, status=201 if created else 200)
+    except ChannelMinimumError as exc:
+        return JsonResponse({
+            "detail": "; ".join(exc.messages),
+            "code": "minimum_not_met",
+            "suggested_order_modes": exc.alternatives,
+        }, status=400)
+    except CheckoutAvailabilityError as exc:
+        return JsonResponse({
+            "detail": "; ".join(exc.messages),
+            "code": exc.code,
+            "suggested_order_modes": exc.suggested_order_modes,
+            "items": exc.details,
+        }, status=409)
+    except (json.JSONDecodeError, ValidationError, InvalidOperation, TypeError, ValueError) as exc:
+        detail = "; ".join(exc.messages) if isinstance(exc, ValidationError) else str(exc)
+        return JsonResponse({"detail": detail}, status=400)
+
+
+@require_http_methods(["GET"])
+def api_checkout_detail(request, business_slug, checkout_id):
+    business, ok = _api_business_and_auth(request, business_slug, write=True)
+    if not ok:
+        return JsonResponse({"detail": "Invalid or disabled commerce API credential."}, status=403)
+    checkout = get_object_or_404(
+        CommerceCheckoutSession.raw_objects.prefetch_related("items__storefront_product", "items__finished_good"),
+        business=business,
+        public_id=checkout_id,
+    )
+    return JsonResponse(serialize_checkout(checkout))
 
 
 @csrf_exempt
@@ -198,7 +271,7 @@ def api_orders(request,business_slug):
             if not product: raise ValidationError("Unknown or unpublished product.")
             items.append({"storefront_product":product,"quantity":row.get("quantity")})
         intake,created=create_intake(business=business,source=CommerceIntake.SOURCE_API,sales_channel=data.get("order_mode") or data.get("sales_channel"),ordering_mode=data.get("ordering_mode"),customer=data.get("customer") or {},items=items,idempotency_key=idem,external_order_id=str(data.get("external_order_id") or ""),service_mode=str(data.get("service_mode") or ""),table_reference=str(data.get("table_reference") or ""))
-        return JsonResponse({"id":str(intake.public_id),"number":intake.public_number,"status":intake.status,"created":created,"order_mode":intake.sales_channel,"fulfilment_mode":intake.ordering_mode,"total":str(intake.total)},status=201 if created else 200)
+        return JsonResponse({"id":str(intake.public_id),"number":intake.public_number,"status":intake.status,"created":created,"order_mode":intake.sales_channel,"fulfilment_mode":intake.ordering_mode,"total":str(intake.total),"compatibility_mode":"legacy_intake_before_payment","migration_endpoint":f"/api/v1/storefronts/{business.slug}/checkouts"},status=201 if created else 200)
     except ChannelMinimumError as exc:
         return JsonResponse({"detail":"; ".join(exc.messages),"code":"minimum_not_met","suggested_order_modes":exc.alternatives},status=400)
     except (json.JSONDecodeError,ValidationError,InvalidOperation,TypeError,ValueError) as exc:
@@ -294,7 +367,7 @@ def connector_orders(request, business_slug, integration_id):
             idempotency_key=str(data.get("idempotency_key") or data.get("external_order_id") or ""),
             service_mode=str(data.get("service_mode") or ""), table_reference=str(data.get("table_reference") or ""),
         )
-        return JsonResponse({"id": str(intake.public_id), "number": intake.public_number, "status": intake.status, "created": created, "order_mode": intake.sales_channel, "fulfilment_mode": intake.ordering_mode, "total": str(intake.total)}, status=201 if created else 200)
+        return JsonResponse({"id": str(intake.public_id), "number": intake.public_number, "status": intake.status, "created": created, "order_mode": intake.sales_channel, "fulfilment_mode": intake.ordering_mode, "total": str(intake.total), "compatibility_mode": "legacy_connector_intake_before_payment"}, status=201 if created else 200)
     except ChannelMinimumError as exc:
         return JsonResponse({"detail": "; ".join(exc.messages), "code": "minimum_not_met", "suggested_order_modes": exc.alternatives}, status=400)
     except (json.JSONDecodeError, ValidationError, InvalidOperation, TypeError, ValueError) as exc:

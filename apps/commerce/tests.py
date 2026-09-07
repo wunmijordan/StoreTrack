@@ -1,7 +1,11 @@
 from decimal import Decimal
+import tempfile
+from django.core.files.base import ContentFile
+from django.test import override_settings
 from django.test import TestCase
 from core.models import Business
 from inventory.models import FinishedGood, FinishedGoodChannelPrice
+from .forms import StorefrontProductForm
 from .models import CommerceIntake, CommerceSettings, StorefrontProduct
 from .services import accept_intake, create_intake
 
@@ -79,6 +83,23 @@ class ProductionCommerceChannelTests(TestCase):
         self.assertEqual(intake.accepted_order.order_type, "distribution")
         self.assertEqual(intake.accepted_order.items.get().price, Decimal("80"))
 
+    def test_channel_toggle_alone_enables_production_preorder_route(self):
+        business = Business.objects.create(name="Channel Manufacturer", slug="channel-manufacturer")
+        good = FinishedGood.raw_objects.create(
+            business=business, name="Made Product", unit="unit", units_per_batch=1,
+            stock=0, reorder_level=0, selling_price=Decimal("100"),
+        )
+        product = StorefrontProduct.raw_objects.create(
+            business=business, finished_good=good, published=True,
+            allow_online_order=True, allow_preorder=False,
+        )
+        intake, _ = create_intake(
+            business=business, source=CommerceIntake.SOURCE_API, sales_channel="online",
+            customer={"name": "Online Customer"},
+            items=[{"storefront_product": product, "quantity": "1"}],
+        )
+        self.assertEqual(intake.ordering_mode, CommerceIntake.MODE_PREORDER)
+
 
 class CommerceApiProductTests(TestCase):
     def setUp(self):
@@ -102,3 +123,20 @@ class CommerceApiProductTests(TestCase):
             ["physical_store", "online", "distribution"],
         )
         self.assertEqual(row["order_modes"][2]["label"], "Catering / Bulk Order")
+
+    def test_product_api_exposes_uploaded_image_as_absolute_url(self):
+        # Minimal valid 1x1 transparent GIF.
+        with tempfile.TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root, MEDIA_URL="/media/"):
+            self.product.image.save(
+                "catalog.gif",
+                ContentFile(b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"),
+                save=True,
+            )
+            response = self.client.get(f"/api/v1/storefronts/{self.business.slug}/products")
+            self.assertTrue(response.json()["products"][0]["image_url"].startswith("http://testserver/media/commerce/products/"))
+
+    def test_publish_form_uses_upload_and_has_no_redundant_preorder_toggle(self):
+        form = StorefrontProductForm(instance=self.product, business=self.business)
+        self.assertIn("image", form.fields)
+        self.assertNotIn("image_url", form.fields)
+        self.assertNotIn("allow_preorder", form.fields)

@@ -101,7 +101,7 @@
 <div class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><div class="font-semibold">This completed order has been reversed.</div><div class="text-xs mt-1">Reason: {{ order.reversed_reason }}{% if order.reversed_by %} · By {{ order.reversed_by }}{% endif %}{% if order.reversed_at %} · {{ order.reversed_at|date:"d M Y H:i" }}{% endif %}</div><div class="text-xs mt-2 text-amber-800">The reversed record remains historical. Use <b>Edit as New Order</b> to copy its customer, products, quantities, production plan and discounts into a fresh Pending order, where all current offcut and Shared Production Run capabilities are available.</div></div>
 {% endif %}
 
-<div class="flex gap-2">
+<div class="flex w-full max-w-4xl flex-wrap items-center gap-2">
   <a href="{% url 'order_invoice' order.pk %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] hover:bg-[#E7DFCC] border border-[#D9CFB4]">Download PDF</a>
   {% if order.status == 'pending' %}
   <a href="{% url 'order_edit' order.pk %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#F0EAD9] text-[#8f172d] hover:bg-[#E7DFCC] border border-[#D9CFB4]">Edit</a>
@@ -120,8 +120,8 @@
   <a href="{% url 'order_complete' order.pk %}" class="px-3.5 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#16332A]">Complete Production</a>
   {% endif %}
   {% if order.status == 'completed' %}
-  <form method="post" action="{% url 'order_reverse' order.pk %}" class="flex gap-2 items-center" onsubmit="return confirm('Reverse this completed order? This will restore raw materials and reverse eligible stock/cash effects.');">{% csrf_token %}
-    <input name="reason" required placeholder="Reason for reversal" class="rounded-md border border-[#D9CFB4] bg-white px-2.5 py-1.5 text-sm">
+  <form method="post" action="{% url 'order_reverse' order.pk %}" class="flex min-w-0 w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center" onsubmit="return confirm('Reverse this completed order? This will restore raw materials and reverse eligible stock/cash effects.');">{% csrf_token %}
+    <input name="reason" required placeholder="Reason for reversal" class="min-w-0 w-full rounded-md border border-[#D9CFB4] bg-white px-2.5 py-1.5 text-sm sm:w-auto">
     <button type="submit" class="px-3.5 py-2 text-sm rounded-md font-medium bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200">Reverse Order</button>
   </form>
   {% endif %}

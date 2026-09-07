@@ -137,7 +137,14 @@ def sale_form(request):
                     continue
                 upb = good.units_per_batch or Decimal("1")
                 total_units = (f.cleaned_data.get("batch_qty") or Decimal("0")) * upb + (f.cleaned_data.get("piece_qty") or Decimal("0"))
-                available = good.physical_saleable_stock
+                # Customer checkout reservations are a temporary hard hold.
+                # Direct/POS sales must not consume those units while a website
+                # customer is paying, otherwise a fully paid checkout could
+                # become unfulfillable before intake materialization.
+                from commerce.checkout_services import available_physical_stock
+                physical_available = good.physical_saleable_stock
+                available = available_physical_stock(good)
+                reserved_for_checkout = max(Decimal("0"), physical_available - available)
                 if total_units > available:
                     shortages.append({
                         "name": good.name,
@@ -145,10 +152,11 @@ def sale_form(request):
                         "needed": total_units,
                         "have": available,
                         "short": total_units - available,
-                        # The ordinary force option preserves the existing
-                        # configured-shelf workflow. It must never expand the
-                        # narrow allowance for a distribution-only product.
-                        "restricted": not good.is_physical_store_configured,
+                        "reserved_for_checkout": reserved_for_checkout,
+                        # Reserved website checkout stock is never force-sellable.
+                        # The ordinary force option otherwise preserves the
+                        # existing configured-shelf workflow.
+                        "restricted": (not good.is_physical_store_configured) or reserved_for_checkout > 0,
                     })
             restricted_shortage = any(row.get("restricted") for row in shortages)
             if invalid_products or restricted_shortage or (shortages and not force):

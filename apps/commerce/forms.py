@@ -15,7 +15,7 @@ CLS = "w-full rounded-md border border-[#D9CFB4] bg-white px-2.5 py-1.5 text-sm 
 class CommerceSettingsForm(forms.ModelForm):
     class Meta:
         model = CommerceSettings
-        fields = ["enabled", "hosted_storefront_enabled", "order_now_link_enabled", "api_enabled", "connector_enabled", "insufficient_stock_policy", "public_note"]
+        fields = ["enabled", "hosted_storefront_enabled", "order_now_link_enabled", "api_enabled", "connector_enabled", "insufficient_stock_policy", "checkout_reservation_minutes", "public_note"]
         widgets = {"public_note": forms.Textarea(attrs={"rows": 2})}
     def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
@@ -35,23 +35,32 @@ class CommerceSettingsForm(forms.ModelForm):
 class StorefrontProductForm(forms.ModelForm):
     class Meta:
         model = StorefrontProduct
-        fields = ["published", "public_name", "description", "image_url", "allow_stock_order", "allow_online_order", "allow_distribution_order", "allow_preorder", "min_quantity", "preorder_min_quantity", "distribution_min_quantity", "max_quantity", "preorder_lead_time"]
-        widgets = {"description": forms.Textarea(attrs={"rows": 3})}
+        fields = ["published", "public_name", "description", "image", "allow_stock_order", "allow_online_order", "allow_distribution_order", "min_quantity", "preorder_min_quantity", "distribution_min_quantity", "max_quantity", "preorder_lead_time"]
+        widgets = {
+            "description": forms.Textarea(attrs={"rows": 3}),
+            "image": forms.ClearableFileInput(attrs={"accept": "image/avif,image/gif,image/jpeg,image/png,image/webp"}),
+        }
     def __init__(self,*args,business=None,**kwargs):
         super().__init__(*args,**kwargs)
         self.fields["allow_stock_order"].label = "Offer Physical Store / direct mode"
         self.fields["allow_online_order"].label = "Offer Online mode"
         self.fields["allow_distribution_order"].label = "Offer Distribution / bulk mode"
-        self.fields["allow_preorder"].label = "Allow made-to-order production"
+        self.fields["image"].label = "Storefront product image"
+        self.fields["image"].help_text = "Upload AVIF, GIF, JPEG, PNG or WebP (maximum 5 MB). The public API exposes its absolute URL."
         self.fields["min_quantity"].label = "Physical Store / direct minimum"
         self.fields["preorder_min_quantity"].label = "Online minimum"
         self.fields["distribution_min_quantity"].label = "Distribution / bulk minimum"
         if business and not business.uses_production:
-            self.fields.pop("allow_preorder")
             self.fields.pop("preorder_lead_time")
         for f in self.fields.values():
             if isinstance(f.widget, forms.CheckboxInput): f.widget.attrs["class"]="h-4 w-4 accent-[#8f172d]"
             else: f.widget.attrs["class"] = CLS
+
+    def clean_image(self):
+        image = self.cleaned_data.get("image")
+        if image and getattr(image, "size", 0) > 5 * 1024 * 1024:
+            raise forms.ValidationError("Upload an image no larger than 5 MB.")
+        return image
 
 
 class CommerceIntegrationForm(forms.ModelForm):
@@ -115,15 +124,24 @@ class CommercePaymentConfigurationForm(forms.ModelForm):
             for name in self.SECRET_FIELDS:
                 if not cleaned.get(name):
                     cleaned[name] = getattr(self.instance, name)
-        if cleaned.get("paystack_enabled") and not cleaned.get("paystack_secret_key"):
-            self.add_error("paystack_secret_key", "Add the Paystack secret key before enabling Paystack.")
+        if cleaned.get("paystack_enabled"):
+            if not cleaned.get("paystack_secret_key"):
+                self.add_error("paystack_secret_key", "Add the Paystack secret key before enabling Paystack.")
+            if not cleaned.get("paystack_account"):
+                self.add_error("paystack_account", "Choose the StoreTrack settlement account before enabling Paystack.")
         monnify_required = ("monnify_api_key", "monnify_secret_key", "monnify_contract_code")
         if cleaned.get("monnify_enabled"):
             for name in monnify_required:
                 if not cleaned.get(name):
                     self.add_error(name, "This credential is required when Monnify is enabled.")
+            if not cleaned.get("monnify_account"):
+                self.add_error("monnify_account", "Choose the StoreTrack settlement account before enabling Monnify.")
         if cleaned.get("bank_transfer_enabled"):
             for name in ("bank_name", "bank_account_name", "bank_account_number"):
                 if not cleaned.get(name):
                     self.add_error(name, "This bank detail is required when bank transfer is enabled.")
+            if not cleaned.get("bank_cash_account"):
+                self.add_error("bank_cash_account", "Choose the StoreTrack bank account before enabling bank transfer.")
+        if cleaned.get("cash_enabled") and not cleaned.get("cash_account"):
+            self.add_error("cash_account", "Choose the StoreTrack cash account before enabling cash.")
         return cleaned

@@ -221,7 +221,7 @@ def subscription_plans(request):
     if not is_business_admin(request.user, request.business):
         return render(request, "403.html", status=403)
     from .models import BusinessSubscription, SubscriptionPlan
-    from .subscription_services import ensure_default_plans
+    from .subscription_services import ensure_default_plans, payment_is_locked
     ensure_default_plans()
     service = getattr(request.business, "subscription_service", None)
     subscription = service.subscription if service else BusinessSubscription.objects.filter(primary_business=request.business).select_related("plan").first()
@@ -229,14 +229,34 @@ def subscription_plans(request):
         # Legacy live businesses are not silently downgraded; they may opt into a plan from this page.
         subscription = None
     plans = SubscriptionPlan.objects.filter(active=True).prefetch_related("module_entitlements").order_by("monthly_price", "id")
-    return render(request, "accounts/subscription_plans.html", {"subscription": subscription, "plans": plans})
+    plan_cards = [
+        {
+            "plan": plan,
+            "is_current": bool(subscription and subscription.is_effectively_active and subscription.plan_id == plan.pk),
+            "payment_locked": payment_is_locked(subscription, plan),
+            "requires_change_warning": bool(
+                subscription and subscription.is_effectively_active and subscription.plan_id != plan.pk
+            ),
+        }
+        for plan in plans
+    ]
+    return render(request, "accounts/subscription_plans.html", {
+        "subscription": subscription,
+        "plan_cards": plan_cards,
+    })
 
 
 @login_required
 def subscription_payment(request, plan_code=None):
     from .models import BusinessSubscription, SubscriptionPayment, SubscriptionPaymentSettings, SubscriptionPlan
     from .payment_gateways import GatewayError, initialize_gateway
-    from .subscription_services import create_payment_request, ensure_default_plans, payment_amount, start_trial_for_business
+    from .subscription_services import (
+        create_payment_request,
+        ensure_default_plans,
+        payment_amount,
+        payment_is_locked,
+        start_trial_for_business,
+    )
     if not is_business_admin(request.user, request.business):
         return render(request, "403.html", status=403)
     plans = ensure_default_plans()
@@ -246,6 +266,10 @@ def subscription_payment(request, plan_code=None):
     if not subscription:
         subscription = start_trial_for_business(request.business, selected or plans[SubscriptionPlan.CODE_STARTER])
     selected = selected or subscription.plan
+    payment_locked = payment_is_locked(subscription, selected)
+    requires_change_warning = bool(
+        subscription.is_effectively_active and subscription.plan_id != selected.pk
+    )
     payment_settings = SubscriptionPaymentSettings.load()
     available_payment_providers = [
         (code, label)
@@ -256,6 +280,15 @@ def subscription_payment(request, plan_code=None):
         if payment_settings.provider_enabled(code)
     ]
     if request.method == "POST":
+        if payment_locked:
+            if subscription.founder_lifetime:
+                messages.info(request, "Your current plan has founder lifetime access; payment is disabled for it.")
+            else:
+                messages.info(request, "Renewal for your current plan opens within 7 days of expiry.")
+            return redirect("subscription_plans")
+        if requires_change_warning and request.POST.get("confirm_plan_change") != "1":
+            messages.warning(request, "Confirm that you understand this payment will change your active plan after verification.")
+            return redirect("subscription_payment_plan", plan_code=selected.code)
         if request.POST.get("action") == "switch_trial" and subscription.status == BusinessSubscription.STATUS_TRIAL and subscription.is_effectively_active:
             from .subscription_services import switch_subscription_plan
             switch_subscription_plan(subscription, selected, keep_expiry=True)
@@ -305,6 +338,8 @@ def subscription_payment(request, plan_code=None):
         "selected_monthly_total": payment_amount(selected, len(service_profiles), 1),
         "selected_yearly_total": payment_amount(selected, len(service_profiles), 12, billing_cycle=SubscriptionPayment.CYCLE_YEARLY),
         "available_payment_providers": available_payment_providers,
+        "payment_locked": payment_locked,
+        "requires_change_warning": requires_change_warning,
     })
 
 

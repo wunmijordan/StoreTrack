@@ -1,5 +1,7 @@
 from django.contrib import admin
 from .models import (
+    CommerceCheckoutItem,
+    CommerceCheckoutSession,
     CommerceGatewayEvent,
     CommerceIntegration,
     CommerceIntake,
@@ -40,6 +42,8 @@ class ImmutablePaymentAdmin(admin.ModelAdmin):
         return False
 
 
+admin.site.register(CommerceCheckoutSession, ImmutablePaymentAdmin)
+admin.site.register(CommerceCheckoutItem, ImmutablePaymentAdmin)
 admin.site.register(CommercePayment, ImmutablePaymentAdmin)
 admin.site.register(CommercePaymentClaim, ImmutablePaymentAdmin)
 admin.site.register(CommercePaymentReceipt, ImmutablePaymentAdmin)

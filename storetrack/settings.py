@@ -156,6 +156,8 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'  # Required for running 'collectstatic' on PythonAnywhere
+MEDIA_URL = os.environ.get("MEDIA_URL", "/media/")
+MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", BASE_DIR / "media"))
 
 # Auth
 LOGIN_URL = 'login'

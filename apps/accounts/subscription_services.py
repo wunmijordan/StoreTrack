@@ -194,8 +194,19 @@ def payment_amount(plan, service_count, months=1, billing_cycle="monthly"):
     return (monthly_total * Decimal(months)).quantize(Decimal("0.01"))
 
 
+def payment_is_locked(subscription, plan):
+    """Prevent premature renewal of the plan already providing active access."""
+    if not subscription or not subscription.is_effectively_active or subscription.plan_id != plan.pk:
+        return False
+    return subscription.founder_lifetime or not subscription.is_expiring_soon
+
+
 @transaction.atomic
 def create_payment_request(subscription, plan, *, months=1, billing_cycle="monthly", provider="manual"):
+    if payment_is_locked(subscription, plan):
+        if subscription.founder_lifetime:
+            raise ValidationError("Your current plan has founder lifetime access and does not require payment.")
+        raise ValidationError("Renewal for your current plan opens within 7 days of its expiry date.")
     if billing_cycle == SubscriptionPayment.CYCLE_YEARLY:
         months = 12
     amount = payment_amount(plan, subscription.services.count(), months, billing_cycle=billing_cycle)

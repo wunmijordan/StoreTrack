@@ -17,6 +17,7 @@ from core.models import Business
 
 from .forms import CommercePaymentConfigurationForm
 from .models import (
+    CommerceCheckoutSession,
     CommerceGatewayEvent,
     CommerceIntegration,
     CommerceIntake,
@@ -31,7 +32,9 @@ from .payment_gateways import (
     paystack_signature_valid,
 )
 from .payment_services import (
+    current_checkout_payment,
     current_payment,
+    eligible_payment_methods,
     initiate_payment,
     payment_configuration,
     process_gateway_event,
@@ -41,7 +44,8 @@ from .payment_services import (
     serialize_payment,
     submit_bank_claim,
 )
-from .views import _commerce_enabled
+from .checkout_services import attempt_materialize_paid_checkout, serialize_checkout
+from .views import _commerce_enabled, _settings_for
 
 
 def _error(exc):
@@ -50,7 +54,7 @@ def _error(exc):
 
 def _headless_context(request, business_slug):
     business = get_object_or_404(Business, slug=business_slug)
-    if not _commerce_enabled(business):
+    if not _commerce_enabled(business) or not _settings_for(business).api_enabled:
         return business, None
     key = request.headers.get("X-StoreTrack-Key", "")
     integration = CommerceIntegration.raw_objects.filter(
@@ -60,6 +64,87 @@ def _headless_context(request, business_slug):
         api_key=key,
     ).first()
     return business, integration
+
+
+@require_http_methods(["GET"])
+def api_payment_methods(request, business_slug):
+    business, integration = _headless_context(request, business_slug)
+    if integration is None:
+        return JsonResponse({"detail": "Invalid or disabled commerce API credential."}, status=403)
+    return JsonResponse({
+        "currency": payment_configuration(business).currency.upper(),
+        "methods": eligible_payment_methods(business),
+    })
+
+
+@csrf_exempt
+@require_POST
+def api_checkout_payment_initiate(request, business_slug, checkout_id):
+    business, integration = _headless_context(request, business_slug)
+    if integration is None:
+        return JsonResponse({"detail": "Invalid or disabled commerce API credential."}, status=403)
+    checkout = get_object_or_404(
+        CommerceCheckoutSession.raw_objects.prefetch_related("items"),
+        business=business, public_id=checkout_id,
+    )
+    try:
+        data = json.loads(request.body or b"{}")
+        payment = initiate_payment(
+            checkout=checkout,
+            method=data.get("method"),
+            idempotency_key=request.headers.get("Idempotency-Key", ""),
+            return_url=data.get("return_url", ""),
+        )
+        payload = serialize_payment(payment)
+        payload["checkout"] = serialize_checkout(checkout)
+        return JsonResponse(payload, status=200)
+    except (json.JSONDecodeError, ValidationError, GatewayError, TypeError, ValueError) as exc:
+        return JsonResponse({"detail": _error(exc)}, status=400)
+
+
+@require_http_methods(["GET"])
+def api_checkout_payment_current(request, business_slug, checkout_id):
+    business, integration = _headless_context(request, business_slug)
+    if integration is None:
+        return JsonResponse({"detail": "Invalid or disabled commerce API credential."}, status=403)
+    checkout = get_object_or_404(
+        CommerceCheckoutSession.raw_objects,
+        business=business, public_id=checkout_id,
+    )
+    payment = current_checkout_payment(checkout)
+    return JsonResponse({
+        "checkout": serialize_checkout(checkout),
+        "payment": serialize_payment(payment) if payment else None,
+    })
+
+
+@csrf_exempt
+@require_POST
+def api_checkout_payment_claim(request, business_slug, checkout_id):
+    business, integration = _headless_context(request, business_slug)
+    if integration is None:
+        return JsonResponse({"detail": "Invalid or disabled commerce API credential."}, status=403)
+    checkout = get_object_or_404(
+        CommerceCheckoutSession.raw_objects,
+        business=business, public_id=checkout_id,
+    )
+    payment = current_checkout_payment(checkout)
+    if payment is None:
+        return JsonResponse({"detail": "No current payment exists for this checkout."}, status=404)
+    try:
+        data = json.loads(request.body or b"{}")
+        claim, created = submit_bank_claim(
+            payment=payment,
+            payer_name=data.get("payer_name"),
+            transfer_reference=data.get("transfer_reference"),
+        )
+        payment.refresh_from_db()
+        payload = serialize_payment(payment)
+        payload["claim_created"] = created
+        payload["checkout"] = serialize_checkout(checkout)
+        return JsonResponse(payload, status=201 if created else 200)
+    except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as exc:
+        return JsonResponse({"detail": _error(exc)}, status=400)
 
 
 @csrf_exempt
@@ -162,7 +247,7 @@ def gateway_webhook(request, business_slug, provider):
         Q(reference=reference) | Q(gateway_reference=reference),
         business=business,
         method=provider,
-    ).select_related("intake").first()
+    ).select_related("intake", "checkout").first()
     signature = (
         request.headers.get("x-paystack-signature", "")
         if provider == CommercePayment.METHOD_PAYSTACK
@@ -242,7 +327,7 @@ def payment_queue(request):
     if not user_has_permission(request.user, request.business, "finance", "view") and not is_business_admin(request.user, request.business):
         return render(request, "403.html", status=403)
     payments = list(CommercePayment.objects.select_related(
-        "intake", "verified_by"
+        "intake", "checkout", "verified_by"
     ).prefetch_related(
         "claims__reviewed_by", "receipts__verified_by", "receipts__reversed_by",
         "gateway_events",
@@ -331,6 +416,29 @@ def payment_reconcile(request, public_id):
         event.error = _error(exc)[:500]
         event.save(update_fields=["error", "updated_at"])
         messages.error(request, "Provider reconciliation could not be completed.")
+    return redirect("commerce_payment_queue")
+
+
+@login_required
+@require_POST
+def checkout_recover(request, checkout_id):
+    if not _can_verify(request.user, request.business):
+        return render(request, "403.html", status=403)
+    checkout = get_object_or_404(
+        CommerceCheckoutSession.raw_objects,
+        business=request.business, public_id=checkout_id,
+    )
+    if checkout.status != CommerceCheckoutSession.STATUS_PAID_REVIEW:
+        messages.error(request, "Only a fully paid checkout awaiting fulfilment review can be recovered.")
+        return redirect("commerce_payment_queue")
+    intake, created = attempt_materialize_paid_checkout(
+        checkout, actor=request.user, allow_expired_recovery=True
+    )
+    if intake:
+        messages.success(request, f"Paid checkout recovered as {intake.public_number}." if created else f"Checkout already materialized as {intake.public_number}.")
+    else:
+        checkout.refresh_from_db()
+        messages.error(request, checkout.materialization_error or "The paid checkout still cannot be materialized safely.")
     return redirect("commerce_payment_queue")
 
 

@@ -1,3 +1,5 @@
+> **Current website integration contract:** New headless website integrations must use the pre-intake checkout/payment boundary documented in [`WEBSITE_COMMERCE_CHECKOUT_INTEGRATION.md`](WEBSITE_COMMERCE_CHECKOUT_INTEGRATION.md). The legacy `/orders` endpoint remains intentionally compatible during migration, but creates intake before payment.
+
 # Customer Ordering and External Commerce Integration
 
 ## Architectural intent
@@ -261,7 +263,7 @@ An explicit `BusinessModuleAccess.enabled=False` remains the hard ceiling. The s
 
 ### Public product publication
 
-`commerce.StorefrontProduct` is a publication/configuration layer around the existing `inventory.FinishedGood`. It does not duplicate stock. Products are unpublished by default and can independently offer Physical Store/direct, Online and Distribution/bulk order modes. Each mode exposes its StoreTrack-resolved channel price and minimum quantity. Distribution/bulk has a dedicated per-product minimum.
+`commerce.StorefrontProduct` is a publication/configuration layer around the existing `inventory.FinishedGood`. It does not duplicate stock. Products are unpublished by default and can independently offer Physical Store/direct, Online and Distribution/bulk order modes. Each mode exposes its StoreTrack-resolved channel price and minimum quantity. Distribution/bulk has a dedicated per-product minimum. Product images are uploaded to tenant-partitioned media storage; the catalog API exposes the uploaded file as an absolute `image_url`. The former URL field remains a fallback for pre-existing live records, but is no longer editable in the publishing form.
 
 For production-centric services, `FinishedGood.physical_saleable_stock` is the immediate storefront availability. Distribution Market Stock remains a separate pool. The existing explicit Market Stock → Physical Store transfer updates the same FinishedGood shelf balance/transfer allowance, so the storefront/API sees the new availability automatically without a commerce-specific stock sync.
 
@@ -271,6 +273,10 @@ The website's commercial choice is preserved on `CommerceIntake.sales_channel` a
 
 - production businesses: Physical Store/direct uses available stock, while Online and Distribution/bulk create made-to-order Production demand after staff acceptance;
 - wholesale and retail businesses: all three channel prices use procured finished stock and never invoke Production.
+
+Because those channel choices already determine fulfilment, the publishing form does not expose a separate made-to-order checkbox. For production businesses, enabling Online or Distribution/bulk is sufficient to make that channel a pre-order production route.
+
+Uploaded images require persistent media storage in deployment. `MEDIA_ROOT` defaults to the repository's `media/` directory and can be overridden with the `MEDIA_ROOT` environment variable; `MEDIA_URL` defaults to `/media/`. The production host must map that public URL to the persistent media directory. Django serves it automatically only while `DEBUG=True`.
 
 Legacy callers may still send `ordering_mode: stock|preorder`; those map to Physical Store/direct and Online. New callers use `order_mode`.
 
