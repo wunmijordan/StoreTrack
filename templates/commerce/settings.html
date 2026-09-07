@@ -1,0 +1,52 @@
+{% extends "base.html" %}{% block content %}
+<div class="max-w-3xl">
+  <h1 class="text-2xl font-semibold font-display text-[#8f172d]">Commerce settings</h1>
+  <p class="text-sm text-stone-500 mb-4">Each public commerce surface is independently configurable. Physical Store remains the immediate public stock pool; Market Stock becomes public only after an explicit transfer.</p>
+
+  <div id="commerce-master-note" class="mb-5 rounded-lg border px-4 py-3 text-sm">
+    <div class="font-semibold" id="commerce-master-title"></div>
+    <div class="text-xs mt-1" id="commerce-master-copy"></div>
+  </div>
+
+  <form method="post" class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-xl p-5">{% csrf_token %}
+    <div class="space-y-3">
+      {% for field in form %}
+        {% if field.name == 'enabled' or field.name == 'hosted_storefront_enabled' or field.name == 'order_now_link_enabled' or field.name == 'api_enabled' or field.name == 'connector_enabled' %}
+        <div class="flex items-center justify-between gap-4 bg-white border border-[#E7DFCC] rounded-lg p-3 {% if field.name == 'enabled' %}ring-1 ring-[#8f172d]/10{% endif %}">
+          <div>
+            <div class="font-medium text-sm">{{ field.label }}</div>
+            {% if field.name == 'enabled' %}<div class="text-xs text-stone-500">Global runtime gate. Turning this off pauses every public commerce surface without erasing the individual choices below.</div>{% endif %}
+            {% if field.help_text %}<div class="text-xs text-stone-500">{{ field.help_text }}</div>{% endif %}
+            {% for e in field.errors %}<div class="text-xs text-rose-700">{{ e }}</div>{% endfor %}
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer"><span class="sr-only">{{ field.label }}</span>{{ field }}<span class="relative w-11 h-6 bg-stone-300 rounded-full peer-focus:ring-2 peer-focus:ring-[#8f172d]/25 peer-checked:bg-[#8f172d] after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:w-5 after:h-5 after:rounded-full after:transition-transform peer-checked:after:translate-x-5"></span></label>
+        </div>
+        {% else %}{% include '_field.html' with field=field %}{% endif %}
+      {% endfor %}
+    </div>
+    <button class="mt-4 px-4 py-2 bg-[#8f172d] text-white rounded-md text-sm">Save commerce settings</button>
+  </form>
+</div>
+<script>
+(function(){
+  const master = document.getElementById('id_enabled');
+  const box = document.getElementById('commerce-master-note');
+  const title = document.getElementById('commerce-master-title');
+  const copy = document.getElementById('commerce-master-copy');
+  if (!master || !box || !title || !copy) return;
+  function refresh(){
+    if (master.checked) {
+      box.className = 'mb-5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900';
+      title.textContent = 'Commerce master switch is ON';
+      copy.textContent = 'Each public surface below follows its own toggle. A surface set to OFF remains unavailable.';
+    } else {
+      box.className = 'mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900';
+      title.textContent = 'Commerce master switch is OFF — all commerce is paused';
+      copy.textContent = 'Hosted Storefront, Order Now, Headless API and Platform Connector settings are preserved, but public access and order intake are blocked until this master switch is turned back on.';
+    }
+  }
+  master.addEventListener('change', refresh);
+  refresh();
+})();
+</script>
+{% endblock %}

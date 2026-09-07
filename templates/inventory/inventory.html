@@ -214,16 +214,16 @@
 <!-- Stock history modal -->
 <div
   id="stock-history-modal"
-  class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-stone-900/50 backdrop-blur-sm"
+  class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center p-0 sm:p-4 bg-stone-950/55 backdrop-blur-sm"
   aria-hidden="true"
 >
   <div
-    class="w-full max-w-5xl max-h-[90vh] overflow-hidden bg-white border border-[#E7DFCC] rounded-xl shadow-2xl flex flex-col"
+    class="w-full max-w-5xl max-h-[94dvh] overflow-hidden bg-[#FAF6EF] border border-[#E7DFCC] rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col"
     role="dialog"
     aria-modal="true"
     aria-labelledby="stock-history-title"
   >
-    <div class="flex items-start justify-between gap-4 px-5 py-4 border-b border-[#E7DFCC] bg-[#FFFDF8]">
+    <div class="flex items-start justify-between gap-4 px-4 sm:px-5 py-4 border-b border-[#E7DFCC] bg-white">
       <div>
         <h3 id="stock-history-title" class="text-lg font-bold text-[#8f172d]">Stock History</h3>
         <p id="stock-history-subtitle" class="text-xs text-stone-500 mt-0.5">Production and Daily Stock Flow</p>
@@ -231,35 +231,39 @@
       <button
         type="button"
         id="stock-history-close"
-        class="shrink-0 px-2 py-1 text-xl leading-none text-stone-400 hover:text-stone-700 rounded-md hover:bg-stone-100"
+        class="shrink-0 grid h-9 w-9 place-items-center text-xl leading-none text-stone-500 hover:text-stone-800 rounded-full bg-stone-100 hover:bg-stone-200"
         aria-label="Close stock history"
       >&times;</button>
     </div>
 
-    <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b border-stone-100 bg-stone-50/60">
-      <div id="stock-history-summary" class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-stone-600">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-stone-100 bg-white">
+      <div id="stock-history-summary" class="grid w-full grid-cols-2 gap-2 text-xs text-stone-600 sm:flex sm:flex-wrap sm:gap-2">
         <span>Loading…</span>
       </div>
-      <div class="flex items-center gap-1 rounded-lg bg-white border border-stone-200 p-1" role="group" aria-label="Chart period">
+      <div class="flex shrink-0 items-center gap-1 rounded-xl bg-stone-50 border border-stone-200 p-1" role="group" aria-label="Chart period">
         <button type="button" class="stock-period-btn px-2.5 py-1 text-xs rounded-md bg-[#8f172d] text-white" data-days="7">7 Days</button>
         <button type="button" class="stock-period-btn px-2.5 py-1 text-xs rounded-md text-stone-600 hover:bg-stone-100" data-days="30">30 Days</button>
         <button type="button" class="stock-period-btn px-2.5 py-1 text-xs rounded-md text-stone-600 hover:bg-stone-100" data-days="90">90 Days</button>
       </div>
     </div>
 
+    <nav class="flex gap-1 overflow-x-auto border-b border-[#E7DFCC] bg-white px-3 sm:px-5" aria-label="Inventory item sections">
+      <button type="button" data-history-tab="overview" class="history-tab whitespace-nowrap border-b-2 border-[#8f172d] px-3 py-3 text-xs font-semibold text-[#8f172d]">Overview</button>
+      <button type="button" data-history-tab="workflow" id="stock-history-workflow-tab" class="history-tab whitespace-nowrap border-b-2 border-transparent px-3 py-3 text-xs font-semibold text-stone-400 hover:text-stone-700">Workflow</button>
+      <button type="button" data-history-tab="arrivals" class="history-tab whitespace-nowrap border-b-2 border-transparent px-3 py-3 text-xs font-semibold text-stone-400 hover:text-stone-700">Arrivals</button>
+      <button type="button" data-history-tab="ledger" class="history-tab whitespace-nowrap border-b-2 border-transparent px-3 py-3 text-xs font-semibold text-stone-400 hover:text-stone-700">Daily ledger</button>
+    </nav>
+
     <div class="flex-1 min-h-0 overflow-y-auto">
       <div id="stock-history-loading" class="px-5 py-12 text-center text-sm text-stone-400">Loading Stock history…</div>
       <div id="stock-history-error" class="hidden px-5 py-12 text-center text-sm text-rose-600"></div>
       <div id="stock-history-empty" class="hidden px-5 py-12 text-center text-sm text-stone-400">No Stock movement history is available for this item yet.</div>
 
-      <div id="stock-history-content" class="hidden p-5 space-y-5">
+      <div id="stock-history-content" class="hidden p-3 sm:p-5">
+        <div data-history-panel="workflow" class="hidden space-y-4">
         <div id="stock-history-flow-card" class="hidden rounded-xl border border-[#D9CFB4] bg-gradient-to-br from-[#FFFDF8] via-white to-[#F5EFE0] p-4 overflow-hidden">
           <div class="flex flex-wrap items-start justify-between gap-2 mb-4"><div><div id="stock-history-flow-title" class="text-xs font-bold uppercase tracking-wider text-[#8f172d]">Operational Flow</div><div class="text-[10px] text-stone-500 mt-0.5">Select any stage to animate the workflow from that point, or replay the full journey.</div></div><div class="flex items-center gap-2"><span class="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-stone-500 ring-1 ring-[#D9CFB4]">Configured workflow</span><button id="stock-history-flow-replay" type="button" class="rounded-full bg-[#8f172d] px-3 py-1 text-[10px] font-semibold text-white shadow-sm motion-safe:transition motion-safe:hover:-translate-y-0.5 hover:bg-[#4D1C25] focus:outline-none focus:ring-2 focus:ring-[#8f172d]/30" aria-label="Replay product workflow animation">↻ Replay</button></div></div>
           <div id="stock-history-flow" class="flex flex-col lg:flex-row items-stretch lg:items-center gap-2"></div>
-        </div>
-        <div id="stock-history-arrivals-card" class="hidden rounded-lg border border-[#E7DFCC] overflow-hidden">
-          <div class="px-4 py-3 bg-[#F0EAD9] border-b border-[#E7DFCC]"><div class="text-xs font-bold uppercase tracking-wider text-stone-600">Stock Arrivals</div><div class="text-[10px] text-stone-400 mt-0.5">Received purchase-order lines for this item, newest first.</div></div>
-          <div class="overflow-x-auto"><table class="min-w-[680px] w-full text-sm"><thead class="bg-stone-50 text-xs text-stone-500"><tr><th class="px-4 py-2 text-left">Received</th><th class="px-4 py-2 text-left">Supplier</th><th class="px-4 py-2 text-left">Reference</th><th class="px-4 py-2 text-right">Quantity</th><th class="px-4 py-2 text-right">Unit Cost</th></tr></thead><tbody id="stock-history-arrival-rows"></tbody></table></div>
         </div>
         <div id="stock-history-materials-card" class="hidden rounded-lg border border-[#E7DFCC] overflow-hidden">
           <div class="px-4 py-3 bg-[#F0EAD9] border-b border-[#E7DFCC] flex items-center justify-between gap-3">
@@ -272,6 +276,15 @@
             </table>
           </div>
         </div>
+        </div>
+        <div data-history-panel="arrivals" class="hidden">
+          <div id="stock-history-arrivals-card" class="hidden rounded-lg border border-[#E7DFCC] overflow-hidden">
+            <div class="px-4 py-3 bg-[#F0EAD9] border-b border-[#E7DFCC]"><div class="text-xs font-bold uppercase tracking-wider text-stone-600">Stock Arrivals</div><div class="text-[10px] text-stone-400 mt-0.5">Received purchase-order lines for this item, newest first.</div></div>
+            <div class="overflow-x-auto"><table class="min-w-[680px] w-full text-sm"><thead class="bg-stone-50 text-xs text-stone-500"><tr><th class="px-4 py-2 text-left">Received</th><th class="px-4 py-2 text-left">Supplier</th><th class="px-4 py-2 text-left">Reference</th><th class="px-4 py-2 text-right">Quantity</th><th class="px-4 py-2 text-right">Unit Cost</th></tr></thead><tbody id="stock-history-arrival-rows"></tbody></table></div>
+          </div>
+          <div id="stock-history-arrivals-empty" class="rounded-xl border border-dashed border-[#D9CFB4] bg-white px-5 py-10 text-center text-sm text-stone-400">No received purchase-order lines are available for this item yet.</div>
+        </div>
+        <div data-history-panel="overview" class="space-y-4">
 
         <div id="stock-history-movement-card" class="rounded-lg border border-[#E7DFCC] bg-[#FFFDF8] p-3">
           <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
@@ -279,7 +292,7 @@
             <div id="stock-history-unit-label" class="text-xs text-stone-400"></div>
           </div>
           <div class="overflow-x-auto">
-            <svg id="stock-history-chart" viewBox="0 0 900 340" class="w-full min-w-[720px] h-[320px]" role="img" aria-label="Stock balance chart"></svg>
+            <svg id="stock-history-chart" viewBox="0 0 900 340" class="w-full min-w-[620px] h-[240px] md:h-[320px]" role="img" aria-label="Stock balance chart"></svg>
           </div>
           <div class="mt-2 flex flex-wrap gap-4 text-[11px] text-stone-500">
             <span class="inline-flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm bg-[#8f172d]"></span>Closing Stock</span>
@@ -290,7 +303,9 @@
         </div>
 
         <div id="stock-history-no-movements" class="hidden rounded-lg border border-stone-200 bg-stone-50 px-4 py-4 text-sm text-stone-500">No stock movement history is available for this product yet. Its configured workflow is shown above.</div>
+        </div>
 
+        <div data-history-panel="ledger" class="hidden">
         <div id="stock-history-daily-card" class="rounded-lg border border-[#E7DFCC] overflow-hidden">
           <div class="px-4 py-3 bg-[#F0EAD9] border-b border-[#E7DFCC] text-xs font-bold uppercase tracking-wider text-stone-600">Daily Movement</div>
           <div class="overflow-x-auto">
@@ -308,6 +323,7 @@
               <tbody id="stock-history-rows"></tbody>
             </table>
           </div>
+        </div>
         </div>
       </div>
     </div>
@@ -366,11 +382,30 @@
   const historyNoMovements = document.getElementById('stock-history-no-movements');
   const historyClose = document.getElementById('stock-history-close');
   const periodButtons = [...document.querySelectorAll('.stock-period-btn')];
+  const historyTabs = [...document.querySelectorAll('[data-history-tab]')];
+  const historyPanels = [...document.querySelectorAll('[data-history-panel]')];
+  const historyWorkflowTab = document.getElementById('stock-history-workflow-tab');
+  const historyArrivalsEmpty = document.getElementById('stock-history-arrivals-empty');
 
   let stockHistoryData = null;
   let selectedDays = 7;
   let previousActiveElement = null;
   let flowAnimationRun = 0;
+
+  function setHistoryTab(tab) {
+    historyTabs.forEach(button => {
+      const active = button.dataset.historyTab === tab;
+      button.classList.toggle('border-[#8f172d]', active);
+      button.classList.toggle('text-[#8f172d]', active);
+      button.classList.toggle('border-transparent', !active);
+      button.classList.toggle('text-stone-400', !active);
+      button.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    historyPanels.forEach(panel => panel.classList.toggle('hidden', panel.dataset.historyPanel !== tab));
+    if (tab === 'workflow' && stockHistoryData?.kind === 'finished') {
+      window.requestAnimationFrame(() => animateProductFlow(0));
+    }
+  }
 
   function setHistoryState(state, message = '') {
     historyLoading.classList.toggle('hidden', state !== 'loading');
@@ -436,13 +471,18 @@
       : latest ? latest.closing / factor : 0;
 
     historySummary.innerHTML = latest ? `
-      <span><strong class="text-stone-700">Latest Stock:</strong> ${fmt(latest.closing)} ${stockHistoryData.usage_unit || ''}</span>
-      ${stockHistoryData.total_produced != null ? `<span><strong class="text-stone-700">Total Made:</strong> ${fmt(stockHistoryData.total_produced)} ${stockHistoryData.usage_unit || ''}</span>` : ''}
-      ${stockHistoryData.total_delivered_to_customers != null ? `<span><strong class="text-stone-700">Customer Orders:</strong> ${fmt(stockHistoryData.total_delivered_to_customers)} ${stockHistoryData.usage_unit || ''}</span>` : ''}
-      <span><strong class="text-stone-700">Purchase Units:</strong> ${fmt(latestPurchase)} ${stockHistoryData.kind === 'finished' ? unit : displayUnit}</span>
-    ` : '<span>No data for this period.</span>';
+      ${summaryMetric('Latest stock', `${fmt(latest.closing)} ${stockHistoryData.usage_unit || ''}`, 'emerald')}
+      ${stockHistoryData.total_produced != null ? summaryMetric('Total made', `${fmt(stockHistoryData.total_produced)} ${stockHistoryData.usage_unit || ''}`, 'sky') : ''}
+      ${stockHistoryData.total_delivered_to_customers != null ? summaryMetric('Customer orders', `${fmt(stockHistoryData.total_delivered_to_customers)} ${stockHistoryData.usage_unit || ''}`, 'rose') : ''}
+      ${summaryMetric('Purchase units', `${fmt(latestPurchase)} ${stockHistoryData.kind === 'finished' ? unit : displayUnit}`, 'stone')}
+    ` : '<span class="text-stone-400">No data for this period.</span>';
 
     historyUnitLabel.textContent = `${stockHistoryData.usage_unit || ''}${unit && unit !== stockHistoryData.usage_unit ? ` · ${unit}` : ''}`;
+  }
+
+  function summaryMetric(label, value, tone) {
+    const tones = { emerald: 'text-emerald-700', sky: 'text-sky-700', rose: 'text-rose-700', stone: 'text-stone-700' };
+    return `<span class="min-w-0 rounded-xl border border-stone-200 bg-stone-50 px-3 py-2 sm:min-w-[132px]"><span class="block text-[9px] font-bold uppercase tracking-wider text-stone-400">${escapeFlowText(label)}</span><strong class="mt-0.5 block truncate font-mono text-xs ${tones[tone] || tones.stone}">${escapeFlowText(value)}</strong></span>`;
   }
 
   function renderTable(rows) {
@@ -719,6 +759,7 @@
   function renderArrivals() {
     const arrivals = Array.isArray(stockHistoryData?.arrivals) ? stockHistoryData.arrivals : [];
     historyArrivalsCard.classList.toggle('hidden', !arrivals.length);
+    historyArrivalsEmpty.classList.toggle('hidden', !!arrivals.length);
     historyArrivalRows.innerHTML = arrivals.map(row => `
       <tr class="border-t border-[#E7DFCC]">
         <td class="px-4 py-2.5 text-xs text-stone-600">${escapeFlowText(row.date)}</td>
@@ -740,8 +781,8 @@
       if (stockHistoryData?.kind === 'finished') {
         setHistoryState('ready');
         historySummary.innerHTML = `
-          ${stockHistoryData.total_produced != null ? `<span><strong class="text-stone-700">Total Made:</strong> ${fmt(stockHistoryData.total_produced)} ${stockHistoryData.usage_unit || ''}</span>` : ''}
-          ${stockHistoryData.total_delivered_to_customers != null ? `<span><strong class="text-stone-700">Customer Orders:</strong> ${fmt(stockHistoryData.total_delivered_to_customers)} ${stockHistoryData.usage_unit || ''}</span>` : ''}
+          ${stockHistoryData.total_produced != null ? summaryMetric('Total made', `${fmt(stockHistoryData.total_produced)} ${stockHistoryData.usage_unit || ''}`, 'sky') : ''}
+          ${stockHistoryData.total_delivered_to_customers != null ? summaryMetric('Customer orders', `${fmt(stockHistoryData.total_delivered_to_customers)} ${stockHistoryData.usage_unit || ''}`, 'rose') : ''}
         `;
         historyMovementCard.classList.add('hidden');
         historyDailyCard.classList.add('hidden');
@@ -771,7 +812,9 @@
     document.body.classList.add('overflow-hidden');
 
     historyTitle.textContent = button.dataset.stockName || 'Stock history';
-    historySubtitle.textContent = 'Daily stock flow';
+    historySubtitle.textContent = button.dataset.stockHistoryKind === 'finished' ? 'Product stock, workflow and history' : 'Material stock, arrivals and history';
+    historyWorkflowTab.classList.toggle('hidden', button.dataset.stockHistoryKind !== 'finished');
+    setHistoryTab('overview');
     historySummary.innerHTML = '<span>Loading…</span>';
     historyUnitLabel.textContent = '';
     stockHistoryData = null;
@@ -820,6 +863,9 @@
 
   periodButtons.forEach(button => {
     button.addEventListener('click', () => setActivePeriod(button.dataset.days));
+  });
+  historyTabs.forEach(button => {
+    button.addEventListener('click', () => setHistoryTab(button.dataset.historyTab));
   });
   historyFlowReplay.addEventListener('click', () => animateProductFlow(0));
 </script>

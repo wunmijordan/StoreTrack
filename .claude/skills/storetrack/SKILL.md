@@ -250,3 +250,24 @@ After editing:
 - for production changes, trace approve -> material usage -> complete -> batch ->
   stock/sale -> finance -> reversal;
 - run the `simplify` and `tenant-safety` skills.
+
+## Commerce and subscription invariants (2026-09-06)
+
+- `commerce` is a normal module and `BusinessModuleAccess.enabled=False` is the commercial hard ceiling.
+- Public/external ordering writes `commerce.CommerceIntake` first, never Production/Sale/stock/Finance directly.
+- Commerce **Order** means immediate sellable stock; **Pre-order** means made-to-order Pending Production after acceptance.
+- Production-centric storefront availability is `FinishedGood.physical_saleable_stock`; Market Stock only becomes public availability after the explicit Market → Physical transfer.
+- Insufficient-stock policy is tenant-configurable: reduce, reject, invite to Pre-order, or split stock + production balance.
+- Existing businesses with no `BusinessSubscription` keep legacy entitlements; new signups get a 30-day STARTER trial.
+- Plan changes materialize into `BusinessModuleAccess`; STARTER has Basic Reports, PRODUCTION has Full Reports but no Finance, BUSINESS PRO has all modules including Commerce.
+- Multiple user-facing **services** under one subscription are separate Business profiles linked by `SubscriptionService`; keep the internal `Business.vertical` field for backward compatibility.
+- Founder lifetime grants are plan-specific, not universal permission bypasses.
+
+## Commerce and subscription billing invariants
+
+- Subscription checkout is owned by StoreTrack and currently supports Paystack and Monnify hosted checkout. Never expose provider secret keys client-side.
+- Redirects/callbacks are not authoritative payment proof; verify server-side and keep confirmation idempotent.
+- Plans support monthly and yearly billing; annual discount and additional-service discount are founder-configurable.
+- During trial, plan UI must explicitly say Trial and show the trial end date.
+- Commerce surfaces (hosted storefront, Order Now, headless API, connector) have independent tenant toggles beneath the BusinessModuleAccess Commerce ceiling.
+- Headless API is tenant-owned website pull/push integration; connector is a signed event-push boundary for external platforms/adapters. Both must create Commerce Intake rather than write Sales/Production directly.

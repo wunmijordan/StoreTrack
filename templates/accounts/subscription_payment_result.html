@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% block content %}
+<div class="max-w-xl mx-auto bg-white border border-[#E7DFCC] rounded-xl p-6 text-center">
+  <div class="text-3xl mb-3">{% if success %}✓{% else %}!{% endif %}</div>
+  <h1 class="text-xl font-semibold {% if success %}text-emerald-700{% else %}text-rose-700{% endif %}">{% if success %}Payment confirmed{% else %}Payment not confirmed{% endif %}</h1>
+  <p class="text-sm text-stone-600 mt-2">{{ message }}</p>
+  {% if payment %}<div class="mt-4 text-xs text-stone-500">{{ payment.reference }} · {{ payment.plan.name }} · {{ payment.get_provider_display }}</div>{% endif %}
+  <a href="{% url 'subscription_payment' %}" class="inline-block mt-5 px-4 py-2 bg-[#8f172d] text-white rounded-md text-sm">Back to Plan & Billing</a>
+</div>{% endblock %}

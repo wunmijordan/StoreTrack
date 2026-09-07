@@ -31,6 +31,11 @@ VERTICAL_CONFIG = {
             ("online", "Online Order"),
             ("physical_store", "Physical Store Order"),
         ],
+        "commerce_channels": {
+            "physical_store": "Physical Store / Pickup",
+            "online": "Online Order",
+            "distribution": "Distribution Order",
+        },
     },
     Business.VERTICAL_RESTAURANT: {
         "uses_production": True,
@@ -55,6 +60,11 @@ VERTICAL_CONFIG = {
             ("online", "Delivery / Online Order"),
             ("physical_store", "Kitchen / Counter Replenishment"),
         ],
+        "commerce_channels": {
+            "physical_store": "Counter / Pickup",
+            "online": "Delivery / Online Order",
+            "distribution": "Catering / Bulk Order",
+        },
     },
     Business.VERTICAL_GENERAL: {
         "uses_production": True,
@@ -79,6 +89,11 @@ VERTICAL_CONFIG = {
             ("online", "Online Order"),
             ("physical_store", "Stock Replenishment Order"),
         ],
+        "commerce_channels": {
+            "physical_store": "Direct / Store Order",
+            "online": "Online Order",
+            "distribution": "Wholesale / Customer Order",
+        },
     },
     Business.VERTICAL_WHOLESALE: {
         "uses_production": False,
@@ -103,6 +118,11 @@ VERTICAL_CONFIG = {
             ("online", "Online Trade Order"),
             ("physical_store", "Warehouse Replenishment"),
         ],
+        "commerce_channels": {
+            "physical_store": "Direct Warehouse Order",
+            "online": "Online Trade Order",
+            "distribution": "Wholesale Order",
+        },
     },
     Business.VERTICAL_RETAIL: {
         "uses_production": False,
@@ -127,6 +147,11 @@ VERTICAL_CONFIG = {
             ("online", "Online Order"),
             ("physical_store", "Shop Replenishment"),
         ],
+        "commerce_channels": {
+            "physical_store": "Retail / Pickup Order",
+            "online": "Online Order",
+            "distribution": "Bulk Customer Order",
+        },
     },
 }
 

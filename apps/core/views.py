@@ -1267,6 +1267,18 @@ def dashboard_search_detail(request):
     return JsonResponse(detail)
 
 
+
+def reports_full_required(view_func):
+    from functools import wraps
+    @wraps(view_func)
+    def wrapped(request, *args, **kwargs):
+        from accounts.subscription_services import business_has_feature
+        if not business_has_feature(getattr(request, "business", None), "reports_full"):
+            return render(request, "403.html", {"feature_message": "Your current plan includes Basic Reports. Upgrade for this export/backup feature."}, status=403)
+        return view_func(request, *args, **kwargs)
+    return wrapped
+
+
 @login_required
 def dashboard(request):
     raw_materials = RawMaterial.objects.all()
@@ -1292,11 +1304,21 @@ def dashboard(request):
     ).aggregate(total=Sum("quantity"))["total"] or Decimal("0")
     month_start = today().replace(day=1)
     year_start = today().replace(month=1, day=1)
-    monthly_units = _production_units(Order.objects.filter(status="completed", completed_date__gte=month_start))
-    yearly_units = _production_units(Order.objects.filter(status="completed", completed_date__gte=year_start))
-    monthly_revenue = _sales_revenue(Sale.objects.filter(date__gte=month_start))
-    yearly_revenue = _sales_revenue(Sale.objects.filter(date__gte=year_start))
-
+    if request.business.uses_production:
+        monthly_units = _production_units(Order.objects.filter(status="completed", completed_date__gte=month_start))
+        yearly_units = _production_units(Order.objects.filter(status="completed", completed_date__gte=year_start))
+    else:
+        received_products = StockMovement.objects.filter(
+            movement_type=StockMovement.FG_PURCHASE,
+            quantity__gt=0,
+            affects_stock=True,
+        )
+        monthly_units = received_products.filter(
+            occurred_at__date__gte=month_start
+        ).aggregate(total=Sum("quantity"))["total"] or Decimal("0")
+        yearly_units = received_products.filter(
+            occurred_at__date__gte=year_start
+        ).aggregate(total=Sum("quantity"))["total"] or Decimal("0")
     financial = _financial_snapshot()
     financial_json = _financial_chart_series()
     financial_breakdown_json = _financial_breakdown_json()
@@ -1352,8 +1374,6 @@ def dashboard(request):
         "daily_units_received": daily_units_received,
         "monthly_units": monthly_units,
         "yearly_units": yearly_units,
-        "monthly_revenue": monthly_revenue,
-        "yearly_revenue": yearly_revenue,
         "financial": financial,
         "financial_json": financial_json,
         "financial_breakdown_json": financial_breakdown_json,
@@ -1547,11 +1567,13 @@ def export_stock_csv(request):
 
 
 @login_required
+@reports_full_required
 def export_stock_xlsx(request):
     return _xlsx_response("stock-report.xlsx", "Stock", ["Type", "Name", "Category", "Stock Unit", "Physical/Material Stock", "Distribution Market Stock", "Expired Market Stock", "Market-origin Shelf Allowance", "Reorder level", "Cost/Price per unit", "Purchase Unit", "Usage Units per Purchase Unit"], _stock_rows())
 
 
 @login_required
+@reports_full_required
 def export_market_stock_csv(request):
     return _csv_response(
         "distribution-market-stock.csv",
@@ -1561,6 +1583,7 @@ def export_market_stock_csv(request):
 
 
 @login_required
+@reports_full_required
 def export_market_stock_xlsx(request):
     return _xlsx_response(
         "distribution-market-stock.xlsx",
@@ -1571,21 +1594,25 @@ def export_market_stock_xlsx(request):
 
 
 @login_required
+@reports_full_required
 def export_procurement_csv(request):
     return _csv_response("procurement-report.csv", ["Date", "Received Date", "Supplier", "Status", "Payment Status", "Payment Method", "Item", "Category", "Qty", "Stock / Purchase Unit", "Unit Cost", "Line Total"], _procurement_rows())
 
 
 @login_required
+@reports_full_required
 def export_procurement_xlsx(request):
     return _xlsx_response("procurement-report.xlsx", "Procurement", ["Date", "Received Date", "Supplier", "Status", "Payment Status", "Payment Method", "Item", "Category", "Qty", "Stock / Purchase Unit", "Unit Cost", "Line Total"], _procurement_rows())
 
 
 @login_required
+@reports_full_required
 def export_production_csv(request):
     return _csv_response("production-report.csv", ["Date", "Type", "Transaction", "Unpaid Reason", "Customer", "Product", "Qty produced", "Order Value"], _production_rows())
 
 
 @login_required
+@reports_full_required
 def export_production_xlsx(request):
     return _xlsx_response("production-report.xlsx", "Production", ["Date", "Type", "Transaction", "Unpaid Reason", "Customer", "Product", "Qty produced", "Order Value"], _production_rows())
 
@@ -1603,6 +1630,7 @@ def export_sales_csv(request):
 
 
 @login_required
+@reports_full_required
 def export_sales_xlsx(request):
     qs = Sale.objects.all()
     date_from = request.GET.get("from")
@@ -1615,46 +1643,55 @@ def export_sales_xlsx(request):
 
 
 @login_required
+@reports_full_required
 def export_expenses_csv(request):
     return _csv_response("expenses-report.csv", ["Date", "Category", "Description", "Vendor", "Amount", "Payment Status", "Payment Method", "Notes"], _expense_rows())
 
 
 @login_required
+@reports_full_required
 def export_expenses_xlsx(request):
     return _xlsx_response("expenses-report.xlsx", "Expenses", ["Date", "Category", "Description", "Vendor", "Amount", "Payment Status", "Payment Method", "Notes"], _expense_rows())
 
 
 @login_required
+@reports_full_required
 def export_adjustments_csv(request):
     return _csv_response("stock-adjustments.csv", ["Date", "Item", "Type", "Reason", "Quantity", "Unit Value", "Value", "Description", "Location"], _adjustment_rows())
 
 @login_required
+@reports_full_required
 def export_adjustments_xlsx(request):
     return _xlsx_response("stock-adjustments.xlsx", "Adjustments", ["Date", "Item", "Type", "Reason", "Quantity", "Unit Value", "Value", "Description", "Location"], _adjustment_rows())
 
 @login_required
+@reports_full_required
 def export_operational_dispenses_csv(request):
     return _csv_response("operational-supply-dispenses.csv", ["Date","Operational supply","Usage unit","Quantity","Reason","Description","Location","Logged by"], _operational_dispense_rows())
 
 
 @login_required
+@reports_full_required
 def export_operational_dispenses_xlsx(request):
     return _xlsx_response("operational-supply-dispenses.xlsx", "Operational Dispenses", ["Date","Operational supply","Usage unit","Quantity","Reason","Description","Location","Logged by"], _operational_dispense_rows())
 
 
 @login_required
+@reports_full_required
 def export_financial_csv(request):
     rows = [[r["label"], r["sales"], r["cogs"], r["gross_profit"], r["procurement"], r["cash_procurement"], r["misc"], r["spend"], r["net_cash_flow"]] for r in _financial_snapshot()]
     return _csv_response("financial-summary.csv", ["Period", "Paid Sales", "COGS", "Gross Profit", "Procurement Received", "Procurement Cash Paid", "Expenses Paid", "Cash Outflow", "Net Cash Flow"], rows)
 
 
 @login_required
+@reports_full_required
 def export_financial_xlsx(request):
     rows = [[r["label"], r["sales"], r["cogs"], r["gross_profit"], r["procurement"], r["cash_procurement"], r["misc"], r["spend"], r["net_cash_flow"]] for r in _financial_snapshot()]
     return _xlsx_response("financial-summary.xlsx", "Financial Summary", ["Period", "Paid Sales", "COGS", "Gross Profit", "Procurement Received", "Procurement Cash Paid", "Expenses Paid", "Cash Outflow", "Net Cash Flow"], rows)
 
 
 @login_required
+@reports_full_required
 def backup_json(request):
     from .models import CashAccount, AuditLog
     from procurement.models import SupplierPayment

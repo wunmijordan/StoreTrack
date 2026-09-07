@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% load core_extras %}
+{% block content %}
+<div class="max-w-6xl">
+  <div class="flex flex-wrap items-end justify-between gap-3 mb-5">
+    <div><h1 class="text-2xl font-semibold font-display text-[#8f172d]">Plans & services</h1><p class="text-sm text-stone-500">Every plan includes a 30-day free trial. Additional services use separate business profiles and a discounted add-on price.</p></div>
+    {% if subscription %}<a href="{% url 'subscription_payment' %}" class="px-4 py-2 rounded-md bg-[#8f172d] text-white text-sm font-medium">Pay / change plan</a>{% endif %}
+  </div>
+  {% if subscription %}
+  <div class="mb-5 rounded-lg border {% if subscription.is_expiring_soon %}border-rose-300 bg-rose-50{% else %}border-[#E7DFCC] bg-[#FFFDF8]{% endif %} p-4">
+    <div class="flex flex-wrap justify-between gap-3"><div><div class="text-xs uppercase tracking-wider text-stone-500">Current plan</div><div class="font-semibold">{{ subscription.plan.name }} · {{ subscription.effective_status_label }}</div></div><div class="text-sm">{% if subscription.founder_lifetime %}<strong>Lifetime founder access</strong>{% elif subscription.expires_at %}Expires {{ subscription.expires_at|date:"j M Y" }}{% endif %}</div></div>
+    <div class="mt-3 text-sm">Monthly total at configured pricing: <strong class="font-mono">{{ subscription.monthly_total|money:biz.currency_symbol }}</strong></div>
+    <div class="mt-3 flex flex-wrap gap-2">{% for service in subscription.services.all %}<span class="rounded-full bg-[#F5EFE0] border border-[#E7DFCC] px-2.5 py-1 text-xs">{{ service.business.name }} · {{ service.business.get_vertical_display }}{% if service.is_primary %} · Primary{% endif %}</span>{% endfor %}</div>
+    <a href="{% url 'subscription_add_service' %}" class="inline-block mt-3 text-sm text-[#8f172d] underline">+ Add another service/business profile</a>
+  </div>
+  {% else %}<div class="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm"><strong>Legacy access:</strong> this existing business has not yet been enrolled in a subscription, so its current module access is preserved. Choosing a plan makes the plan entitlements authoritative.</div>{% endif %}
+  <div class="grid lg:grid-cols-3 gap-4">
+    {% for plan in plans %}<article class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-xl p-5 shadow-sm">
+      <h2 class="font-display text-xl font-semibold text-[#8f172d]">{{ plan.name }}</h2><div class="mt-1 text-lg font-semibold font-mono">{{ plan.monthly_price|money:biz.currency_symbol }}<span class="text-xs font-normal font-sans text-stone-500"> / month</span></div><div class="text-sm font-medium text-emerald-700"><span class="font-mono">{{ plan.yearly_price|money:biz.currency_symbol }}</span> / year <span class="text-xs font-normal">({{ plan.yearly_discount_percent }}% yearly discount)</span></div><div class="text-xs text-stone-500 mt-1">Additional service: {{ plan.additional_service_discount_percent }}% discount (<span class="font-mono">{{ plan.additional_service_monthly_price|money:biz.currency_symbol }}</span>/month before yearly discount)</div>
+      <div class="mt-4 space-y-1.5 text-sm">{% for m in plan.module_entitlements.all %}<div class="flex justify-between"><span>{{ m.get_module_display }}</span><span class="font-medium {% if m.enabled %}text-emerald-700{% else %}text-stone-400{% endif %}">{% if m.enabled %}{% if m.level == 'basic' %}Basic{% else %}✓{% endif %}{% else %}—{% endif %}</span></div>{% endfor %}</div>
+      <a href="{% url 'subscription_payment_plan' plan.code %}" class="block text-center mt-5 px-4 py-2 rounded-md {% if subscription and subscription.plan_id == plan.id %}bg-[#F5EFE0] text-[#8f172d] border border-[#D9CFB4]{% else %}bg-[#8f172d] text-white{% endif %} text-sm font-medium">{% if subscription and subscription.plan_id == plan.id %}Pay / renew{% else %}Choose / change{% endif %}</a>
+    </article>{% endfor %}
+  </div>
+  <p class="text-xs text-stone-500 mt-4">Plan prices are deliberately configurable by the founder/superuser. Until you set commercial prices, seeded plans show {{ biz.currency_symbol }}0.00 rather than inventing pricing.</p>
+</div>
+{% endblock %}

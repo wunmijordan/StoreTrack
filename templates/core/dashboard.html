@@ -1,13 +1,33 @@
 {% extends "base.html" %} 
 {% load core_extras %} 
-{% block content %} 
-<style>[x-cloak] { display: none !important; }</style> 
-<h1 class="text-2xl font-semibold font-display text-[#8f172d]">{{ biz.name }}</h1> 
-<p class="text-sm text-stone-500 mt-0.5 mb-4">{% now "l, j F Y" %}</p> 
+{% block content %}
+<style>
+  [x-cloak] { display: none !important; }
+  .dashboard-surface { border: 1px solid #E7DFCC; background: rgba(255,255,255,.9); box-shadow: 0 12px 36px rgba(77,28,37,.06); }
+  .dashboard-kpi { transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease; }
+  .dashboard-kpi:hover { transform: translateY(-2px); border-color: #D9CFB4; box-shadow: 0 12px 28px rgba(77,28,37,.08); }
+  @media (prefers-reduced-motion: reduce) { .dashboard-kpi { transition: none; } .dashboard-kpi:hover { transform: none; } }
+</style>
+<div x-data="{ dashboardView: new URLSearchParams(window.location.search).has('stock_item') ? 'stock' : 'overview' }">
+<header class="mb-4 flex items-end justify-between gap-4">
+  <div>
+    <p class="text-[10px] font-bold uppercase tracking-[0.2em] text-stone-400">Workspace overview</p>
+    <h1 class="text-2xl md:text-3xl font-semibold font-display text-[#8f172d]">{{ biz.name }}</h1>
+    <p class="text-xs text-stone-500 mt-1">{% now "l, j F Y" %}</p>
+  </div>
+  <details class="relative sm:hidden">
+    <summary class="list-none rounded-full border border-[#D9CFB4] bg-white px-3 py-2 text-xs font-semibold text-[#8f172d]">Quick actions</summary>
+    <div class="absolute right-0 z-30 mt-2 w-52 overflow-hidden rounded-xl border border-[#E7DFCC] bg-white p-1 shadow-xl">
+      <a href="{% url 'po_add' %}" class="block rounded-lg px-3 py-2 text-sm hover:bg-[#F5EFE0]">Log a purchase</a>
+      {% if vertical_ui.uses_production %}<a href="{% url 'order_add' %}" class="block rounded-lg px-3 py-2 text-sm hover:bg-[#F5EFE0]">New order</a>{% endif %}
+      <a href="{% url 'sale_add' %}" class="block rounded-lg px-3 py-2 text-sm hover:bg-[#F5EFE0]">Record a sale</a>
+    </div>
+  </details>
+</header>
  
 <!-- Global dashboard search: intentionally lives only on the dashboard. --> 
-<div x-data="dashboardSearch()" class="relative mb-6"> 
-  <div class="bg-white border border-[#E7DFCC] rounded-xl shadow-[0_-4px_8px_#00000022] p-3 md:p-4"> 
+<div x-data="dashboardSearch()" class="relative mb-4">
+  <div class="dashboard-surface rounded-2xl p-3 md:p-4">
     <div class="flex items-center gap-3"> 
       <div class="shrink-0 text-[#8f172d]"> 
         <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -32,10 +52,10 @@
 
   <!-- Search result dropdown -->
   <div x-show="showResults && (results.length || loading || (query.length >= 2 && !loading))" x-cloak
-       class="absolute left-0 right-0 top-full mt-2 z-40 bg-white border border-stone-200 rounded-xl shadow-xl overflow-hidden">
+       class="absolute left-0 right-0 top-full mt-2 z-40 max-h-[60vh] overflow-y-auto bg-white border border-stone-200 rounded-2xl shadow-2xl">
     <div x-show="loading" class="px-4 py-3 text-xs text-stone-400">Searching the system…</div>
     <template x-for="result in results" :key="result.key">
-      <button type="button" @click="open(result)" class="w-full text-left px-4 py-3 border-b border-stone-100 last:border-0 hover:bg-stone-50 transition">
+      <button type="button" @click="open(result)" class="group w-full text-left px-4 py-3 border-b border-stone-100 last:border-0 hover:bg-[#FFF8F3] focus:bg-[#FFF8F3] focus:outline-none transition">
         <div class="flex items-center justify-between gap-3">
           <span class="font-semibold text-sm text-stone-800 truncate" x-text="result.label"></span>
           <span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-2 py-1 rounded-full bg-[#F5EFE0] text-[#8f172d]" x-text="result.identifier"></span>
@@ -47,9 +67,9 @@
   </div>
 
   <!-- Search detail modal -->
-  <div x-show="detail" x-cloak x-transition.opacity class="fixed inset-0 z-[60] bg-stone-900/50 backdrop-blur-[2px] p-3 md:p-6 flex items-center justify-center" @keydown.escape.window="closeDetail()">
-    <div @click.away="closeDetail()" class="bg-[#FAF6EF] border border-stone-200 rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] overflow-hidden flex flex-col">
-      <div class="px-5 py-4 md:px-6 border-b border-[#E7DFCC] bg-white flex items-start justify-between gap-4">
+  <div x-show="detail" x-cloak x-transition.opacity class="fixed inset-0 z-[60] bg-stone-950/55 backdrop-blur-sm p-0 sm:p-4 md:p-6 flex items-end sm:items-center justify-center" @keydown.escape.window="closeDetail()">
+    <div @click.away="closeDetail()" class="bg-[#FAF6EF] border border-stone-200 rounded-t-3xl sm:rounded-3xl shadow-2xl w-full max-w-5xl max-h-[94dvh] overflow-hidden flex flex-col">
+      <div class="px-4 py-4 md:px-6 border-b border-[#E7DFCC] bg-white flex items-start justify-between gap-4">
         <div class="min-w-0">
           <div class="flex flex-wrap items-center gap-2 mb-1">
             <span class="text-[10px] font-bold uppercase tracking-wider text-[#8f172d] bg-[#E8F0EB] px-2 py-1 rounded-full" x-text="detail?.type"></span>
@@ -57,14 +77,20 @@
           </div>
           <h3 class="text-xl font-semibold font-display text-[#8f172d] truncate" x-text="detail?.title"></h3>
         </div>
-        <button @click="closeDetail()" type="button" class="shrink-0 text-stone-400 hover:text-stone-700 text-2xl leading-none">&times;</button>
+        <button @click="closeDetail()" type="button" class="shrink-0 grid h-9 w-9 place-items-center rounded-full bg-stone-100 text-stone-500 hover:bg-stone-200 hover:text-stone-800 text-xl leading-none" aria-label="Close search detail">&times;</button>
       </div>
 
-      <div class="overflow-y-auto p-4 md:p-6 space-y-5">
+      <nav class="flex gap-1 overflow-x-auto border-b border-[#E7DFCC] bg-white px-4 md:px-6" aria-label="Search detail sections">
+        <template x-for="tab in [{key:'overview',label:'Overview'},{key:'activity',label:'Activity'},{key:'details',label:'Details'}]" :key="tab.key">
+          <button type="button" @click="detailTab = tab.key" class="whitespace-nowrap border-b-2 px-3 py-3 text-xs font-semibold transition" :class="detailTab === tab.key ? 'border-[#8f172d] text-[#8f172d]' : 'border-transparent text-stone-400 hover:text-stone-700'" x-text="tab.label"></button>
+        </template>
+      </nav>
+
+      <div class="overflow-y-auto p-4 md:p-6">
         <!-- Summary -->
-        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2" x-show="detail?.summary">
+        <div x-show="detailTab === 'overview'" x-transition.opacity class="grid grid-cols-2 md:grid-cols-4 gap-2" >
           <template x-for="card in summaryCards()" :key="card.label">
-            <div class="bg-white border border-[#E7DFCC] rounded-lg p-3 min-w-0">
+            <div class="bg-white border border-[#E7DFCC] rounded-xl p-3 md:p-4 min-w-0 shadow-sm">
               <div class="text-[10px] uppercase tracking-wide font-bold text-stone-400" x-text="card.label"></div>
               <div class="text-sm md:text-base font-semibold font-mono text-[#8f172d] mt-1 break-words" x-text="card.value"></div>
             </div>
@@ -72,7 +98,7 @@
         </div>
 
         <!-- Period analytics -->
-        <section x-show="detail?.periods?.length" class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden">
+        <section x-show="detailTab === 'activity' && detail?.periods?.length" x-transition.opacity class="bg-white border border-[#E7DFCC] rounded-2xl overflow-hidden">
           <div class="px-4 py-3 border-b border-[#E7DFCC]">
             <h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Period performance</h4>
             <p class="text-[10px] text-stone-400 mt-0.5" x-text="detail?.type === 'Raw material' || detail?.type === 'Procurement vendor' ? 'Procurement activity and procurement-price movement inside each reporting window.' : 'Operational activity and historical financial performance inside each reporting window.'"></p>
@@ -109,6 +135,7 @@
           </div>
         </section>
 
+        <div x-show="detailTab === 'details'" x-transition.opacity>
         <!-- Raw material -->
         <template x-if="detail?.type === 'Raw material'">
           <div class="space-y-5">
@@ -167,6 +194,7 @@
         <template x-if="detail?.type === 'Customer region' || detail?.type === 'Customer group'">
           <section class="bg-white border border-[#E7DFCC] rounded-xl overflow-hidden"><div class="px-4 py-3 border-b border-[#E7DFCC]"><h4 class="text-xs uppercase tracking-wider font-bold text-[#8f172d]">Customers in this segment</h4></div><div class="p-4 flex flex-wrap gap-2"><template x-for="name in detail.customers" :key="name"><span class="text-xs bg-stone-100 text-stone-700 px-2.5 py-1 rounded-full" x-text="name"></span></template></div></section>
         </template>
+        </div>
       </div>
 
       <div class="px-5 py-3 border-t border-[#E7DFCC] bg-white flex justify-end">
@@ -176,8 +204,15 @@
   </div>
 </div>
 
-<div class="flex flex-wrap gap-3 mb-4">
-  <a href="{% url 'inventory' %}#raw" class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[-2px_-2px_8px_#000000d2] p-4 flex-1 min-w-[140px]">
+<nav class="sticky top-0 z-20 mb-4 flex gap-1 overflow-x-auto rounded-2xl border border-[#E7DFCC] bg-[#FFFDF8]/95 p-1.5 shadow-sm backdrop-blur" aria-label="Dashboard sections">
+  <button type="button" @click="dashboardView = 'overview'" class="flex-1 min-w-[100px] rounded-xl px-4 py-2.5 text-xs font-semibold transition" :class="dashboardView === 'overview' ? 'bg-[#8f172d] text-white shadow-sm' : 'text-stone-500 hover:bg-white'">Overview</button>
+  <button type="button" @click="dashboardView = 'insights'" class="flex-1 min-w-[100px] rounded-xl px-4 py-2.5 text-xs font-semibold transition" :class="dashboardView === 'insights' ? 'bg-[#8f172d] text-white shadow-sm' : 'text-stone-500 hover:bg-white'">Insights</button>
+  <button type="button" @click="dashboardView = 'stock'" class="flex-1 min-w-[100px] rounded-xl px-4 py-2.5 text-xs font-semibold transition" :class="dashboardView === 'stock' ? 'bg-[#8f172d] text-white shadow-sm' : 'text-stone-500 hover:bg-white'">Stock</button>
+</nav>
+
+<section x-show="dashboardView === 'overview'" x-transition.opacity>
+<div class="grid grid-cols-2 lg:grid-cols-5 gap-2 md:gap-3 mb-4">
+  <a href="{% url 'inventory' %}#raw" class="dashboard-surface dashboard-kpi rounded-2xl p-3 md:p-4">
     <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#8f172d] block mb-1 gap-2">
       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0897cf" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-grain">
         <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M3.5 9.5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M8.5 4.5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
@@ -188,7 +223,7 @@
     </div>
     <div class="text-2xl font-semibold mt-1 font-mono text-[#8f172d]">{{ raw_count }}</div>
   </a>
-  <a href="{% url 'inventory' %}#finished" class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[-2px_-2px_8px_#000000d2] p-4 flex-1 min-w-[140px]">
+  <a href="{% url 'inventory' %}#finished" class="dashboard-surface dashboard-kpi rounded-2xl p-3 md:p-4">
     <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#8f172d] block mb-1 gap-2">
       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fdcf03" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-burger">
         <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M4 15h16a4 4 0 0 1 -4 4h-8a4 4 0 0 1 -4 -4" /><path d="M12 4c3.783 0 6.953 2.133 7.786 5h-15.572c.833 -2.867 4.003 -5 7.786 -5" /><path d="M5 12h14" />
@@ -197,7 +232,7 @@
     </div>
     <div class="text-2xl font-semibold mt-1 font-mono text-[#8f172d]">{{ goods_count }}</div>
   </a>
-  <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] p-4 flex-1 min-w-[140px]">
+  <div class="dashboard-surface dashboard-kpi rounded-2xl p-3 md:p-4">
     <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#8f172d] block mb-1 gap-2">
       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fa029b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-cash-register">
         <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M21 15h-2.5c-.398 0 -.779 .158 -1.061 .439c-.281 .281 -.439 .663 -.439 1.061c0 .398 .158 .779 .439 1.061c.281 .281 .663 .439 1.061 .439h1c.398 0 .779 .158 1.061 .439c.281 .281 .439 .663 .439 1.061c0 .398 -.158 .779 -.439 1.061c-.281 .281 -.663 .439 -1.061 .439h-2.5" />
@@ -209,7 +244,7 @@
     <div class="text-2xl font-semibold mt-1 font-mono text-emerald-700">{{ today_revenue|money:biz.currency_symbol }}</div>
     <div class="text-xs text-stone-400 mt-0.5">{{ today_sales_count }} transaction{{ today_sales_count|pluralize }}</div>
   </div>
-  <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[2px_-2px_8px_#000000d2] p-4 flex-1 min-w-[140px]">
+  <div class="dashboard-surface dashboard-kpi rounded-2xl p-3 md:p-4">
     <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#8f172d] block mb-1 gap-2">
       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#dd2f3e88" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-loader-4">
         <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M12 21v-3m6.36 .36l-2.12 -2.12m4.76 -4.24h-3m.36 -6.36l-2.12 2.12m-4.24 -4.76v3m-6.36 -.36l2.12 2.12m-3.76 4.24h2m1 4.95l.71 -.71" />
@@ -218,7 +253,7 @@
     </div>
     <div class="text-2xl font-semibold mt-1 font-mono {% if vertical_ui.uses_production and pending_orders_count or not vertical_ui.uses_production and open_purchase_orders_count %}text-rose-700{% else %}text-[#8f172d]{% endif %}">{% if vertical_ui.uses_production %}{{ pending_orders_count }}{% else %}{{ open_purchase_orders_count }}{% endif %}</div>
   </div>
-  <div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[2px_-2px_8px_#000000d2] p-4 flex-1 min-w-[140px]">
+  <div class="dashboard-surface dashboard-kpi col-span-2 rounded-2xl p-3 md:p-4 lg:col-span-1">
     <div class="text-xs flex items-center uppercase tracking-wider font-bold text-[#8f172d] block mb-1 gap-2">
       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2825ec" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-circle-dashed-check">
         <path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M8.56 3.69a9 9 0 0 0 -2.92 1.95" /><path d="M3.69 8.56a9 9 0 0 0 -.69 3.44" /><path d="M3.69 15.44a9 9 0 0 0 1.95 2.92" /><path d="M8.56 20.31a9 9 0 0 0 3.44 .69" />
@@ -233,7 +268,7 @@
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6 items-stretch">
   <!-- Interactive Alerts Status Card -->
-  <div x-data="{ openModal: null }" class="lg:col-span-1 border-[2px] border-[#f59f00] bg-white rounded-xl p-5 shadow-[-2px_-2px_8px_#000000d2] flex flex-col justify-between h-full">
+  <div x-data="{ openModal: null }" class="dashboard-surface lg:col-span-1 rounded-2xl p-4 md:p-5 flex flex-col justify-between h-full border-l-4 border-l-amber-400">
     <div>
       <span class="text-xs flex items-center uppercase tracking-wider font-bold text-[#8f172d] block mb-1 gap-2">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-heart-rate-monitor">
@@ -411,7 +446,7 @@
     </div>
   </div>
 
-  <div x-data="{ financialScope: null }" class="lg:col-span-2 bg-[#F5EFE0] border border-[#E7DFCC] rounded-xl shadow-[2px_-2px_8px_#000000d2] p-5 h-full">
+  <div class="dashboard-surface lg:col-span-2 rounded-2xl p-4 md:p-5 h-full">
     <!-- Card Header -->
     <div class="flex items-center justify-between border-[#E7DFCC]/60 pb-2 mb-2">
       <h3 class="text-xs flex items-center justify-between uppercase tracking-tight font-bold text-[#8f172d] mb-1 gap-2">
@@ -420,7 +455,7 @@
           <path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1l0 -10" /><path d="M7 20l10 0" />
           <path d="M9 16l0 4" /><path d="M15 16l0 4" /><path d="M8 12l3 -3l2 2l3 -3" />
         </svg> 
-        Production & Revenue Analytics
+        Operational pulse
       </h3>
       <span class="text-[11px] font-medium text-stone-400 bg-stone-100 rounded-full px-2 py-0.5">Live Tracking</span>
     </div>
@@ -435,20 +470,15 @@
         </div>
 
         <div class="flex flex-col">
-          <span class="text-xs text-stone-400 font-medium">
-            Sales Revenue
-          </span>
+          <span class="text-xs text-stone-400 font-medium">{% if vertical_ui.uses_production %}Goods finished{% else %}Product units received{% endif %}</span>
 
           <span class="text-xl font-mono font-bold text-[#b168b8] tracking-tight">
-            {{ monthly_revenue|money:biz.currency_symbol }}
+            {{ monthly_units|num }}
           </span>
         </div>
 
         <div class="flex items-center justify-between text-xs pt-1 border-t border-dashed border-[#E7DFCC]">
-          <span class="text-stone-500">Goods Finished</span>
-          <span class="font-mono font-semibold text-stone-700 bg-stone-100/80 px-1.5 py-0.5 rounded">
-            {{ monthly_units|num }}
-          </span>
+          <span class="text-stone-500">Financial detail</span><span class="font-semibold text-[#8f172d]">Open →</span>
         </div>
       </button>
 
@@ -459,28 +489,25 @@
         </div>
 
         <div class="flex flex-col">
-          <span class="text-xs text-stone-400 font-medium">
-            Sales Revenue
-          </span>
+          <span class="text-xs text-stone-400 font-medium">{% if vertical_ui.uses_production %}Goods finished{% else %}Product units received{% endif %}</span>
 
           <span class="text-xl font-mono font-bold text-[#b61dc4] tracking-tight">
-            {{ yearly_revenue|money:biz.currency_symbol }}
+            {{ yearly_units|num }}
           </span>
         </div>
 
         <div class="flex items-center justify-between text-xs pt-1 border-t border-dashed border-[#E7DFCC]">
-          <span class="text-stone-500">Goods Finished</span>
-          <span class="font-mono font-semibold text-stone-700 bg-stone-100/80 px-1.5 py-0.5 rounded">
-            {{ yearly_units|num }}
-          </span>
+          <span class="text-stone-500">Financial detail</span><span class="font-semibold text-[#8f172d]">Open →</span>
         </div>
       </button>
 
     </div>
   </div>
 </div>
+</section>
 
-<div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-xl shadow-[0_2px_8px_#000000d2] p-5 mb-6">
+<section x-show="dashboardView === 'insights'" x-cloak x-transition.opacity>
+<div class="dashboard-surface rounded-2xl p-4 md:p-5 mb-6">
   <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
     <div>
       <h3 class="text-xs flex items-center uppercase tracking-tight font-bold text-[#8f172d] block mb-1 gap-2">
@@ -521,7 +548,7 @@
           <button type="button" class="financial-period-btn px-2.5 py-1 text-[10px] rounded-md text-stone-600 hover:bg-[#4D1C25] hover:text-white" data-period="year">Year</button>
         </div>
       </div>
-      <div class="relative h-[300px] w-full">
+      <div class="relative h-[240px] md:h-[300px] w-full">
         <canvas id="financial-outlook-chart"></canvas>
       </div>
     </div>
@@ -776,8 +803,10 @@
     </div>
   </div>
 </div>
+</section>
 
-<div class="bg-[#F5EFE0] border border-[#E7DFCC] rounded-lg shadow-[0_2px_8px_#000000d2] p-4 mb-6">
+<section x-show="dashboardView === 'stock'" x-cloak x-transition.opacity>
+<div class="dashboard-surface rounded-2xl p-4 md:p-5 mb-6">
   <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
     <h3 class="text-xs flex items-center justify-between uppercase tracking-tight font-bold text-[#8f172d] mb-1 gap-2">
       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ec2546" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-trending-up-3">
@@ -904,17 +933,19 @@
   <p class="text-sm text-stone-400 italic">Pick an item above to see its opening and closing stock for today, this week, month, quarter, and year — one comprehensive view instead of a card per item.</p>
   {% endif %}
 </div>
+</section>
 
-<div class="grid sm:grid-cols-3 gap-3 mt-6">
+<div class="hidden sm:grid sm:grid-cols-3 gap-3 mt-6">
   <a href="{% url 'po_add' %}" class="p-4 rounded-lg bg-[#8f172d] text-white text-center hover:bg-[#4D1C25] shadow-[0_2px_8px_#000000d2]">
     <div class="font-medium text-sm">Log a Purchase</div><div class="text-xs text-[#D8E3DB]">Record incoming stock from a supplier</div>
   </a>
-  <a href="{% url 'order_add' %}" class="p-4 rounded-lg bg-[#8f172d] text-white text-center hover:bg-[#4D1C25] shadow-[0_2px_8px_#000000d2]">
+  {% if vertical_ui.uses_production %}<a href="{% url 'order_add' %}" class="p-4 rounded-lg bg-[#8f172d] text-white text-center hover:bg-[#4D1C25] shadow-sm">
     <div class="font-medium text-sm">New Order</div><div class="text-xs text-[#D8E3DB]">Customer order or physical store restock</div>
-  </a>
+  </a>{% else %}<a href="{% url 'inventory' %}#finished" class="p-4 rounded-lg bg-[#8f172d] text-white text-center hover:bg-[#4D1C25] shadow-sm"><div class="font-medium text-sm">Review Product Stock</div><div class="text-xs text-[#D8E3DB]">See arrivals, balances and reorder status</div></a>{% endif %}
   <a href="{% url 'sale_add' %}" class="p-4 rounded-lg bg-[#8f172d] text-white text-center hover:bg-[#4D1C25] shadow-[0_2px_8px_#000000d2]">
     <div class="font-medium text-sm">Record a Sale</div><div class="text-xs text-[#D8E3DB]">Physical store stock, immediate</div>
   </a>
+</div>
 </div>
 
 {{ financial_json|json_script:"financial-data" }}
@@ -1207,6 +1238,7 @@ function dashboardSearch() {
     showResults: false,
     loading: false,
     detail: null,
+    detailTab: 'overview',
     currency: '{{ biz.currency_symbol|escapejs }}',
 
     async search() {
@@ -1234,6 +1266,7 @@ function dashboardSearch() {
     async open(result) {
       this.showResults = false;
       this.loading = true;
+      this.detailTab = 'overview';
       try {
         const url = new URL('{% url 'dashboard_search_detail' %}', window.location.origin);
         url.searchParams.set('type', result.type);

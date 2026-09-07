@@ -1,0 +1,32 @@
+{% extends "base.html" %}{% block content %}
+<div class="max-w-4xl">
+  <div class="flex flex-wrap items-end justify-between gap-3 mb-5">
+    <div><h1 class="text-2xl font-semibold font-display text-[#8f172d]">Commerce payment settings</h1><p class="text-sm text-stone-500">Configure tenant-specific methods, server-side credentials and the CashAccount that receives each verified payment.</p></div>
+    <a href="{% url 'commerce_dashboard' %}" class="px-3 py-2 border border-[#D9CFB4] rounded-md text-sm">Back to Commerce</a>
+  </div>
+  <div class="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><strong>Credentials are write-only here.</strong> Saved secrets are never returned by the storefront API. Leaving a credential blank preserves its current value.</div>
+  <form method="post" class="space-y-5">{% csrf_token %}
+    {% if form.non_field_errors %}<div class="rounded-lg bg-rose-50 border border-rose-200 p-3 text-sm text-rose-700">{{ form.non_field_errors }}</div>{% endif %}
+    <section class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-xl p-5">
+      <h2 class="font-semibold mb-3">Settlement currency</h2>{% include '_field.html' with field=form.currency %}
+    </section>
+    <section class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-xl p-5">
+      <div class="flex items-center gap-2 mb-3">{{ form.paystack_enabled }}<label for="{{ form.paystack_enabled.id_for_label }}" class="font-semibold">Enable Paystack</label></div>
+      <div class="grid md:grid-cols-2 gap-3">{% include '_field.html' with field=form.paystack_secret_key %}{% include '_field.html' with field=form.paystack_account %}</div>
+    </section>
+    <section class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-xl p-5">
+      <div class="flex items-center gap-2 mb-3">{{ form.monnify_enabled }}<label for="{{ form.monnify_enabled.id_for_label }}" class="font-semibold">Enable Monnify</label></div>
+      <div class="grid md:grid-cols-2 gap-3">{% include '_field.html' with field=form.monnify_api_key %}{% include '_field.html' with field=form.monnify_secret_key %}{% include '_field.html' with field=form.monnify_contract_code %}{% include '_field.html' with field=form.monnify_base_url %}{% include '_field.html' with field=form.monnify_account %}</div>
+    </section>
+    <section class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-xl p-5">
+      <div class="flex items-center gap-2 mb-3">{{ form.bank_transfer_enabled }}<label for="{{ form.bank_transfer_enabled.id_for_label }}" class="font-semibold">Enable bank transfer</label></div>
+      <div class="grid md:grid-cols-2 gap-3">{% include '_field.html' with field=form.bank_name %}{% include '_field.html' with field=form.bank_account_name %}{% include '_field.html' with field=form.bank_account_number %}{% include '_field.html' with field=form.bank_cash_account %}<div class="md:col-span-2">{% include '_field.html' with field=form.bank_instructions %}</div></div>
+    </section>
+    <section class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-xl p-5">
+      <div class="flex items-center gap-2 mb-3">{{ form.cash_enabled }}<label for="{{ form.cash_enabled.id_for_label }}" class="font-semibold">Enable cash</label></div>
+      <div class="grid md:grid-cols-2 gap-3">{% include '_field.html' with field=form.cash_account %}{% include '_field.html' with field=form.cash_instructions %}</div>
+    </section>
+    <button class="px-4 py-2.5 bg-[#8f172d] text-white rounded-md text-sm">Save payment settings</button>
+  </form>
+</div>
+{% endblock %}

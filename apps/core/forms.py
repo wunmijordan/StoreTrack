@@ -20,6 +20,7 @@ class BusinessForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         for f in self.fields.values():
             f.widget.attrs["class"] = INPUT_CLS
+        self.fields["vertical"].label = "Service"
         self.fields["background_color"].label = "Navigation / background color"
         self.fields["accent_color"].label = "Button / action color"
         self.fields["restaurant_table_service"].widget.attrs["class"] = "h-4 w-4 accent-[#8f172d]"

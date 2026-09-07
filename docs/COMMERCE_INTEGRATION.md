@@ -66,6 +66,15 @@ Order submission should require an idempotency key. Product and order
 identifiers exposed publicly should be non-sequential UUIDs. Submitted totals
 must be ignored and recalculated from StoreTrack pricing.
 
+The human-facing `number` is generated from a locked per-business sequence and
+may therefore repeat across different tenants (for example, each tenant may
+have `WEB-000001`). Integrations must identify an order by `business_slug` plus
+its StoreTrack `id` UUID, never by `number` alone.
+
+The product payload also exposes customer-facing metadata such as `image_url`
+and an `order_modes` array containing vertical-specific labels, StoreTrack
+channel prices, fulfilment routes, and per-mode quantity limits.
+
 ### 4. Platform connectors
 
 Shopify-, WooCommerce- or restaurant-platform-style connectors translate each
@@ -235,3 +244,232 @@ scale later requires PostgreSQL.
 The safest first public release is **hosted order -> pending review -> existing
 production or Market Stock flow**. Existing bakery, restaurant and general
 back-office behavior remains unchanged until a tenant enables the new channel.
+
+## Implemented commerce boundary (September 2026)
+
+StoreTrack now implements the API-first version of this plan while retaining the hosted storefront and simple **Order Now** link as alternative entry points.
+
+### Commerce is a subscription module
+
+`commerce` is a normal module in `RoleModulePermission.MODULE_CHOICES` and therefore passes through the same three-layer access stack:
+
+1. `BusinessModuleAccess` commercial entitlement;
+2. role permission;
+3. optional per-user override.
+
+An explicit `BusinessModuleAccess.enabled=False` remains the hard ceiling. The seeded plan matrix enables Commerce only for BUSINESS PRO. Existing pre-subscription businesses receive an explicit disabled Commerce entitlement during migration, so deploying the public routes does not publish a live tenant accidentally.
+
+### Public product publication
+
+`commerce.StorefrontProduct` is a publication/configuration layer around the existing `inventory.FinishedGood`. It does not duplicate stock. Products are unpublished by default and can independently offer Physical Store/direct, Online and Distribution/bulk order modes. Each mode exposes its StoreTrack-resolved channel price and minimum quantity. Distribution/bulk has a dedicated per-product minimum.
+
+For production-centric services, `FinishedGood.physical_saleable_stock` is the immediate storefront availability. Distribution Market Stock remains a separate pool. The existing explicit Market Stock → Physical Store transfer updates the same FinishedGood shelf balance/transfer allowance, so the storefront/API sees the new availability automatically without a commerce-specific stock sync.
+
+### Sales channel versus fulfilment route
+
+The website's commercial choice is preserved on `CommerceIntake.sales_channel` as `physical_store`, `online`, or `distribution`. `CommerceIntake.ordering_mode` remains the internal fulfilment route and is derived by StoreTrack:
+
+- production businesses: Physical Store/direct uses available stock, while Online and Distribution/bulk create made-to-order Production demand after staff acceptance;
+- wholesale and retail businesses: all three channel prices use procured finished stock and never invoke Production.
+
+Legacy callers may still send `ordering_mode: stock|preorder`; those map to Physical Store/direct and Online. New callers use `order_mode`.
+
+The customer choice is not inferred from low stock. For an ordinary Order with insufficient stock, the tenant's `CommerceSettings.insufficient_stock_policy` is one of:
+
+1. **reduce** — accept only the quantity currently available;
+2. **reject** — reject the request without mutating stock/production;
+3. **invite_preorder** — keep the intake waiting for the customer to switch the request to Pre-order;
+4. **split** — fulfil the available shelf quantity and create a Pending Online Production Order for the balance.
+
+Stock is rechecked under transaction lock when an intake is accepted. Pending intake does not reserve or deduct inventory.
+
+### API contract
+
+The initial versioned endpoints are:
+
+```text
+GET  /api/v1/storefronts/{business_slug}/products
+POST /api/v1/storefronts/{business_slug}/orders
+GET  /api/v1/storefronts/{business_slug}/orders/{public_uuid}
+POST /api/v1/storefronts/{business_slug}/orders/{public_uuid}/preorder
+```
+
+Product GET is public when Commerce/API are enabled. Order create/status mutation uses a tenant-bound `CommerceIntegration` API key supplied as `X-StoreTrack-Key`. Order creation also requires an `Idempotency-Key`; duplicate retries return the existing intake instead of creating another operational order.
+
+Submitted totals are ignored. StoreTrack resolves the selected channel price itself and snapshots it into `CommerceIntakeItem`.
+
+### Hosted storefront and Order Now
+
+A tenant with no website can enable:
+
+```text
+/shop/{business_slug}/
+```
+
+A business with a simple existing site can use the same URL as its **Order Now** destination. The hosted route writes only Commerce Intake records; staff acceptance performs the stock/production transition.
+
+### Payment state
+
+Commerce payment state is separate from order and fulfilment state. Paystack and Monnify initialize and verify server-side. Bank-transfer claims remain awaiting verification, and cash remains pending, until an authorized Finance user confirms actual receipt. Verification posts one cash-ledger entry; existing or later-created Sales receive matching customer-payment allocations without a second cash entry. Reversal retains the original receipt and posts compensating records.
+
+## Headless API versus platform webhook / connector
+
+These are different integration directions that converge on the same Commerce Intake:
+
+- **Headless API**: a website/app controlled by the tenant actively calls StoreTrack. It fetches the StoreTrack catalogue, submits orders with the generated API key, and checks order status. This is the preferred route for a custom bakery/restaurant website.
+- **Platform webhook / connector**: an external commerce platform or adapter pushes events into StoreTrack after an order occurs there. The connector sends StoreTrack's normalized order payload to `/api/v1/connectors/{business_slug}/{integration_id}/orders` and signs the raw request body with HMAC-SHA256 using the generated webhook secret in `X-StoreTrack-Signature`.
+
+The connector boundary is intentionally normalized rather than embedding Shopify/WooCommerce-specific payloads into StoreTrack's core service. Provider-specific adapters can translate their payload into this contract. Both routes create `CommerceIntake` and therefore retain the same server-side pricing, tenant policy, stock/pre-order routing, idempotency and audit behavior.
+
+## Independent commerce switches
+
+Commerce Settings exposes independent toggles for:
+
+- Commerce master switch;
+- Hosted storefront;
+- Order Now link;
+- Headless API;
+- Platform webhook / connector.
+
+The BusinessModuleAccess Commerce entitlement remains the commercial hard ceiling above all of these switches. Turning on a surface never bypasses a disabled Commerce module. Integration credentials are only created for a surface that has been enabled.
+
+## Commerce master switch
+
+`CommerceSettings.enabled` is the global runtime gate for a tenant's commerce surfaces. Hosted Storefront, Order Now, Headless API and Platform Connector toggles retain their individual configuration while the master switch is off, but public access/order intake through all of those surfaces is blocked. Re-enabling the master switch restores only the individually enabled surfaces; it does not change their saved toggles.
+
+## Exact website integration flow
+
+Keep `X-StoreTrack-Key` in the website server environment; never expose it in
+browser JavaScript. The website displays StoreTrack data but does not decide
+authoritative prices, totals, payment success, or fulfilment routing.
+
+### 1. Fetch products and render order modes
+
+```http
+GET /api/v1/storefronts/{business_slug}/products
+```
+
+Each product includes an `order_modes` array. Render its objects directly:
+
+```json
+{
+  "code": "distribution",
+  "label": "Distribution Order",
+  "price": "2200.00",
+  "min_quantity": "20.00",
+  "max_quantity": null,
+  "fulfilment_mode": "preorder",
+  "available_now": null,
+  "lead_time": "24 hours"
+}
+```
+
+The three possible codes are `physical_store`, `online`, and `distribution`.
+Use the supplied vertical-specific `label`. Display the supplied `price`,
+minimum, maximum, availability and lead time. Do not infer whether Production
+is used; the returned `fulfilment_mode` is authoritative.
+
+### 2. Create an order from the website server
+
+```http
+POST /api/v1/storefronts/{business_slug}/orders
+X-StoreTrack-Key: <server-side credential>
+Idempotency-Key: <one stable UUID per checkout submission>
+Content-Type: application/json
+```
+
+```json
+{
+  "order_mode": "distribution",
+  "external_order_id": "website-order-uuid",
+  "customer": {
+    "name": "Customer name",
+    "email": "customer@example.com",
+    "phone": "+234...",
+    "address": "Delivery address"
+  },
+  "service_mode": "delivery",
+  "table_reference": "",
+  "items": [
+    {"product_id": "product-uuid", "quantity": "20"}
+  ]
+}
+```
+
+Do not send `total`, `unit_price`, `amount`, `fulfilment_mode`, or a Production
+identifier. StoreTrack returns `id`, `number`, `order_mode`, its derived
+`fulfilment_mode`, and the authoritative `total`.
+
+Persist `business_slug` and the returned UUID `id` as the integration identity.
+Treat `number` as a tenant-local display/reference value only.
+
+If Distribution/bulk quantity is too low, StoreTrack returns HTTP 400:
+
+```json
+{
+  "code": "minimum_not_met",
+  "detail": "...",
+  "suggested_order_modes": [
+    {"code": "physical_store", "label": "Physical Store / Pickup"},
+    {"code": "online", "label": "Online Order"}
+  ]
+}
+```
+
+Show those alternatives and submit a new checkout with a new idempotency key
+after the customer chooses one. Never silently change their channel.
+
+### 3. Initialize payment from the website server
+
+```http
+POST /api/v1/storefronts/{business_slug}/orders/{order_id}/payments/initiate
+X-StoreTrack-Key: <server-side credential>
+Idempotency-Key: <one stable UUID per payment selection>
+Content-Type: application/json
+```
+
+```json
+{
+  "method": "paystack",
+  "return_url": "https://your-website.example/orders/{order_id}/payment/return/"
+}
+```
+
+Allowed methods are `paystack`, `monnify`, `bank_transfer`, and `cash`. Never
+send an amount. For a gateway, redirect only to the returned
+`authorization_url`. For bank transfer, show `bank_account`, `instructions`,
+and the StoreTrack `reference`. For cash, show the instructions and keep the UI
+pending.
+
+### 4. Submit bank evidence without self-confirming it
+
+```http
+POST /api/v1/storefronts/{business_slug}/orders/{order_id}/payments/current/claim
+X-StoreTrack-Key: <server-side credential>
+Content-Type: application/json
+
+{"payer_name": "Customer name", "transfer_reference": "bank/session/reference"}
+```
+
+Treat `awaiting_verification` as pending. Only an authorized StoreTrack user can
+confirm it after checking actual credit.
+
+### 5. Poll StoreTrack after a browser return
+
+The website return page never marks payment paid. It polls:
+
+```http
+GET /api/v1/storefronts/{business_slug}/orders/{order_id}/payments/current
+GET /api/v1/storefronts/{business_slug}/orders/{order_id}
+X-StoreTrack-Key: <server-side credential>
+```
+
+Use `payment.status`, `amount_paid`, and `balance`. Show order `status`, payment
+status, and `fulfilment_state` separately.
+
+Gateway webhook URLs point directly to StoreTrack, not the website:
+
+```text
+/api/v1/storefronts/{business_slug}/payments/paystack/webhook
+/api/v1/storefronts/{business_slug}/payments/monnify/webhook
+```

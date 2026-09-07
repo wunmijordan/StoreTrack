@@ -103,6 +103,7 @@ class RoleModulePermission(models.Model):
         ("finance", "Finance"),
         ("reports", "Reports"),
         ("users", "User Management"),
+        ("commerce", "Commerce"),
     ]
     role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="module_permissions")
     module = models.CharField(max_length=30, choices=MODULE_CHOICES)
@@ -119,17 +120,19 @@ class RoleModulePermission(models.Model):
 class BusinessModuleAccess(models.Model):
     """Business-level module entitlement boundary.
 
-    All modules are enabled today. A future plan/pricing layer can update
-    these rows without rewriting role or per-user permissions. Missing rows
-    intentionally mean enabled, preserving access for pre-SaaS tenants.
+    Subscription plans materialize into these rows without rewriting role or
+    per-user permissions. Missing rows intentionally mean enabled for pre-SaaS
+    tenants; explicit enabled=False is the commercial hard ceiling.
     """
     SOURCE_DEFAULT = "default"
     SOURCE_LEGACY = "legacy"
     SOURCE_PLAN = "plan"
+    SOURCE_FOUNDER = "founder"
     SOURCE_CHOICES = [
-        (SOURCE_DEFAULT, "Vertical default"),
+        (SOURCE_DEFAULT, "Service default"),
         (SOURCE_LEGACY, "Legacy full access"),
         (SOURCE_PLAN, "Subscription plan"),
+        (SOURCE_FOUNDER, "Founder lifetime grant"),
     ]
 
     business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="module_access")
@@ -177,3 +180,251 @@ class UserModulePermission(models.Model):
 
     def __str__(self):
         return f"{self.membership.user} — {self.get_module_display()}"
+
+
+class SubscriptionPlan(models.Model):
+    """Commercial plan definition; module entitlements are copied into BusinessModuleAccess."""
+    CODE_STARTER = "starter"
+    CODE_PRODUCTION = "production"
+    CODE_BUSINESS_PRO = "business_pro"
+    CODE_CHOICES = [
+        (CODE_STARTER, "STARTER"),
+        (CODE_PRODUCTION, "PRODUCTION"),
+        (CODE_BUSINESS_PRO, "BUSINESS PRO"),
+    ]
+
+    code = models.CharField(max_length=30, choices=CODE_CHOICES, unique=True)
+    name = models.CharField(max_length=80)
+    monthly_price = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    yearly_discount_percent = models.DecimalField(
+        max_digits=5, decimal_places=2, default=0,
+        help_text="Discount applied to 12 months of the plan when paid yearly.",
+    )
+    additional_service_discount_percent = models.DecimalField(
+        max_digits=5, decimal_places=2, default=30,
+        help_text="Discount from the plan's normal monthly price for each additional service/business profile.",
+    )
+    trial_days = models.PositiveSmallIntegerField(default=30)
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["monthly_price", "id"]
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def yearly_price(self):
+        from decimal import Decimal
+        discount = min(max(self.yearly_discount_percent, Decimal("0")), Decimal("100"))
+        return (self.monthly_price * Decimal("12") * (Decimal("1") - discount / Decimal("100"))).quantize(Decimal("0.01"))
+
+    @property
+    def additional_service_monthly_price(self):
+        from decimal import Decimal
+        discount = min(max(self.additional_service_discount_percent, Decimal("0")), Decimal("100"))
+        return (self.monthly_price * (Decimal("1") - discount / Decimal("100"))).quantize(Decimal("0.01"))
+
+
+class SubscriptionPlanModule(models.Model):
+    LEVEL_NONE = "none"
+    LEVEL_BASIC = "basic"
+    LEVEL_FULL = "full"
+    LEVEL_CHOICES = [(LEVEL_NONE, "Not included"), (LEVEL_BASIC, "Basic"), (LEVEL_FULL, "Full")]
+
+    plan = models.ForeignKey(SubscriptionPlan, on_delete=models.CASCADE, related_name="module_entitlements")
+    module = models.CharField(max_length=30, choices=RoleModulePermission.MODULE_CHOICES)
+    enabled = models.BooleanField(default=False)
+    level = models.CharField(max_length=10, choices=LEVEL_CHOICES, default=LEVEL_FULL)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["plan", "module"], name="unique_plan_module")]
+        ordering = ["module"]
+
+
+class BusinessSubscription(models.Model):
+    STATUS_TRIAL = "trial"
+    STATUS_ACTIVE = "active"
+    STATUS_EXPIRED = "expired"
+    STATUS_FOUNDER = "founder"
+    STATUS_CHOICES = [
+        (STATUS_TRIAL, "Free trial"),
+        (STATUS_ACTIVE, "Paid"),
+        (STATUS_EXPIRED, "Expired"),
+        (STATUS_FOUNDER, "Founder lifetime"),
+    ]
+
+    primary_business = models.OneToOneField(Business, on_delete=models.CASCADE, related_name="subscription")
+    plan = models.ForeignKey(SubscriptionPlan, on_delete=models.PROTECT, related_name="subscriptions")
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=STATUS_TRIAL)
+    started_at = models.DateTimeField(auto_now_add=True)
+    trial_ends_at = models.DateTimeField(null=True, blank=True)
+    paid_until = models.DateTimeField(null=True, blank=True)
+    founder_lifetime = models.BooleanField(default=False)
+    founder_granted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="founder_grants_made"
+    )
+    founder_granted_at = models.DateTimeField(null=True, blank=True)
+    founder_note = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+        ordering = ["primary_business__name"]
+
+    def __str__(self):
+        return f"{self.primary_business} — {self.plan.name}"
+
+    @property
+    def expires_at(self):
+        if self.founder_lifetime:
+            return None
+        return self.trial_ends_at if self.status == self.STATUS_TRIAL else self.paid_until
+
+    @property
+    def days_to_expiry(self):
+        from django.utils import timezone
+        expiry = self.expires_at
+        if not expiry:
+            return None
+        delta = expiry - timezone.now()
+        return max(0, delta.days + (1 if delta.seconds else 0))
+
+    @property
+    def is_expiring_soon(self):
+        days = self.days_to_expiry
+        return days is not None and days <= 7
+
+    @property
+    def is_effectively_active(self):
+        if self.founder_lifetime:
+            return True
+        from django.utils import timezone
+        expiry = self.expires_at
+        return bool(expiry and expiry >= timezone.now() and self.status in {self.STATUS_TRIAL, self.STATUS_ACTIVE})
+
+    @property
+    def effective_status_label(self):
+        if self.founder_lifetime:
+            return "Founder lifetime"
+        if not self.is_effectively_active:
+            return "Expired"
+        return self.get_status_display()
+
+    @property
+    def trial_status_label(self):
+        if self.status == self.STATUS_TRIAL and self.trial_ends_at:
+            return f"Trial · ends {self.trial_ends_at:%d %b %Y}"
+        return self.effective_status_label
+
+    @property
+    def monthly_total(self):
+        from decimal import Decimal
+        total = Decimal(self.plan.monthly_price or 0)
+        extras = max(0, self.services.count() - 1)
+        return (total + Decimal(extras) * self.plan.additional_service_monthly_price).quantize(Decimal("0.01"))
+
+
+class SubscriptionService(models.Model):
+    """One service line/business profile billed under a primary subscription."""
+    subscription = models.ForeignKey(BusinessSubscription, on_delete=models.CASCADE, related_name="services")
+    business = models.OneToOneField(Business, on_delete=models.CASCADE, related_name="subscription_service")
+    is_primary = models.BooleanField(default=False)
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["subscription"], condition=models.Q(is_primary=True), name="one_primary_service_per_subscription"
+            )
+        ]
+        ordering = ["-is_primary", "business__name"]
+
+    @property
+    def service_type(self):
+        return self.business.vertical
+
+
+class BusinessFeatureAccess(models.Model):
+    """Feature-depth entitlement below a module, e.g. Reports basic vs full."""
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="feature_access")
+    feature = models.CharField(max_length=60)
+    enabled = models.BooleanField(default=False)
+    source = models.CharField(max_length=12, choices=BusinessModuleAccess.SOURCE_CHOICES, default=BusinessModuleAccess.SOURCE_PLAN)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["business", "feature"], name="unique_business_feature_access")]
+        ordering = ["feature"]
+
+
+class SubscriptionPayment(models.Model):
+    STATUS_PENDING = "pending"
+    STATUS_PAID = "paid"
+    STATUS_FAILED = "failed"
+    STATUS_CANCELLED = "cancelled"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"), (STATUS_PAID, "Paid"),
+        (STATUS_FAILED, "Failed"), (STATUS_CANCELLED, "Cancelled"),
+    ]
+    PROVIDER_PAYSTACK = "paystack"
+    PROVIDER_MONNIFY = "monnify"
+    PROVIDER_MANUAL = "manual"
+    PROVIDER_CHOICES = [
+        (PROVIDER_PAYSTACK, "Paystack"),
+        (PROVIDER_MONNIFY, "Monnify"),
+        (PROVIDER_MANUAL, "Manual / founder confirmation"),
+    ]
+    CYCLE_MONTHLY = "monthly"
+    CYCLE_YEARLY = "yearly"
+    CYCLE_CHOICES = [(CYCLE_MONTHLY, "Monthly"), (CYCLE_YEARLY, "Yearly")]
+
+    subscription = models.ForeignKey(BusinessSubscription, on_delete=models.CASCADE, related_name="subscription_payments")
+    plan = models.ForeignKey(SubscriptionPlan, on_delete=models.PROTECT)
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    service_count = models.PositiveSmallIntegerField(default=1)
+    months = models.PositiveSmallIntegerField(default=1)
+    billing_cycle = models.CharField(max_length=12, choices=CYCLE_CHOICES, default=CYCLE_MONTHLY)
+    provider = models.CharField(max_length=12, choices=PROVIDER_CHOICES, default=PROVIDER_MANUAL)
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    reference = models.CharField(max_length=80, unique=True)
+    provider_reference = models.CharField(max_length=160, blank=True, default="")
+    checkout_url = models.URLField(blank=True, default="")
+    provider_payload = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    paid_at = models.DateTimeField(null=True, blank=True)
+    notes = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+
+class SubscriptionPaymentSettings(models.Model):
+    """Founder-controlled availability for new StoreTrack plan checkouts.
+
+    Provider credentials remain environment-owned. Disabling a provider stops
+    new payment attempts but deliberately does not invalidate existing ones.
+    """
+
+    paystack_enabled = models.BooleanField(default=True)
+    monnify_enabled = models.BooleanField(default=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="subscription_payment_settings_updates",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "subscription payment setting"
+        verbose_name_plural = "subscription payment settings"
+
+    @classmethod
+    def load(cls):
+        settings_row, _ = cls.objects.get_or_create(pk=1)
+        return settings_row
+
+    def provider_enabled(self, provider):
+        return {
+            SubscriptionPayment.PROVIDER_PAYSTACK: self.paystack_enabled,
+            SubscriptionPayment.PROVIDER_MONNIFY: self.monnify_enabled,
+        }.get(provider, False)

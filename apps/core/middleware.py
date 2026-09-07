@@ -52,7 +52,17 @@ class BusinessMiddleware:
 
 EXEMPT_PREFIXES = (
     "/accounts/login", "/accounts/logout", "/accounts/signup",
-    "/business/settings", "/business/switch", "/admin", "/static",
+    "/business/settings", "/business/switch", "/admin", "/static", "/shop/",
+    "/api/v1/storefronts/", "/api/v1/connectors/",
+    "/users/plans/payment/callback/", "/users/plans/payment/webhook/",
+)
+
+# Billing/recovery surfaces must remain reachable after a subscription expires,
+# without reopening the whole User Management module. Views still enforce Business
+# Admin/superuser authorization themselves.
+SUBSCRIPTION_RECOVERY_PREFIXES = (
+    "/users/plans",
+    "/users/founder/subscriptions",
 )
 
 
@@ -66,6 +76,8 @@ class LoginRequiredMiddleware:
         if not request.user.is_authenticated and not request.path.startswith(EXEMPT_PREFIXES):
             return redirect(f"{reverse('login')}?next={request.path}")
         if request.user.is_authenticated and not request.path.startswith(EXEMPT_PREFIXES):
+            if any(request.path.startswith(prefix) for prefix in SUBSCRIPTION_RECOVERY_PREFIXES):
+                return self.get_response(request)
             if not getattr(request, "business", None):
                 from django.shortcuts import render
                 return render(request, "accounts/no_business_access.html", status=403)
@@ -86,6 +98,7 @@ MODULE_RULES = [
     ("/finance", "finance"),
     ("/reports", "reports"),
     ("/users", "users"),
+    ("/commerce", "commerce"),
     ("/business", "dashboard"),
 ]
 

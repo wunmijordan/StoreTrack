@@ -5,22 +5,22 @@ ROLE_DEFAULTS = {
     CustomUser.ROLE_STOCK_KEEPER: {
         "dashboard": (True, False), "inventory": (True, True), "procurement": (True, True),
         "production": (True, True), "sales": (True, False), "expenses": (False, False),
-        "finance": (False, False), "reports": (True, False), "users": (False, False),
+        "finance": (False, False), "reports": (True, False), "users": (False, False), "commerce": (False, False),
     },
     CustomUser.ROLE_MANAGER: {
         "dashboard": (True, False), "inventory": (True, True), "procurement": (True, True),
         "production": (True, True), "sales": (True, True), "expenses": (True, True),
-        "finance": (True, True), "reports": (True, True), "users": (False, False),
+        "finance": (True, True), "reports": (True, True), "users": (False, False), "commerce": (False, False),
     },
     CustomUser.ROLE_ACCOUNTANT: {
         "dashboard": (True, False), "inventory": (True, False), "procurement": (True, False),
         "production": (True, False), "sales": (True, False), "expenses": (True, True),
-        "finance": (True, True), "reports": (True, True), "users": (False, False),
+        "finance": (True, True), "reports": (True, True), "users": (False, False), "commerce": (False, False),
     },
     CustomUser.ROLE_MD_DIRECTOR: {
         "dashboard": (True, False), "inventory": (True, False), "procurement": (True, False),
         "production": (True, False), "sales": (True, False), "expenses": (True, False),
-        "finance": (True, True), "reports": (True, True), "users": (True, False),
+        "finance": (True, True), "reports": (True, True), "users": (True, False), "commerce": (False, False),
     },
     CustomUser.ROLE_BUSINESS_ADMIN: {m: (True, True) for m, _ in RoleModulePermission.MODULE_CHOICES},
     CustomUser.ROLE_SUPERUSER: {m: (True, True) for m, _ in RoleModulePermission.MODULE_CHOICES},
@@ -74,14 +74,28 @@ def seed_business_modules(business, source=BusinessModuleAccess.SOURCE_DEFAULT):
         BusinessModuleAccess.objects.get_or_create(
             business=business,
             module=module,
-            defaults={"enabled": True, "source": source},
+            defaults={"enabled": module != "commerce", "source": source},
         )
 
 
 def business_has_module(business, module):
-    """Return entitlement without penalising legacy/missing provisioning rows."""
+    """Return the business entitlement. Explicit disabled rows are a hard ceiling.
+
+    Legacy businesses with no subscription keep the historical missing-row=enabled
+    rule. Once a subscription exists, expiry is enforced dynamically even before
+    a scheduled entitlement refresh runs. Dashboard remains available; the
+    dedicated Plans/Billing URLs are separately whitelisted as the recovery surface.
+    """
     if not business:
         return False
+    try:
+        from .models import BusinessSubscription
+        service = getattr(business, "subscription_service", None)
+        subscription = service.subscription if service else BusinessSubscription.objects.filter(primary_business=business).first()
+        if subscription and not subscription.is_effectively_active and module != "dashboard":
+            return False
+    except Exception:
+        pass
     # Production is a vertical capability as well as a plan entitlement.
     # Wholesale and retail keep any historical production data intact, but do
     # not expose or authorize the production workflow while using a stock-first

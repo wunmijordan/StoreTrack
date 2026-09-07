@@ -940,6 +940,11 @@ def order_complete(request, pk):
                             unit_cost=snapshot.unit_cost if snapshot else None,
                             production_batch=batch,
                         )
+                    # Commerce receipts can predate made-to-order production.
+                    # Link them to the newly-created receivable without posting
+                    # another ledger transaction.
+                    from commerce.payment_services import sync_commerce_payments_for_order
+                    sync_commerce_payments_for_order(order)
                     if sale.transaction_type == "paid":
                         record_cash(
                             request.business, request.user, date=sale.date, amount=sale.total,

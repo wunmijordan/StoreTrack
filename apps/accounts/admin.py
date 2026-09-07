@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import BusinessModuleAccess, CustomUser, Role, RoleModulePermission, UserBusiness, UserModulePermission
+from .models import (BusinessFeatureAccess, BusinessModuleAccess, BusinessSubscription, CustomUser, Role, RoleModulePermission, SubscriptionPayment, SubscriptionPaymentSettings, SubscriptionPlan, SubscriptionPlanModule, SubscriptionService, UserBusiness, UserModulePermission)
 
 @admin.register(CustomUser)
 class CustomUserAdmin(UserAdmin):
@@ -19,3 +19,11 @@ admin.site.register(RoleModulePermission)
 admin.site.register(UserBusiness)
 admin.site.register(UserModulePermission)
 admin.site.register(BusinessModuleAccess)
+
+admin.site.register(SubscriptionPlan)
+admin.site.register(SubscriptionPlanModule)
+admin.site.register(BusinessSubscription)
+admin.site.register(SubscriptionService)
+admin.site.register(BusinessFeatureAccess)
+admin.site.register(SubscriptionPayment)
+admin.site.register(SubscriptionPaymentSettings)

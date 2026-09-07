@@ -535,3 +535,17 @@ At production completion, saleable planned offcut may be split across any number
 If no customer is available, all saleable planned offcut automatically remains in general finished-goods stock. If several customers are available, the sum of their allocations may not exceed the saleable planned offcut; any remainder still becomes general stock.
 
 Shared Production Run creation uses a multi-select dropdown of eligible Pending orders rather than a checkbox list. The run still supports adding new customer Orders from its detail page and aggregates each member Order's normal proportional recipe/material requirement at approval.
+
+## Commerce and subscriptions (2026-09)
+
+StoreTrack now has an additive `commerce` app and an account-level subscription entitlement layer. Commerce uses `CommerceIntake` as the only public/external write boundary; API/storefront callers never write Production, Sales, stock or Finance directly. See `docs/COMMERCE_INTEGRATION.md`.
+
+Commercial subscriptions are translated into explicit `BusinessModuleAccess` rows. Existing businesses without a `BusinessSubscription` remain legacy/permissive until they opt in; new signups begin a 30-day STARTER trial. Additional service lines are separate `Business` profiles linked by `SubscriptionService` under the same commercial subscription. See `docs/SUBSCRIPTIONS.md`.
+
+## Subscription checkout and commerce integration surfaces (September 2026 refinement)
+
+Subscription billing is initiated inside StoreTrack. Paystack and Monnify are hosted-checkout providers: StoreTrack creates the subscription payment request, initializes checkout server-side, redirects the tenant to the provider, then verifies callbacks/webhooks server-side before extending entitlements. Provider secrets live in deployment environment variables, not templates or tenant websites.
+
+Plans support monthly and yearly billing. The founder controls monthly price, yearly discount percentage, and additional-service discount percentage centrally. The annual discount applies to the complete 12-month subscription total after additional-service pricing is calculated.
+
+Commerce remains payment-provider neutral at the intake boundary. The four independently switchable public surfaces are the hosted storefront, Order Now link, headless API, and platform connector (all beneath the Commerce master switch and BusinessModuleAccess entitlement). Headless API is for a tenant-owned website/app actively calling StoreTrack; the connector endpoint is for third-party platforms/adapters pushing signed normalized order events into StoreTrack.

@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     'production',
     'sales',
     'expenses',
+    'commerce',
 ]
 
 MIDDLEWARE = [
@@ -143,7 +144,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE= 'Africa/Lagos'
 
 USE_I18N = True
 
@@ -166,3 +167,14 @@ LOGIN_REDIRECT_URL = 'dashboard'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 AUTH_USER_MODEL = "accounts.CustomUser"
+
+# Subscription payment gateways. Keep all secrets in environment variables.
+# Paystack uses the same API base URL for test/live; the key selects the mode.
+PAYSTACK_SECRET_KEY = os.environ.get("PAYSTACK_SECRET_KEY", "")
+PAYSTACK_PUBLIC_KEY = os.environ.get("PAYSTACK_PUBLIC_KEY", "")
+
+# Use https://sandbox.monnify.com while testing and https://api.monnify.com in production.
+MONNIFY_API_KEY = os.environ.get("MONNIFY_API_KEY", "")
+MONNIFY_SECRET_KEY = os.environ.get("MONNIFY_SECRET_KEY", "")
+MONNIFY_CONTRACT_CODE = os.environ.get("MONNIFY_CONTRACT_CODE", "")
+MONNIFY_BASE_URL = os.environ.get("MONNIFY_BASE_URL", "https://api.monnify.com")

@@ -36,3 +36,11 @@ Finance tables and analytics.
 - Is a payment being counted twice through both status and ledger logic?
 - If reversed, is there an audit-preserving compensating transaction?
 - Could deleting an account/record break historical references?
+
+## Subscription gateway rules
+
+- StoreTrack currently supports Paystack and Monnify for SaaS subscription checkout.
+- Provider secret credentials must remain server-side/environment-only.
+- A browser callback or redirect is never sufficient proof of payment; use provider verification and keep `mark_payment_paid()` idempotent.
+- Webhook signature validation precedes provider verification. The entitlement update happens only after authoritative amount/status verification.
+- Yearly billing applies the founder-configured annual discount to the 12-month subscription total, including additional-service pricing.

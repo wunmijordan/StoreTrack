@@ -1,7 +1,7 @@
 from django import forms
 from django.contrib.auth import password_validation
 from core.models import Business
-from .models import CustomUser, Role, RoleModulePermission, UserBusiness, UserModulePermission
+from .models import CustomUser, Role, RoleModulePermission, UserBusiness, UserModulePermission, SubscriptionPlan
 from .services import ensure_permissions, is_business_admin, seed_business_roles
 
 CLS = "w-full rounded-md border border-[#D9CFB4] bg-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#8f172d]/30 focus:border-[#8f172d]"
@@ -9,7 +9,7 @@ CLS = "w-full rounded-md border border-[#D9CFB4] bg-white px-2.5 py-1.5 text-sm 
 
 class BusinessSignupForm(forms.Form):
     business_name = forms.CharField(max_length=120, label="Business name")
-    vertical = forms.ChoiceField(choices=Business.VERTICAL_CHOICES, label="Business type")
+    vertical = forms.ChoiceField(label="Service", choices=Business.VERTICAL_CHOICES)
     fullname = forms.CharField(max_length=160, label="Your full name")
     username = forms.CharField(max_length=80)
     email = forms.EmailField()
@@ -173,3 +173,20 @@ class RolePermissionForm(forms.Form):
                 defaults={"can_view": self.cleaned_data.get(f"{module}_view", False),
                           "can_edit": self.cleaned_data.get(f"{module}_edit", False)}
             )
+
+
+class AddSubscriptionServiceForm(forms.Form):
+    business_name = forms.CharField(max_length=120, widget=forms.TextInput(attrs={"class": CLS}))
+    service_type = forms.ChoiceField(choices=Business.VERTICAL_CHOICES, widget=forms.Select(attrs={"class": CLS}))
+
+
+class FounderGrantForm(forms.Form):
+    business = forms.ModelChoiceField(queryset=Business.objects.none(), widget=forms.Select(attrs={"class": CLS}))
+    plan = forms.ModelChoiceField(queryset=SubscriptionPlan.objects.none(), widget=forms.Select(attrs={"class": CLS}))
+    note = forms.CharField(required=False, max_length=255, widget=forms.TextInput(attrs={"class": CLS}))
+
+    def __init__(self, *args, **kwargs):
+        from .models import SubscriptionPlan
+        super().__init__(*args, **kwargs)
+        self.fields["business"].queryset = Business.objects.order_by("name")
+        self.fields["plan"].queryset = SubscriptionPlan.objects.filter(active=True).order_by("monthly_price", "id")

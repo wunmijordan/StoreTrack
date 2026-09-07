@@ -1,8 +1,13 @@
 from django.contrib import messages
 from django.contrib.auth import login as auth_login
 from django.contrib.auth.decorators import login_required
+from django.conf import settings
 from django.db import transaction
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
 from django.utils.text import slugify
 from core.models import Business
 from .forms import BusinessSignupForm, UserForm, PermissionMatrixForm, RoleForm, RolePermissionForm
@@ -49,6 +54,8 @@ def signup(request):
                     role=roles[CustomUser.ROLE_BUSINESS_ADMIN],
                 )
                 ensure_permissions(membership)
+                from .subscription_services import start_trial_for_business
+                start_trial_for_business(business)
             auth_login(request, user)
             request.session["active_business_id"] = business.pk
             messages.success(request, f"Welcome to {business.name}. Your Business Admin account is ready.")
@@ -207,3 +214,257 @@ def role_permissions(request, pk):
         form = RolePermissionForm(role=role)
     rows = [(m, label, form[f"{m}_view"], form[f"{m}_edit"]) for m, label in RoleModulePermission.MODULE_CHOICES]
     return render(request, "accounts/role_permissions.html", {"role": role, "form": form, "rows": rows})
+
+
+@login_required
+def subscription_plans(request):
+    if not is_business_admin(request.user, request.business):
+        return render(request, "403.html", status=403)
+    from .models import BusinessSubscription, SubscriptionPlan
+    from .subscription_services import ensure_default_plans
+    ensure_default_plans()
+    service = getattr(request.business, "subscription_service", None)
+    subscription = service.subscription if service else BusinessSubscription.objects.filter(primary_business=request.business).select_related("plan").first()
+    if not subscription:
+        # Legacy live businesses are not silently downgraded; they may opt into a plan from this page.
+        subscription = None
+    plans = SubscriptionPlan.objects.filter(active=True).prefetch_related("module_entitlements").order_by("monthly_price", "id")
+    return render(request, "accounts/subscription_plans.html", {"subscription": subscription, "plans": plans})
+
+
+@login_required
+def subscription_payment(request, plan_code=None):
+    from .models import BusinessSubscription, SubscriptionPayment, SubscriptionPaymentSettings, SubscriptionPlan
+    from .payment_gateways import GatewayError, initialize_gateway
+    from .subscription_services import create_payment_request, ensure_default_plans, payment_amount, start_trial_for_business
+    if not is_business_admin(request.user, request.business):
+        return render(request, "403.html", status=403)
+    plans = ensure_default_plans()
+    selected = get_object_or_404(SubscriptionPlan, code=plan_code, active=True) if plan_code else None
+    service = getattr(request.business, "subscription_service", None)
+    subscription = service.subscription if service else BusinessSubscription.objects.filter(primary_business=request.business).select_related("plan").first()
+    if not subscription:
+        subscription = start_trial_for_business(request.business, selected or plans[SubscriptionPlan.CODE_STARTER])
+    selected = selected or subscription.plan
+    payment_settings = SubscriptionPaymentSettings.load()
+    available_payment_providers = [
+        (code, label)
+        for code, label in (
+            (SubscriptionPayment.PROVIDER_PAYSTACK, "Paystack"),
+            (SubscriptionPayment.PROVIDER_MONNIFY, "Monnify"),
+        )
+        if payment_settings.provider_enabled(code)
+    ]
+    if request.method == "POST":
+        if request.POST.get("action") == "switch_trial" and subscription.status == BusinessSubscription.STATUS_TRIAL and subscription.is_effectively_active:
+            from .subscription_services import switch_subscription_plan
+            switch_subscription_plan(subscription, selected, keep_expiry=True)
+            messages.success(request, f"Trial switched to {selected.name}; the original 30-day trial end date is unchanged.")
+            return redirect("subscription_plans")
+        billing_cycle = request.POST.get("billing_cycle") or SubscriptionPayment.CYCLE_MONTHLY
+        if billing_cycle not in {SubscriptionPayment.CYCLE_MONTHLY, SubscriptionPayment.CYCLE_YEARLY}:
+            billing_cycle = SubscriptionPayment.CYCLE_MONTHLY
+        provider = request.POST.get("provider") or ""
+        if not payment_settings.provider_enabled(provider):
+            messages.error(request, "That subscription payment provider is currently unavailable. Choose an enabled provider.")
+            return redirect("subscription_payment_plan", plan_code=selected.code)
+        try:
+            months = 12 if billing_cycle == SubscriptionPayment.CYCLE_YEARLY else max(1, min(12, int(request.POST.get("months") or 1)))
+        except (TypeError, ValueError):
+            months = 1
+        try:
+            payment = create_payment_request(subscription, selected, months=months, billing_cycle=billing_cycle, provider=provider)
+            callback = request.build_absolute_uri(reverse("subscription_payment_callback", args=[provider]))
+            separator = "&" if "?" in callback else "?"
+            callback = f"{callback}{separator}reference={payment.reference}"
+            result = initialize_gateway(
+                payment,
+                email=request.user.email,
+                customer_name=request.user.fullname or request.user.username,
+                callback_url=callback,
+            )
+            payment.checkout_url = result["checkout_url"]
+            payment.provider_reference = result.get("provider_reference", "")
+            payment.provider_payload = result.get("payload") or {}
+            payment.save(update_fields=["checkout_url", "provider_reference", "provider_payload"])
+            return redirect(payment.checkout_url)
+        except Exception as exc:
+            if 'payment' in locals():
+                payment.status = SubscriptionPayment.STATUS_FAILED
+                payment.notes = str(exc)[:255]
+                payment.save(update_fields=["status", "notes"])
+            messages.error(request, str(exc))
+            return redirect("subscription_payment_plan", plan_code=selected.code)
+    service_profiles = list(subscription.services.select_related("business").all())
+    return render(request, "accounts/subscription_payment.html", {
+        "subscription": subscription,
+        "selected_plan": selected,
+        "plans": SubscriptionPlan.objects.filter(active=True).order_by("monthly_price", "id"),
+        "payments": subscription.subscription_payments.select_related("plan")[:20],
+        "service_profiles": service_profiles,
+        "selected_monthly_total": payment_amount(selected, len(service_profiles), 1),
+        "selected_yearly_total": payment_amount(selected, len(service_profiles), 12, billing_cycle=SubscriptionPayment.CYCLE_YEARLY),
+        "available_payment_providers": available_payment_providers,
+    })
+
+
+def subscription_payment_callback(request, provider):
+    from .models import SubscriptionPayment
+    from .payment_gateways import verify_gateway
+    from .subscription_services import mark_payment_paid
+    reference = (request.GET.get("reference") or request.GET.get("trxref") or request.GET.get("paymentReference") or "").strip()
+    payment = SubscriptionPayment.objects.filter(reference=reference, provider=provider).select_related("subscription", "plan").first()
+    if not payment:
+        return render(request, "accounts/subscription_payment_result.html", {"success": False, "message": "Payment reference was not found."}, status=404)
+    if payment.status == SubscriptionPayment.STATUS_PAID:
+        return render(request, "accounts/subscription_payment_result.html", {"success": True, "payment": payment, "message": "This subscription payment is already confirmed."})
+    try:
+        verified, payload = verify_gateway(payment)
+        payment.provider_payload = payload or {}
+        payment.save(update_fields=["provider_payload"])
+        if verified:
+            mark_payment_paid(payment)
+            return render(request, "accounts/subscription_payment_result.html", {"success": True, "payment": payment, "message": "Payment verified. Your subscription access has been updated."})
+    except Exception as exc:
+        return render(request, "accounts/subscription_payment_result.html", {"success": False, "payment": payment, "message": str(exc)}, status=400)
+    return render(request, "accounts/subscription_payment_result.html", {"success": False, "payment": payment, "message": "Payment is not yet confirmed. If you completed payment, the webhook may still confirm it shortly."}, status=400)
+
+
+@csrf_exempt
+@require_POST
+def subscription_payment_webhook(request, provider):
+    import json
+    from .models import SubscriptionPayment
+    from .payment_gateways import monnify_signature_valid, paystack_signature_valid, verify_gateway
+    from .subscription_services import mark_payment_paid
+    raw = request.body
+    try:
+        if provider == SubscriptionPayment.PROVIDER_PAYSTACK:
+            if not paystack_signature_valid(raw, request.headers.get("x-paystack-signature", "")):
+                return HttpResponse(status=403)
+            payload = json.loads(raw or b"{}")
+            if payload.get("event") != "charge.success":
+                return HttpResponse(status=200)
+            reference = str((payload.get("data") or {}).get("reference") or "")
+        elif provider == SubscriptionPayment.PROVIDER_MONNIFY:
+            if not monnify_signature_valid(raw, request.headers.get("monnify-signature", "")):
+                return HttpResponse(status=403)
+            payload = json.loads(raw or b"{}")
+            if payload.get("eventType") != "SUCCESSFUL_TRANSACTION":
+                return HttpResponse(status=200)
+            reference = str((payload.get("eventData") or {}).get("paymentReference") or "")
+        else:
+            return HttpResponse(status=404)
+        payment = SubscriptionPayment.objects.filter(reference=reference, provider=provider).select_related("subscription", "plan").first()
+        if not payment or payment.status == SubscriptionPayment.STATUS_PAID:
+            return HttpResponse(status=200)
+        verified, verify_payload = verify_gateway(payment)
+        payment.provider_payload = {"webhook": payload, "verification": verify_payload}
+        payment.save(update_fields=["provider_payload"])
+        if verified:
+            mark_payment_paid(payment)
+        return HttpResponse(status=200)
+    except Exception:
+        # Invalid/unverifiable events are not used to grant access. Returning 400 allows provider retry.
+        return HttpResponse(status=400)
+
+
+@login_required
+def subscription_add_service(request):
+    from .forms import AddSubscriptionServiceForm
+    from .models import BusinessSubscription
+    from .subscription_services import add_service_business
+    if not is_business_admin(request.user, request.business):
+        return render(request, "403.html", status=403)
+    service = getattr(request.business, "subscription_service", None)
+    subscription = service.subscription if service else BusinessSubscription.objects.filter(primary_business=request.business).select_related("plan").first()
+    if not subscription:
+        messages.error(request, "Choose a subscription plan before adding another service.")
+        return redirect("subscription_plans")
+    if request.method == "POST":
+        form = AddSubscriptionServiceForm(request.POST)
+        if form.is_valid():
+            business = add_service_business(
+                subscription,
+                name=form.cleaned_data["business_name"],
+                service_type=form.cleaned_data["service_type"],
+                actor=request.user,
+            )
+            messages.success(request, f"{business.name} added as an additional service profile. Your next plan payment includes the discounted service add-on.")
+            return redirect("subscription_plans")
+    else:
+        form = AddSubscriptionServiceForm()
+    return render(request, "accounts/subscription_service_form.html", {"form": form, "subscription": subscription})
+
+
+@login_required
+def founder_subscriptions(request):
+    from .forms import FounderGrantForm
+    from .models import BusinessSubscription, SubscriptionPlan, SubscriptionPayment, SubscriptionPaymentSettings
+    from .subscription_services import ensure_default_plans, grant_founder_lifetime, mark_payment_paid, start_trial_for_business
+    if not request.user.is_superuser:
+        return render(request, "403.html", status=403)
+    ensure_default_plans()
+    payment_settings = SubscriptionPaymentSettings.load()
+    form = FounderGrantForm(request.POST or None)
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "grant" and form.is_valid():
+            business = form.cleaned_data["business"]
+            service = getattr(business, "subscription_service", None)
+            subscription = service.subscription if service else BusinessSubscription.objects.filter(primary_business=business).first()
+            if not subscription:
+                subscription = start_trial_for_business(business, form.cleaned_data["plan"])
+            grant_founder_lifetime(subscription, form.cleaned_data["plan"], request.user, form.cleaned_data["note"])
+            messages.success(request, f"Founder lifetime access granted to {business.name} on {form.cleaned_data['plan'].name}.")
+            return redirect("founder_subscriptions")
+        if action == "mark_paid":
+            payment = get_object_or_404(SubscriptionPayment, pk=request.POST.get("payment_id"))
+            mark_payment_paid(payment)
+            messages.success(request, f"Payment {payment.reference} marked paid and entitlements updated.")
+            return redirect("founder_subscriptions")
+        if action == "save_plan_pricing":
+            from decimal import Decimal, InvalidOperation
+            plans_to_update = list(SubscriptionPlan.objects.all().order_by("id"))
+            parsed = []
+            try:
+                for plan in plans_to_update:
+                    monthly = max(Decimal("0"), Decimal(request.POST.get(f"monthly_price_{plan.pk}") or "0"))
+                    yearly_discount = min(Decimal("100"), max(Decimal("0"), Decimal(request.POST.get(f"yearly_discount_{plan.pk}") or "0")))
+                    addon_discount = min(Decimal("100"), max(Decimal("0"), Decimal(request.POST.get(f"addon_discount_{plan.pk}") or "0")))
+                    parsed.append((plan, monthly, yearly_discount, addon_discount))
+            except (InvalidOperation, TypeError, ValueError):
+                messages.error(request, "Enter valid numeric pricing and discount values for every plan.")
+                return redirect("founder_subscriptions")
+            with transaction.atomic():
+                for plan, monthly, yearly_discount, addon_discount in parsed:
+                    plan.monthly_price = monthly
+                    plan.yearly_discount_percent = yearly_discount
+                    plan.additional_service_discount_percent = addon_discount
+                    plan.save(update_fields=["monthly_price", "yearly_discount_percent", "additional_service_discount_percent"])
+            messages.success(request, "All plan pricing settings were saved together.")
+            return redirect("founder_subscriptions")
+        if action == "save_payment_channels":
+            payment_settings.paystack_enabled = request.POST.get("paystack_enabled") == "on"
+            payment_settings.monnify_enabled = request.POST.get("monnify_enabled") == "on"
+            payment_settings.updated_by = request.user
+            payment_settings.save(update_fields=[
+                "paystack_enabled", "monnify_enabled", "updated_by", "updated_at",
+            ])
+            messages.success(request, "Subscription payment channels updated. Existing payment callbacks remain active.")
+            return redirect("founder_subscriptions")
+        if action == "revoke_founder":
+            from .subscription_services import revoke_founder_lifetime
+            subscription = get_object_or_404(BusinessSubscription, pk=request.POST.get("subscription_id"))
+            revoke_founder_lifetime(subscription)
+            messages.success(request, f"Founder lifetime access revoked for {subscription.primary_business.name}.")
+            return redirect("founder_subscriptions")
+    subscriptions = BusinessSubscription.objects.select_related("primary_business", "plan", "founder_granted_by").prefetch_related("services__business")
+    pending_payments = SubscriptionPayment.objects.filter(status=SubscriptionPayment.STATUS_PENDING).select_related("subscription__primary_business", "plan")[:50]
+    return render(request, "accounts/founder_subscriptions.html", {
+        "form": form,
+        "subscriptions": subscriptions,
+        "pending_payments": pending_payments,
+        "plans": SubscriptionPlan.objects.all().order_by("monthly_price", "id"),
+        "payment_settings": payment_settings,
+    })
