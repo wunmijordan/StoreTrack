@@ -1,0 +1,42 @@
+{% if checkout %}
+<div id="storefront-history-record" hidden
+     data-key="checkout:{{ checkout.public_id }}"
+     data-checkout-id="{{ checkout.public_id }}"
+     data-reference="{% if checkout.materialized_intake %}{{ checkout.materialized_intake.public_number }}{% else %}Checkout {{ checkout.public_id|stringformat:'s'|slice:':8'|upper }}{% endif %}"
+     data-status="{% if checkout.materialized_intake %}{{ checkout.materialized_intake.get_status_display }}{% else %}{{ checkout.get_status_display }}{% endif %}"
+     data-amount="{{ checkout.currency }} {{ checkout.amount|floatformat:2 }}"
+     data-href="{% if checkout.materialized_intake %}{% url 'storefront_order_status' store_business.slug checkout.materialized_intake.public_id %}{% else %}{% url 'storefront_checkout' store_business.slug checkout.public_id %}{% endif %}"
+     data-updated="{{ checkout.updated_at|date:'c' }}"></div>
+{% elif intake %}
+<div id="storefront-history-record" hidden
+     data-key="{% if intake.checkout_session %}checkout:{{ intake.checkout_session.public_id }}{% else %}order:{{ intake.public_id }}{% endif %}"
+     data-checkout-id="{% if intake.checkout_session %}{{ intake.checkout_session.public_id }}{% endif %}"
+     data-reference="{{ intake.public_number }}"
+     data-status="{{ intake.get_status_display }}"
+     data-amount=""
+     data-href="{% url 'storefront_order_status' store_business.slug intake.public_id %}"
+     data-updated="{{ intake.updated_at|date:'c' }}"></div>
+{% endif %}
+<script>
+(function () {
+  const record = document.getElementById('storefront-history-record');
+  if (!record) return;
+  const storageKey = 'storetrack:storefront-order-history:{{ store_business.slug|escapejs }}';
+  try {
+    let history = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    if (!Array.isArray(history)) history = [];
+    const entry = {
+      key: record.dataset.key,
+      checkoutId: record.dataset.checkoutId,
+      reference: record.dataset.reference,
+      status: record.dataset.status,
+      amount: record.dataset.amount,
+      href: record.dataset.href,
+      updatedAt: record.dataset.updated || new Date().toISOString()
+    };
+    history = history.filter(item => item && item.key !== entry.key);
+    history.unshift(entry);
+    localStorage.setItem(storageKey, JSON.stringify(history.slice(0, 20)));
+  } catch (error) { /* Storage restrictions must not make tracking pages unusable. */ }
+})();
+</script>

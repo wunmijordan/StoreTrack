@@ -15,8 +15,21 @@ CLS = "w-full rounded-md border border-[#D9CFB4] bg-white px-2.5 py-1.5 text-sm 
 class CommerceSettingsForm(forms.ModelForm):
     class Meta:
         model = CommerceSettings
-        fields = ["enabled", "hosted_storefront_enabled", "order_now_link_enabled", "api_enabled", "connector_enabled", "insufficient_stock_policy", "checkout_reservation_minutes", "public_note"]
-        widgets = {"public_note": forms.Textarea(attrs={"rows": 2})}
+        fields = [
+            "enabled", "hosted_storefront_enabled", "order_now_link_enabled", "api_enabled",
+            "connector_enabled", "storefront_headline", "storefront_hero_image",
+            "storefront_hero_image_position", "public_note",
+            "notifications_enabled", "notify_order_activity",
+            "notify_payment_activity", "notification_sound_enabled",
+            "notification_desktop_enabled", "insufficient_stock_policy",
+            "checkout_reservation_minutes",
+        ]
+        widgets = {
+            "public_note": forms.Textarea(attrs={"rows": 2}),
+            "storefront_hero_image": forms.ClearableFileInput(
+                attrs={"accept": "image/avif,image/gif,image/jpeg,image/png,image/webp"}
+            ),
+        }
     def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
         labels = {
@@ -25,11 +38,29 @@ class CommerceSettingsForm(forms.ModelForm):
             "order_now_link_enabled": "Order Now link",
             "api_enabled": "Headless API",
             "connector_enabled": "Platform webhook / connector",
+            "storefront_headline": "Storefront headline",
+            "storefront_hero_image": "Storefront header image",
+            "storefront_hero_image_position": "Image focal point",
+            "notifications_enabled": "Commerce activity alerts",
+            "notify_order_activity": "New checkout and order alerts",
+            "notify_payment_activity": "Payment activity alerts",
+            "notification_sound_enabled": "Notification sound",
+            "notification_desktop_enabled": "Browser desktop alerts",
         }
+        self.fields["public_note"].label = "Storefront supporting message"
+        self.fields["storefront_hero_image"].help_text = (
+            "Use a wide landscape image, ideally around 1600 × 700 pixels (maximum 8 MB)."
+        )
         for name, f in self.fields.items():
             if name in labels: f.label = labels[name]
             if isinstance(f.widget, forms.CheckboxInput): f.widget.attrs["class"]="sr-only peer"
             else: f.widget.attrs["class"] = CLS
+
+    def clean_storefront_hero_image(self):
+        image = self.cleaned_data.get("storefront_hero_image")
+        if image and getattr(image, "size", 0) > 8 * 1024 * 1024:
+            raise forms.ValidationError("Upload a header image no larger than 8 MB.")
+        return image
 
 
 class StorefrontProductForm(forms.ModelForm):

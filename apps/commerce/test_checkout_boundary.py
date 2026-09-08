@@ -1,17 +1,21 @@
+import json
 from datetime import timedelta
 from decimal import Decimal
 
 from django.test import TestCase
+from django.core.exceptions import ValidationError
+from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import BusinessModuleAccess
-from core.models import Business, CashAccount
+from core.models import AuditLog, Business, CashAccount
 from inventory.models import FinishedGood
 
 from .checkout_services import (
     create_checkout,
     expire_checkout_if_needed,
     attempt_materialize_paid_checkout,
+    materialize_paid_checkout,
 )
 from .models import (
     CommerceCheckoutSession,
@@ -56,7 +60,9 @@ class CheckoutBoundaryTests(TestCase):
             unit="loaf",
             units_per_batch=1,
             stock=Decimal("10"),
-            reorder_level=0,
+            # Production verticals require an explicit positive threshold before
+            # ordinary finished stock is exposed to the physical-store route.
+            reorder_level=1,
             selling_price=Decimal("1000"),
         )
         self.product = StorefrontProduct.raw_objects.create(
@@ -115,7 +121,7 @@ class CheckoutBoundaryTests(TestCase):
         first, created = create_checkout(
             business=self.business,
             source=CommerceIntake.SOURCE_API,
-            order_mode="physical_store",
+            order_mode="online",
             customer={"name": "Ada"},
             items=[{"storefront_product": self.product, "quantity": "2"}],
             idempotency_key="same-checkout",
@@ -123,7 +129,7 @@ class CheckoutBoundaryTests(TestCase):
         second, created_again = create_checkout(
             business=self.business,
             source=CommerceIntake.SOURCE_API,
-            order_mode="physical_store",
+            order_mode="online",
             customer={"name": "Ada"},
             items=[{"storefront_product": self.product, "quantity": "2"}],
             idempotency_key="same-checkout",
@@ -132,6 +138,11 @@ class CheckoutBoundaryTests(TestCase):
         self.assertFalse(created_again)
         self.assertEqual(first.pk, second.pk)
         self.assertEqual(CommerceIntake.raw_objects.count(), 0)
+        audit_row = AuditLog.raw_objects.get(
+            business=self.business, action="commerce_checkout_create", object_id=str(first.pk)
+        )
+        self.assertEqual(audit_row.metadata["customer_name"], "Ada")
+        self.assertEqual(audit_row.metadata["source"], CommerceIntake.SOURCE_API)
 
     def test_minimum_error_returns_alternative_order_modes(self):
         with self.assertRaises(ChannelMinimumError) as raised:
@@ -171,6 +182,18 @@ class CheckoutBoundaryTests(TestCase):
         self.assertFalse(created_again)
         self.assertEqual(duplicate.pk, receipt.pk)
         self.assertEqual(CommerceIntake.raw_objects.count(), 1)
+
+    def test_unpaid_checkout_cannot_materialize_an_intake(self):
+        checkout = self.make_checkout(key="unpaid-must-stay-outside-intake")
+        with self.assertRaisesMessage(
+            ValidationError,
+            "Checkout cannot create an order until full payment is verified.",
+        ):
+            materialize_paid_checkout(checkout)
+        checkout.refresh_from_db()
+        self.assertEqual(checkout.status, CommerceCheckoutSession.STATUS_AWAITING_PAYMENT)
+        self.assertIsNone(checkout.materialized_intake_id)
+        self.assertEqual(CommerceIntake.raw_objects.count(), 0)
 
     def test_late_verified_payment_is_retained_for_review_and_recoverable(self):
         checkout = self.make_checkout(key="late-checkout")
@@ -234,3 +257,35 @@ class CheckoutBoundaryTests(TestCase):
             HTTP_X_STORETRACK_KEY=other_integration.api_key,
         )
         self.assertEqual(response.status_code, 403)
+
+    def test_checkout_api_requires_phone_and_keeps_email_optional(self):
+        endpoint = reverse("commerce_api_checkouts", args=[self.business.slug])
+        payload = {
+            "order_mode": "online",
+            "customer": {"name": "API Customer"},
+            "items": [{"product_id": str(self.product.public_id), "quantity": "2"}],
+        }
+        response = self.client.post(
+            endpoint,
+            data=json.dumps(payload),
+            content_type="application/json",
+            HTTP_X_STORETRACK_KEY=self.integration.api_key,
+            HTTP_IDEMPOTENCY_KEY="api-missing-phone",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("phone number is required", response.json()["detail"].lower())
+
+        payload["customer"]["phone"] = "+2348000000000"
+        response = self.client.post(
+            endpoint,
+            data=json.dumps(payload),
+            content_type="application/json",
+            HTTP_X_STORETRACK_KEY=self.integration.api_key,
+            HTTP_IDEMPOTENCY_KEY="api-phone-no-email",
+        )
+        self.assertEqual(response.status_code, 201)
+        checkout = CommerceCheckoutSession.raw_objects.get(
+            business=self.business, public_id=response.json()["checkout_id"]
+        )
+        self.assertEqual(checkout.customer_phone, "+2348000000000")
+        self.assertEqual(checkout.customer_email, "")

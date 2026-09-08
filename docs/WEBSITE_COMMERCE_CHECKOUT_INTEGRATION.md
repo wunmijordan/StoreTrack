@@ -1,288 +1,423 @@
 # StoreTrack Website Commerce Checkout Integration
 
-This is the integration contract for a bakery/restaurant website using StoreTrack as its commerce and operations backend.
+This is the complete contract for connecting a business-owned website to StoreTrack’s headless Commerce API.
 
-## Core invariant
+The required architecture is payment-first:
 
-**A new website integration must not create a `CommerceIntake` until StoreTrack has verified full payment.**
-
-The website first creates a tenant-scoped checkout session. StoreTrack validates the basket, snapshots authoritative prices, and reserves immediate Physical Store stock where required. Payment is then initialized against that checkout. Only a verified full payment atomically materializes exactly one `CommerceIntake`.
-
-Legacy `POST /orders` remains available during migration, but it creates an intake before payment and should not be used for new website checkout work.
-
-## Authentication
-
-For the headless API, send the tenant integration key on authenticated commerce requests:
-
-```http
-X-StoreTrack-Key: <tenant integration API key>
+```text
+website basket
+  -> StoreTrack checkout (validated, priced, optionally reserved)
+  -> StoreTrack payment
+  -> verified full settlement
+  -> exactly one StoreTrack commerce order/intake
+  -> operational acceptance, fulfilment, Sales/Production and Finance
 ```
 
-Never put StoreTrack gateway credentials on the website. Paystack/Monnify webhooks terminate directly at StoreTrack.
+Do not use the legacy `/orders` endpoint for a new website. It exists only so older integrations keep working and it creates intake before payment.
 
-## 1. Fetch the catalogue
+## 1. Responsibilities and security
+
+StoreTrack is authoritative for published products, channel labels and availability, quantity limits, channel prices, reservations, payable totals, payment eligibility, gateway verification and the resulting commerce order.
+
+The website owns its catalogue presentation, basket, customer-facing history and server-side StoreTrack client. Never send a price or amount from the browser. Never expose `X-StoreTrack-Key` in browser JavaScript, source control, analytics or a public environment variable. Call authenticated endpoints from the website server. Product image URLs are public and may be rendered directly by the browser.
+
+## 2. Configure StoreTrack
+
+### 2.1 Access and public address
+
+Confirm the business has Commerce access under **Plan & Billing**.
+
+Open **Business Settings** and edit **Public business address** if needed. It does not need dash-separated words. These are valid:
+
+```text
+yourstore
+your_store
+your-store
+```
+
+The value is `{business_slug}` in all public URLs:
+
+```text
+https://STORETRACK_HOST/shop/{business_slug}/
+https://STORETRACK_HOST/api/v1/storefronts/{business_slug}/...
+```
+
+It must be unique. Changing it preserves all tenant data, but old storefront, API and webhook URLs stop resolving. Update every connected system immediately.
+
+### 2.2 Commerce switches and products
+
+Open **Commerce → Commerce settings** and enable:
+
+1. **Commerce master switch**;
+2. **Headless API**;
+3. the desired reservation duration and insufficient-stock policy.
+
+Hosted storefront, Order Now and connector switches are independent and are not required by a headless website.
+
+From **Commerce**, configure every product:
+
+- publish it;
+- set public name and description;
+- upload its image;
+- enable applicable ordering channels;
+- set each channel minimum and the optional maximum;
+- set production lead time where applicable;
+- verify its StoreTrack channel prices.
+
+The API returns the uploaded image as an absolute URL in both `image` and the compatibility alias `image_url`.
+
+On PythonAnywhere, media is not deployed by `collectstatic`. Add a Web-tab static-files mapping:
+
+```text
+URL:       /media/
+Directory: /home/YOUR_USERNAME/PATH_TO_STORETRACK/media
+```
+
+`MEDIA_ROOT` must point at the same persistent directory. Reload the web app, then open an API-returned image URL in a private browser window. It must return an image, not a login page or 404.
+
+### 2.3 Payment methods
+
+Create active settlement accounts in **Finance**, then open **Commerce → Payment settings**.
+
+| Method | Required configuration |
+| --- | --- |
+| Paystack | Enabled, secret key, active tenant settlement account |
+| Monnify | Enabled, API key, secret key, contract code, base URL, active tenant settlement account |
+| Bank transfer | Enabled, bank details, active tenant bank/cash account |
+| Cash | Enabled, active tenant cash account |
+
+Only fully configured methods are exposed. Credentials remain server-side.
+
+Register gateway webhooks directly against StoreTrack:
+
+```text
+POST https://STORETRACK_HOST/api/v1/storefronts/{business_slug}/payments/paystack/webhook
+POST https://STORETRACK_HOST/api/v1/storefronts/{business_slug}/payments/monnify/webhook
+```
+
+The customer website must not proxy these webhooks. A browser return never confirms payment.
+
+### 2.4 API integration credential
+
+Open **Commerce → Add integration**:
+
+1. enter a recognizable name;
+2. select **Headless API**;
+3. optionally record the website origin;
+4. keep it active and save;
+5. copy the generated key into the website server’s secrets.
+
+```dotenv
+STORETRACK_BASE_URL=https://your-storetrack-host.example
+STORETRACK_BUSINESS_SLUG=yourstore
+STORETRACK_API_KEY=replace-with-the-tenant-api-key
+```
+
+Do not put a trailing slash on `STORETRACK_BASE_URL`.
+
+## 3. HTTP conventions
+
+Base path:
+
+```text
+/api/v1/storefronts/{business_slug}
+```
+
+Authenticated requests send:
+
+```http
+X-StoreTrack-Key: <tenant API key>
+Accept: application/json
+```
+
+JSON writes also send `Content-Type: application/json`. Checkout creation and payment initialization each require their own stable header:
+
+```http
+Idempotency-Key: <logical-operation-key>
+```
+
+Use decimal strings for quantity. Do not calculate financial truth with browser floats.
+
+## 4. Catalogue
 
 ```http
 GET /api/v1/storefronts/{business_slug}/products
 ```
 
-The response contains each published product and the enabled `order_modes`. Prices, quantity limits, fulfilment mode, lead time, and `available_now` come from StoreTrack. `available_now` already excludes active StoreTrack checkout reservations.
-
-Example product fragment:
+This read is available only while the tenant’s Commerce and API switches are enabled.
 
 ```json
 {
-  "id": "7ea4b6b1-3c5a-4de1-9aba-3a7d28d3b810",
-  "name": "Mini Loaf",
-  "available_now": "18.00",
-  "order_modes": [
+  "business": "Your Business",
+  "business_slug": "yourstore",
+  "service": "Retail store",
+  "products": [
     {
-      "code": "physical_store",
-      "label": "Physical Store",
-      "price": "1000.00",
-      "min_quantity": "1.00",
-      "max_quantity": null,
-      "fulfilment_mode": "stock",
+      "id": "7ea4b6b1-3c5a-4de1-9aba-3a7d28d3b810",
+      "name": "Everyday Item",
+      "description": "A useful product.",
+      "image": "https://your-storetrack-host.example/media/commerce/products/business-4/abc123.jpg",
+      "image_url": "https://your-storetrack-host.example/media/commerce/products/business-4/abc123.jpg",
+      "unit": "pack",
       "available_now": "18.00",
-      "lead_time": ""
-    },
-    {
-      "code": "online",
-      "label": "Online",
-      "price": "950.00",
-      "min_quantity": "5.00",
-      "max_quantity": null,
-      "fulfilment_mode": "preorder",
-      "available_now": null,
-      "lead_time": "24 hours"
+      "order_modes": [
+        {
+          "code": "physical_store",
+          "label": "Retail / Pickup Order",
+          "price": "1000.00",
+          "min_quantity": "1.00",
+          "max_quantity": null,
+          "fulfilment_mode": "stock",
+          "available_now": "18.00",
+          "lead_time": ""
+        },
+        {
+          "code": "distribution",
+          "label": "Bulk Customer Order",
+          "price": "875.00",
+          "min_quantity": "20.00",
+          "max_quantity": null,
+          "fulfilment_mode": "stock",
+          "available_now": "18.00",
+          "lead_time": ""
+        }
+      ]
     }
   ]
 }
 ```
 
-The website should render StoreTrack's labels and prices and send only product UUIDs and quantities back. Browser-submitted prices are never authoritative.
+No image produces empty `image` and `image_url` strings. Use `image` in new code.
 
-## 2. Discover payment methods
+The stable mode codes are `physical_store`, `online` and `distribution`. Display the returned vertical-specific `label`. Production services normally use `preorder` fulfilment for online/distribution; wholesale and retail remain stock-based and are never forced through production.
+
+The hosted catalogue hides product counts. A headless website may similarly use `available_now` only for validation/UI disabling. StoreTrack always rechecks it during checkout.
+
+Older top-level fields such as `ordering_modes`, `stock_price` and `preorder_price` remain for compatibility. New code should use `order_modes`.
+
+## 5. Payment discovery
 
 ```http
 GET /api/v1/storefronts/{business_slug}/payment-methods
-X-StoreTrack-Key: <key>
+X-StoreTrack-Key: <tenant API key>
 ```
-
-Example:
 
 ```json
 {
   "currency": "NGN",
   "methods": [
     {"code": "paystack", "label": "Paystack"},
-    {"code": "bank_transfer", "label": "Bank transfer"}
+    {"code": "bank_transfer", "label": "Bank transfer"},
+    {"code": "cash", "label": "Cash"}
   ]
 }
 ```
 
-Only methods that are both enabled and fully configured for that tenant are returned. Provider secrets, API keys, account credentials, and private gateway configuration are never exposed.
+Possible codes are `paystack`, `monnify`, `bank_transfer` and `cash`. Render only what is returned. StoreTrack revalidates eligibility when payment starts.
 
-Eligibility is rechecked again when payment is initialized.
-
-## 3. Create a checkout session
+## 6. Create checkout
 
 ```http
 POST /api/v1/storefronts/{business_slug}/checkouts
-X-StoreTrack-Key: <key>
-Idempotency-Key: website-checkout-2026-000123
+X-StoreTrack-Key: <tenant API key>
+Idempotency-Key: checkout_<website-cart-id>
 Content-Type: application/json
 ```
 
-Request:
-
 ```json
 {
-  "external_order_id": "WEB-ORDER-8821",
-  "order_mode": "physical_store",
+  "external_order_id": "WEB-8821",
+  "order_mode": "online",
   "customer": {
     "name": "Ada Customer",
-    "email": "ada@example.com",
     "phone": "+2348000000000",
+    "email": "",
     "address": "12 Example Street"
   },
   "service_mode": "delivery",
   "table_reference": "",
   "items": [
-    {
-      "product_id": "7ea4b6b1-3c5a-4de1-9aba-3a7d28d3b810",
-      "quantity": "2"
-    }
+    {"product_id": "7ea4b6b1-3c5a-4de1-9aba-3a7d28d3b810", "quantity": "2"}
   ]
 }
 ```
 
-StoreTrack validates server-side:
+Rules:
 
-- business/tenant scope;
-- publication;
-- selected order mode;
-- minimum and maximum quantity;
-- current channel price;
-- current sellable stock and active reservations;
-- the tenant's insufficient-stock policy.
+- customer name and phone are required;
+- email is optional here;
+- product IDs must be published tenant product UUIDs;
+- a product may occur only once;
+- all items must support one selected mode;
+- never send price, amount or total.
 
-No `CommerceIntake`, Sale, or Production Order exists at this point.
+StoreTrack records the customer name in the tenant audit trail, snapshots authoritative pricing and creates no Intake, Sale or Production record yet.
 
-Successful response:
+HTTP `201` means created; `200` means an idempotent retry returned the existing checkout:
 
 ```json
 {
   "checkout_id": "649948bd-613f-4d72-821e-7d99ae066d52",
   "status": "awaiting_payment",
-  "order_mode": "physical_store",
+  "order_mode": "online",
   "fulfilment_mode": "stock",
   "amount": "2000.00",
   "currency": "NGN",
-  "reservation_expires_at": "2026-09-07T15:45:00+01:00",
+  "reservation_expires_at": "2026-09-08T15:45:00+01:00",
   "payment_status": null,
+  "order_id": null,
+  "order_number": null,
   "order": null,
+  "materialization_error": "",
+  "items": [
+    {
+      "product_id": "7ea4b6b1-3c5a-4de1-9aba-3a7d28d3b810",
+      "name": "Everyday Item",
+      "requested_quantity": "2",
+      "payable_quantity": "2",
+      "reserved_stock_quantity": "2",
+      "production_quantity": "0",
+      "unit_price": "1000.00",
+      "line_total": "2000.00"
+    }
+  ],
   "created": true,
-  "payment_methods_url": "/api/v1/storefronts/my-business/payment-methods",
-  "payment_url": "/api/v1/storefronts/my-business/checkouts/649948bd-613f-4d72-821e-7d99ae066d52/payments"
+  "payment_methods_url": "/api/v1/storefronts/yourstore/payment-methods",
+  "payment_url": "/api/v1/storefronts/yourstore/checkouts/649948bd-613f-4d72-821e-7d99ae066d52/payments"
 }
 ```
 
-### Minimum quantity error
+Save `checkout_id`, amount/currency, external ID and checkout idempotency key in the website database/session before payment.
 
-HTTP `400`:
+## 7. Checkout errors
+
+General HTTP `400`:
+
+```json
+{"detail": "Customer phone number is required."}
+```
+
+Minimum HTTP `400`:
 
 ```json
 {
-  "detail": "Distribution requires at least 20.00 units for this order mode.",
+  "detail": "Everyday Item requires at least 20.00 pack for Bulk Customer Order pricing.",
   "code": "minimum_not_met",
   "suggested_order_modes": [
-    {"code": "physical_store", "label": "Physical Store"},
-    {"code": "online", "label": "Online"}
+    {"code": "physical_store", "label": "Retail / Pickup Order"},
+    {"code": "online", "label": "Online Order"}
   ]
 }
 ```
 
-The website should let the customer choose one of the suggested modes and create a new checkout with a new idempotency key.
+Ask the customer before changing mode, then create a new checkout/key.
 
-### Insufficient stock error / invite to preorder
-
-HTTP `409`:
+Availability HTTP `409`:
 
 ```json
 {
   "detail": "Insufficient stock. The customer may switch to a Pre-order mode before paying.",
   "code": "insufficient_stock",
-  "suggested_order_modes": [
-    {"code": "online", "label": "Online"}
-  ],
-  "items": [
-    {
-      "product_id": "...",
-      "product": "Mini Loaf",
-      "requested": "20.00",
-      "available_now": "8.00",
-      "shortfall": "12.00"
-    }
-  ]
+  "suggested_order_modes": [{"code": "online", "label": "Online Order"}],
+  "items": [{
+    "product_id": "...",
+    "product": "Everyday Item",
+    "requested": "20",
+    "available_now": "8.00",
+    "shortfall": "12.00"
+  }]
 }
 ```
 
-The exact behavior follows the tenant policy:
+Tenant policy may reduce to available stock, reject, invite preorder, or split stock/production where applicable. Always use successful checkout quantities and amount.
 
-- `reduce`: checkout payable quantity is reduced to available stock and only that reduced quantity is charged;
-- `reject`: no checkout is created;
-- `invite_preorder`: no payable checkout is created; the response suggests applicable preorder modes;
-- `split`: the available stock portion is reserved and the balance is retained as production demand under the existing split policy.
+Other codes: `403` for invalid/disabled credential; `404` for unavailable tenant-scoped resources; `400` for malformed input, expired checkout or payment validation.
 
-## 4. Initialize payment against the checkout
+## 8. Initialize payment
 
 ```http
-POST /api/v1/storefronts/{business_slug}/checkouts/{checkout_uuid}/payments
-X-StoreTrack-Key: <key>
-Idempotency-Key: payment-attempt-8821-1
+POST /api/v1/storefronts/{business_slug}/checkouts/{checkout_id}/payments
+X-StoreTrack-Key: <tenant API key>
+Idempotency-Key: payment_<website-attempt-id>
 Content-Type: application/json
 ```
 
-Paystack / Monnify request:
+Never send an amount.
+
+### Paystack/Monnify
+
+When checkout email is empty, supply it now because the provider requires one:
 
 ```json
 {
   "method": "paystack",
-  "return_url": "https://bakery.example.com/checkout/return"
+  "customer_email": "ada@example.com",
+  "return_url": "https://your-website.example/checkout/return?checkout=649948bd-613f-4d72-821e-7d99ae066d52"
 }
 ```
 
-Gateway response includes an authorization URL:
+If checkout already has email, omit `customer_email`. `return_url` must be absolute HTTP/HTTPS; use HTTPS in production.
 
 ```json
 {
-  "payment_id": "...",
+  "payment_id": "1119b472-fb63-4a38-8727-eb45cf5d98b1",
   "method": "paystack",
   "status": "awaiting_customer",
   "amount": "2000.00",
   "currency": "NGN",
   "reference": "STP-...",
+  "gateway_reference": "STP-...",
   "authorization_url": "https://checkout.paystack.com/...",
+  "instructions": "",
+  "bank_account": null,
+  "expires_at": "2026-09-08T15:45:00+01:00",
+  "amount_paid": "0.00",
+  "balance": "2000.00",
+  "verified_at": null,
+  "settled_at": null,
   "checkout_id": "649948bd-613f-4d72-821e-7d99ae066d52",
-  "order_id": null
+  "order_id": null,
+  "claim": null,
+  "checkout": {}
 }
 ```
 
-Redirect the browser to `authorization_url`. The eventual browser redirect back to the website is **not proof of payment**. StoreTrack confirms the gateway transaction server-side after the signed provider webhook and provider verification call. Paystack webhooks are signature checked and verified against Paystack; Monnify notifications are signature checked in production and the transaction is independently verified against Monnify before value is granted.
+The real `checkout` is the complete checkout serialization. Redirect to `authorization_url`. On return, display “Confirming payment” and poll. Never trust redirect query parameters.
 
 ### Bank transfer
 
 ```json
-{
-  "method": "bank_transfer"
-}
+{"method": "bank_transfer"}
 ```
 
-Response:
+The response has `status: "pending"`, the StoreTrack `reference`, exact amount, `bank_account` and `instructions`.
 
-```json
-{
-  "status": "pending",
-  "reference": "STP-...",
-  "bank_account": {
-    "bank_name": "Example Bank",
-    "account_name": "Example Bakery Ltd",
-    "account_number": "0123456789"
-  },
-  "instructions": "Use the checkout/payment reference when transferring..."
-}
-```
-
-After the customer transfers, submit evidence/claim data:
+After transfer:
 
 ```http
-POST /api/v1/storefronts/{business_slug}/checkouts/{checkout_uuid}/payments/current/claim
+POST /api/v1/storefronts/{business_slug}/checkouts/{checkout_id}/payments/current/claim
+X-StoreTrack-Key: <tenant API key>
+Content-Type: application/json
 ```
 
 ```json
-{
-  "payer_name": "Ada Customer",
-  "transfer_reference": "BANK-TRX-992288"
-}
+{"payer_name": "Ada Customer", "transfer_reference": "BANK-TRX-992288"}
 ```
 
-This only changes the payment to `awaiting_verification`. It does not confirm funds and does not create an intake. Authorized StoreTrack staff must verify the actual bank credit.
+A new claim returns `201`; an idempotent repeat returns `200`. Status becomes `awaiting_verification`. No intake exists until authorized staff verify actual credit.
 
 ### Cash
 
-Cash remains `pending` until an authorized StoreTrack Business Admin or Finance editor confirms actual receipt. Browser/API submission cannot self-confirm cash.
+Initialize with `{"method":"cash"}`. Cash remains `pending`; there is no public confirmation endpoint. Authorized staff confirm physical receipt in StoreTrack.
 
-## 5. Poll checkout/payment status
+## 9. Poll before an order exists
 
-Before an order exists:
+Poll every 5–10 seconds while the customer is waiting, then back off:
 
 ```http
-GET /api/v1/storefronts/{business_slug}/checkouts/{checkout_uuid}/payments/current
-X-StoreTrack-Key: <key>
+GET /api/v1/storefronts/{business_slug}/checkouts/{checkout_id}/payments/current
+X-StoreTrack-Key: <tenant API key>
 ```
-
-Response shape:
 
 ```json
 {
@@ -290,40 +425,41 @@ Response shape:
     "checkout_id": "...",
     "status": "awaiting_payment",
     "payment_status": "awaiting_customer",
+    "order_id": null,
+    "order_number": null,
     "order": null
   },
   "payment": {
     "payment_id": "...",
     "status": "awaiting_customer",
     "amount": "2000.00",
+    "amount_paid": "0.00",
     "balance": "2000.00"
   }
 }
 ```
 
-Checkout status values:
+Checkout-only status:
 
-- `awaiting_payment` — validated; no verified full payment yet;
-- `paid` — full payment is verified and materialization is in progress;
-- `materialized` — exactly one `CommerceIntake` exists;
-- `paid_review` — real full payment exists, but the reservation expired or safe materialization failed; staff review/recovery is required;
-- `expired` — unpaid checkout expired and its reservation was released;
-- `cancelled` — checkout was cancelled.
+```http
+GET /api/v1/storefronts/{business_slug}/checkouts/{checkout_id}
+X-StoreTrack-Key: <tenant API key>
+```
 
-Payment status values remain separate:
+| Checkout status | Action |
+| --- | --- |
+| `awaiting_payment` | Continue applicable instructions/polling. |
+| `paid` | Verified; materialization in progress. Keep polling and never charge again. |
+| `materialized` | Save order UUID/number and switch to order tracking. |
+| `paid_review` | Money verified but safe materialization needs staff. Never charge again. |
+| `expired` | Unpaid hold ended; create a fresh checkout/key. |
+| `cancelled` | Checkout closed. |
 
-- `pending`;
-- `awaiting_customer`;
-- `awaiting_verification`;
-- `partially_paid`;
-- `paid`;
-- `failed`;
-- `cancelled`;
-- `refunded`.
+Payment statuses are `pending`, `awaiting_customer`, `awaiting_verification`, `partially_paid`, `paid`, `failed`, `cancelled`, and `refunded`.
 
-## 6. Transition from checkout UUID to order UUID
+## 10. Checkout-to-order transition
 
-After StoreTrack verifies the full amount, it materializes the intake atomically and the checkout status response becomes:
+After verified full payment:
 
 ```json
 {
@@ -342,48 +478,128 @@ After StoreTrack verifies the full amount, it materializes the intake atomically
 }
 ```
 
-`order.id` is the public UUID used for API status lookups. `order.number` is the tenant-local human display number. Do not treat them as interchangeable.
-
-Once `order.id` exists, the existing order status endpoint remains available:
+`order_id` is the UUID for API URLs. `order_number` is the tenant-local display reference. Keep them separate.
 
 ```http
-GET /api/v1/storefronts/{business_slug}/orders/{order_uuid}
-X-StoreTrack-Key: <key>
+GET /api/v1/storefronts/{business_slug}/orders/{order_id}
+X-StoreTrack-Key: <tenant API key>
 ```
 
-It reports order/intake status, payment state, fulfilment state, and item fulfilment separately.
+This response separates `status`, `payment_state`/`payment`, and `fulfilment_state`, plus item requested/stock/production quantities. Do not collapse them into one website status.
 
-## Reservation and late-payment behavior
+## 11. Customer transaction history
 
-Physical Store stock is reserved when a stock checkout is created. The hold lasts `CommerceSettings.checkout_reservation_minutes` (default 15 minutes, configurable 5–120 minutes).
+Persist checkout history immediately after checkout creation, before gateway redirect:
 
-Active reservations are deducted from `available_now` for later web checkouts. StoreTrack direct/POS sales also treat those units as unavailable and cannot force-sell a website reservation.
+```json
+{
+  "customer_or_session_id": "website-owned-id",
+  "storetrack_checkout_id": "649948bd-613f-4d72-821e-7d99ae066d52",
+  "storetrack_order_id": null,
+  "storetrack_order_number": null,
+  "external_order_id": "WEB-8821",
+  "amount": "2000.00",
+  "currency": "NGN",
+  "checkout_status": "awaiting_payment",
+  "payment_status": null
+}
+```
 
-If an unpaid checkout expires, the reservation is released.
+Update it after every poll. For anonymous users, use a signed HTTP-only website session and optionally device-local links. Do not expose a phone-only public lookup without OTP; it can leak other customers’ orders.
 
-If a gateway or staff verifies full payment after the reservation has expired, StoreTrack retains the verified receipt/Finance movement but **does not create an intake silently**. The checkout becomes `paid_review`. Authorized staff can use the Commerce Payments queue to retry materialization. Recovery rechecks stock under locks and does not create a second charge.
+The hosted StoreTrack catalogue already saves tenant-specific unguessable tracking links in that browser. A headless website owns its own history UI.
 
-A materialized stock checkout keeps its reservation until the intake is operationally accepted and the actual finished-stock sale is posted.
+## 12. Idempotency and reservations
 
-## Idempotency rules
+- Reuse a checkout key only for the same logical basket retry.
+- Use a separate stable payment key per logical attempt.
+- Use a new payment key when deliberately changing/retrying a failed method.
+- Never reuse a key for another basket or payment method.
+- Keep `external_order_id` unique for the website order within that tenant/source.
 
-Use a stable, unique `Idempotency-Key` for each logical operation:
+Duplicate retries/callbacks cannot materialize two intakes for one checkout.
 
-- checkout creation: reuse the same key only when retrying the same checkout request;
-- payment initialization: use a separate stable key per logical payment attempt;
-- do not reuse an idempotency key for a different payment method or different basket.
+Stock fulfilment is reserved at checkout. The configurable hold is 5–120 minutes (default 15). Active holds reduce web and direct/POS availability. Unpaid expiry releases stock. Production/preorder channels preserve production demand instead.
 
-StoreTrack enforces checkout/payment idempotency per tenant. Gateway events and verified receipts are also idempotent. Duplicate callbacks/retries cannot materialize a second intake for the same checkout.
+Late verified payment or a safe-materialization failure becomes `paid_review`: financial truth remains, staff can recover without charging again, and the website must show “paid, under review.”
 
-## Legacy migration compatibility
+## 13. Server-side reference client
 
-The legacy endpoint remains operational:
+This JavaScript belongs on the website server, not in the browser:
 
-```http
+```js
+const base = process.env.STORETRACK_BASE_URL;
+const slug = process.env.STORETRACK_BUSINESS_SLUG;
+const apiKey = process.env.STORETRACK_API_KEY;
+
+async function storeTrack(path, { method = "GET", body, idempotencyKey } = {}) {
+  const response = await fetch(`${base}/api/v1/storefronts/${slug}${path}`, {
+    method,
+    headers: {
+      Accept: "application/json",
+      "X-StoreTrack-Key": apiKey,
+      ...(body ? { "Content-Type": "application/json" } : {}),
+      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {})
+    },
+    body: body ? JSON.stringify(body) : undefined,
+    cache: "no-store"
+  });
+  const payload = await response.json().catch(() => ({ detail: "Unreadable StoreTrack response." }));
+  if (!response.ok) {
+    const error = new Error(payload.detail || `StoreTrack returned ${response.status}`);
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
+export const createCheckout = (input, key) =>
+  storeTrack("/checkouts", { method: "POST", body: input, idempotencyKey: key });
+
+export const startPayment = (checkoutId, input, key) =>
+  storeTrack(`/checkouts/${checkoutId}/payments`, { method: "POST", body: input, idempotencyKey: key });
+
+export const checkoutStatus = checkoutId =>
+  storeTrack(`/checkouts/${checkoutId}/payments/current`);
+
+export const orderStatus = orderId => storeTrack(`/orders/${orderId}`);
+```
+
+The browser calls the website’s own API routes; the website server attaches the secret.
+
+## 14. Go-live checklist
+
+- [ ] StoreTrack uses HTTPS and correct `ALLOWED_HOSTS`.
+- [ ] `MEDIA_ROOT` is persistent and `/media/` is mapped on PythonAnywhere.
+- [ ] Commerce module, master switch and Headless API are enabled.
+- [ ] Final business slug matches website and gateway configuration.
+- [ ] Published products return absolute working `image` URLs.
+- [ ] All three applicable channel codes, labels, prices and limits are tested.
+- [ ] API key exists only in website server secrets.
+- [ ] Only configured payment methods appear.
+- [ ] Gateway webhooks point directly to StoreTrack.
+- [ ] Checkout requires name/phone; email is optional until a gateway requires it.
+- [ ] Website stores checkout history before redirect.
+- [ ] Browser return starts polling and never confirms payment.
+- [ ] `paid_review` prevents repeat charging.
+- [ ] Order UUID and display number are stored separately.
+- [ ] Duplicate requests and cross-tenant UUID/key attempts are tested.
+- [ ] Bank claims and cash wait for authorized StoreTrack verification.
+
+## 15. Legacy compatibility only
+
+These remain for existing intake-before-payment integrations:
+
+```text
 POST /api/v1/storefronts/{business_slug}/orders
+GET  /api/v1/storefronts/{business_slug}/orders/{order_id}
+POST /api/v1/storefronts/{business_slug}/orders/{order_id}/payments/initiate
+GET  /api/v1/storefronts/{business_slug}/orders/{order_id}/payments/current
+POST /api/v1/storefronts/{business_slug}/orders/{order_id}/payments/current/claim
 ```
 
-It still creates `CommerceIntake` before payment so existing integrations do not break during deployment. Its response now includes:
+Legacy create reports:
 
 ```json
 {
@@ -392,49 +608,4 @@ It still creates `CommerceIntake` before payment so existing integrations do not
 }
 ```
 
-New or upgraded websites should stop using `/orders` for initial submission and use `/checkouts` instead.
-
-Existing intake-based payment endpoints remain available for historical/legacy orders:
-
-```text
-POST /orders/{order_uuid}/payments/initiate
-GET  /orders/{order_uuid}/payments/current
-POST /orders/{order_uuid}/payments/current/claim
-```
-
-No migration rewrites existing CommerceIntake, payment receipt, Sale, Production, or Finance history.
-
-## Gateway webhook endpoints
-
-Gateway webhooks continue to terminate directly at StoreTrack:
-
-```text
-POST /api/v1/storefronts/{business_slug}/payments/paystack/webhook
-POST /api/v1/storefronts/{business_slug}/payments/monnify/webhook
-```
-
-The customer website must not proxy or forge these callbacks.
-
-## Recommended website sequence
-
-```text
-GET products
-  ↓
-GET payment-methods
-  ↓
-POST checkouts  (Idempotency-Key A)
-  ↓
-POST checkouts/{id}/payments  (Idempotency-Key B)
-  ↓
-Gateway authorization OR transfer/cash instructions
-  ↓
-Poll checkout payment status
-  ↓
-verified full payment
-  ↓
-StoreTrack atomically creates exactly one CommerceIntake
-  ↓
-checkout response exposes order.id + order.number
-  ↓
-GET orders/{order.id} for downstream order/payment/fulfilment state
-```
+For a new or migrated website: create `/checkouts`, pay using checkout UUID, poll until `order_id` appears, then begin order tracking.

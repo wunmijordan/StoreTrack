@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 from django.db import IntegrityError, transaction
 from django.db.models import Q, Sum
 from django.utils import timezone
@@ -17,6 +18,7 @@ from .models import (
     CommerceGatewayEvent,
     CommerceCheckoutSession,
     CommerceIntake,
+    CommerceNotification,
     CommercePayment,
     CommercePaymentAllocation,
     CommercePaymentClaim,
@@ -24,6 +26,7 @@ from .models import (
     CommercePaymentReceipt,
 )
 from .payment_gateways import initialize_gateway, verify_gateway
+from .notification_services import queue_commerce_notification
 
 
 PAYMENT_METHOD_TO_SALE_METHOD = {
@@ -116,6 +119,21 @@ def current_checkout_payment(checkout):
     else:
         qs = qs.filter(checkout=checkout)
     return qs.exclude(status=CommercePayment.STATUS_CANCELLED).order_by("-created_at", "-id").first()
+
+
+def capture_checkout_gateway_email(checkout, method, email):
+    """Save provider-required email only when the selected gateway needs it."""
+    method = (method or "").strip().lower()
+    if method not in {CommercePayment.METHOD_PAYSTACK, CommercePayment.METHOD_MONNIFY}:
+        return
+    if checkout.customer_email:
+        return
+    email = (email or "").strip()
+    if not email:
+        raise ValidationError("Email address is required by this payment provider.")
+    validate_email(email)
+    checkout.customer_email = email
+    checkout.save(update_fields=["customer_email", "updated_at"])
 
 
 def serialize_payment(payment, config=None):
@@ -231,6 +249,7 @@ def initiate_payment(*, intake=None, checkout=None, method, idempotency_key, ret
     if method in {CommercePayment.METHOD_PAYSTACK, CommercePayment.METHOD_MONNIFY} and not return_url:
         raise ValidationError("return_url is required for online gateway payments.")
 
+    payment_created = False
     with transaction.atomic():
         if checkout is not None:
             from .checkout_services import expire_checkout_if_needed
@@ -295,6 +314,7 @@ def initiate_payment(*, intake=None, checkout=None, method, idempotency_key, ret
                         CommercePayment.METHOD_BANK_TRANSFER, CommercePayment.METHOD_CASH
                     } else CommercePayment.STATUS_AWAITING_CUSTOMER),
                 )
+                payment_created = True
 
     if method in {CommercePayment.METHOD_PAYSTACK, CommercePayment.METHOD_MONNIFY} and not payment.authorization_url:
         try:
@@ -313,6 +333,18 @@ def initiate_payment(*, intake=None, checkout=None, method, idempotency_key, ret
                 "authorization_url", "gateway_reference", "gateway_metadata",
                 "last_error", "status", "updated_at",
             ])
+    if payment_created:
+        queue_commerce_notification(
+            business=payment.business,
+            event_type=CommerceNotification.EVENT_PAYMENT_STARTED,
+            title=f"{payment.get_method_display()} payment started",
+            message=(
+                f"Payment {payment.reference} was opened for "
+                f"{payment.currency} {payment.amount:,.2f}; confirmation is still pending."
+            ),
+            target_url="/finance/commerce-payments/",
+            dedupe_key=f"payment:{payment.public_id}:started",
+        )
     return payment
 
 
@@ -349,6 +381,17 @@ def submit_bank_claim(*, payment, payer_name, transfer_reference):
         payment.business, None, "payment_claim", claim,
         f"Bank transfer claim submitted for {_payment_display_reference(payment)}",
         {"payment_reference": payment.reference, "transfer_reference": transfer_reference},
+    )
+    queue_commerce_notification(
+        business=payment.business,
+        event_type=CommerceNotification.EVENT_PAYMENT_CLAIM,
+        title="Bank transfer claim needs verification",
+        message=(
+            f"{payer_name} submitted transfer reference {transfer_reference} "
+            f"for payment {payment.reference}."
+        ),
+        target_url="/finance/commerce-payments/",
+        dedupe_key=f"claim:{claim.pk}:submitted",
     )
     return claim, True
 
@@ -457,6 +500,7 @@ def record_verified_payment(
     payment = CommercePayment.raw_objects.select_for_update().select_related("intake", "checkout").get(
         pk=payment.pk, business=payment.business
     )
+    checkout_before_payment = payment.checkout
     existing = CommercePaymentReceipt.raw_objects.filter(
         business=payment.business, payment=payment, idempotency_key=idempotency_key
     ).first()
@@ -538,6 +582,35 @@ def record_verified_payment(
         f"Payment verified for {_payment_display_reference(payment)}",
         {"payment_reference": payment.reference, "amount": str(amount), "method": payment.method},
     )
+    checkout_needs_review = False
+    if checkout_before_payment:
+        checkout_needs_review = CommerceCheckoutSession.raw_objects.filter(
+            pk=checkout_before_payment.pk,
+            business=payment.business,
+            status=CommerceCheckoutSession.STATUS_PAID_REVIEW,
+        ).exists()
+    if checkout_needs_review:
+        queue_commerce_notification(
+            business=payment.business,
+            event_type=CommerceNotification.EVENT_PAYMENT_REVIEW,
+            title="Paid checkout needs immediate review",
+            message=(
+                f"{payment.currency} {amount:,.2f} was verified for {payment.reference}, "
+                "but its order could not be created automatically. No second charge is needed."
+            ),
+            target_url="/finance/commerce-payments/",
+            dedupe_key=f"receipt:{receipt.pk}:review",
+        )
+    else:
+        state = "fully paid" if payment.status == CommercePayment.STATUS_PAID else f"{payment.balance:,.2f} remaining"
+        queue_commerce_notification(
+            business=payment.business,
+            event_type=CommerceNotification.EVENT_PAYMENT_CONFIRMED,
+            title="Commerce payment confirmed",
+            message=f"{payment.currency} {amount:,.2f} was verified for {payment.reference} · {state}.",
+            target_url="/finance/commerce-payments/",
+            dedupe_key=f"receipt:{receipt.pk}:verified",
+        )
     return receipt, True
 
 

@@ -1,1 +1,15 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-[#FAF6EF]"><main class="max-w-lg mx-auto p-6 mt-12 bg-white rounded-xl border"><h1 class="text-xl font-semibold">Order request received</h1><p class="mt-2 text-sm text-stone-600">Reference <strong>{{ intake.public_number }}</strong>. {{ store_business.name }} will review the request before stock, production or finance is changed.</p><a href="{% url 'storefront_order_status' store_business.slug intake.public_id %}" class="inline-block mt-3 underline">Check order status</a>{% if intake.status == "awaiting_preorder" %}<form method="post" action="{% url 'storefront_switch_preorder' store_business.slug intake.public_id %}" class="mt-4">{% csrf_token %}<button class="rounded px-4 py-2 text-white" style="background:{{ store_business.accent_color }}">Switch this request to Pre-order</button></form>{% endif %}<a href="{% url 'storefront' store_business.slug %}" class="inline-block mt-4 underline">Back to storefront</a></main></body></html>
+{% extends "commerce/storefront_page_base.html" %}
+{% block title %}Request received · {{ store_business.name }}{% endblock %}
+{% block content %}
+<main class="mx-auto max-w-2xl px-4 py-10 sm:px-8 sm:py-16">
+  <section class="rounded-3xl border border-stone-200/80 bg-white p-6 shadow-[0_20px_60px_rgba(43,36,31,.11)] sm:p-9">
+    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100 text-2xl text-emerald-700">✓</div>
+    <p class="mt-6 text-[10px] font-bold uppercase tracking-[.2em] text-stone-400">Request received</p>
+    <h1 class="mt-1 font-display text-3xl font-semibold text-stone-900">Thank you, {{ intake.customer_name }}.</h1>
+    <p class="mt-3 text-sm leading-6 text-stone-600">Your reference is <strong>{{ intake.public_number }}</strong>. {{ store_business.name }} will keep its progress updated here.</p>
+    <div class="mt-6 grid gap-3 sm:grid-cols-2"><a href="{% url 'storefront_order_status' store_business.slug intake.public_id %}" class="flex items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold text-white" style="background:var(--brand)">Track this request</a><a href="{% url 'storefront' store_business.slug %}" class="flex items-center justify-center rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm font-semibold text-stone-700">Continue browsing</a></div>
+    {% if intake.status == "awaiting_preorder" %}<form method="post" action="{% url 'storefront_switch_preorder' store_business.slug intake.public_id %}" class="mt-4">{% csrf_token %}<button class="w-full rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">Switch this request to {{ commerce_channels.online }}</button></form>{% endif %}
+  </section>
+</main>
+{% include "commerce/_storefront_history_record.html" with intake=intake %}
+{% endblock %}

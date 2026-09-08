@@ -8,8 +8,10 @@ from inventory.models import StockMovement
 from inventory.services import consume_transferred_physical_stock, record_finished_good_movement
 from production.models import Order, OrderItem, ProductionCostSnapshot
 from sales.models import Sale, SaleItem
+from core.services import audit
 from core.verticals import vertical_config
-from .models import CommerceIntake, CommerceSettings
+from .models import CommerceIntake, CommerceNotification, CommerceSettings
+from .notification_services import queue_commerce_notification
 
 
 
@@ -122,6 +124,31 @@ def create_intake(*, business, source, ordering_mode=None, sales_channel=None, c
             storefront_product=product, finished_good=product.finished_good,
             requested_quantity=qty, unit_price=product.finished_good.selling_price_for(sales_channel),
         )
+    audit(
+        business,
+        None,
+        "commerce_intake_create",
+        intake,
+        f"{intake.public_number} received for {intake.customer_name} from {intake.get_source_display()}",
+        {
+            "customer_name": intake.customer_name,
+            "source": intake.source,
+            "sales_channel": intake.sales_channel,
+            "external_order_id": intake.external_order_id,
+        },
+    )
+    source_label = dict(CommerceIntake.SOURCE_CHOICES).get(source, "commerce channel")
+    queue_commerce_notification(
+        business=business,
+        event_type=CommerceNotification.EVENT_INTAKE_RECEIVED,
+        title=f"New order from {source_label}",
+        message=(
+            f"{intake.customer_name} placed {intake.public_number} through "
+            f"{intake.display_sales_channel} for {business.currency_symbol}{intake.total:,.2f}."
+        ),
+        target_url="/commerce/",
+        dedupe_key=f"intake:{intake.public_id}:received",
+    )
     return intake, True
 
 

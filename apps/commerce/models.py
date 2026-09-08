@@ -20,7 +20,33 @@ def storefront_product_image_upload_to(instance, filename):
     return f"commerce/products/business-{business_id}/{uuid.uuid4().hex}{extension}"
 
 
+def storefront_hero_image_upload_to(instance, filename):
+    """Keep each tenant's storefront artwork in its own media directory."""
+    extension = Path(filename or "").suffix.lower()
+    if extension not in {".avif", ".gif", ".jpeg", ".jpg", ".png", ".webp"}:
+        extension = ".jpg"
+    business_id = instance.business_id or "unassigned"
+    return f"commerce/storefronts/business-{business_id}/{uuid.uuid4().hex}{extension}"
+
+
 class CommerceSettings(BusinessOwnedModel):
+    HERO_FIT_COVER = "cover"
+    HERO_FIT_CONTAIN = "contain"
+    HERO_FIT_CHOICES = [
+        (HERO_FIT_COVER, "Fill the header"),
+        (HERO_FIT_CONTAIN, "Show the full image"),
+    ]
+    HERO_POSITION_CHOICES = [
+        ("left top", "Top left"),
+        ("center top", "Top centre"),
+        ("right top", "Top right"),
+        ("left center", "Centre left"),
+        ("center center", "Centre"),
+        ("right center", "Centre right"),
+        ("left bottom", "Bottom left"),
+        ("center bottom", "Bottom centre"),
+        ("right bottom", "Bottom right"),
+    ]
     POLICY_REDUCE = "reduce"
     POLICY_REJECT = "reject"
     POLICY_INVITE = "invite_preorder"
@@ -37,6 +63,56 @@ class CommerceSettings(BusinessOwnedModel):
     order_now_link_enabled = models.BooleanField(default=True)
     api_enabled = models.BooleanField(default=True)
     connector_enabled = models.BooleanField(default=False)
+    storefront_headline = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        help_text="Optional main storefront message. Leave blank to use wording tailored to your business type.",
+    )
+    storefront_hero_image = models.ImageField(
+        upload_to=storefront_hero_image_upload_to,
+        blank=True,
+        help_text="Optional wide image displayed in the storefront header.",
+    )
+    storefront_hero_image_fit = models.CharField(
+        max_length=10,
+        choices=HERO_FIT_CHOICES,
+        default=HERO_FIT_COVER,
+        help_text="Fill the header for a crop, or show the full image without zooming in.",
+    )
+    storefront_hero_image_position = models.CharField(
+        max_length=20,
+        choices=HERO_POSITION_CHOICES,
+        default="center center",
+        help_text="Choose the part of the image that should stay in view.",
+    )
+    storefront_hero_image_scale = models.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        default=Decimal("1.00"),
+        validators=[MinValueValidator(Decimal("0.50")), MaxValueValidator(Decimal("2.00"))],
+        help_text="Resize the rendered image from 50% to 200% while keeping its blend and focal point.",
+    )
+    notifications_enabled = models.BooleanField(
+        default=True,
+        help_text="Show persistent in-app alerts for new commerce activity.",
+    )
+    notify_order_activity = models.BooleanField(
+        default=True,
+        help_text="Alert when a website, API, or connector sends a checkout or order.",
+    )
+    notify_payment_activity = models.BooleanField(
+        default=True,
+        help_text="Alert for payment attempts, transfer claims, confirmations, and payment reviews.",
+    )
+    notification_sound_enabled = models.BooleanField(
+        default=True,
+        help_text="Play a short sound when new activity arrives while StoreTrack is open.",
+    )
+    notification_desktop_enabled = models.BooleanField(
+        default=True,
+        help_text="Use browser desktop alerts when this device has granted permission.",
+    )
     insufficient_stock_policy = models.CharField(max_length=20, choices=POLICY_CHOICES, default=POLICY_INVITE)
     public_note = models.CharField(max_length=255, blank=True, default="")
     checkout_reservation_minutes = models.PositiveSmallIntegerField(
@@ -608,4 +684,68 @@ class CommerceGatewayEvent(BusinessOwnedModel):
         ordering = ["-created_at", "-id"]
         constraints = [
             models.UniqueConstraint(fields=["business", "provider", "event_key"], name="unique_commerce_gateway_event"),
+        ]
+
+
+class CommerceNotification(BusinessOwnedModel):
+    """Persistent tenant activity that each staff member acknowledges separately."""
+
+    EVENT_CHECKOUT_RECEIVED = "checkout_received"
+    EVENT_INTAKE_RECEIVED = "intake_received"
+    EVENT_PAYMENT_STARTED = "payment_started"
+    EVENT_PAYMENT_CLAIM = "payment_claim"
+    EVENT_PAYMENT_CONFIRMED = "payment_confirmed"
+    EVENT_PAYMENT_REVIEW = "payment_review"
+    EVENT_CHOICES = [
+        (EVENT_CHECKOUT_RECEIVED, "Checkout received"),
+        (EVENT_INTAKE_RECEIVED, "Order received"),
+        (EVENT_PAYMENT_STARTED, "Payment started"),
+        (EVENT_PAYMENT_CLAIM, "Payment claim submitted"),
+        (EVENT_PAYMENT_CONFIRMED, "Payment confirmed"),
+        (EVENT_PAYMENT_REVIEW, "Payment needs review"),
+    ]
+    ORDER_EVENTS = {EVENT_CHECKOUT_RECEIVED, EVENT_INTAKE_RECEIVED}
+    PAYMENT_EVENTS = {
+        EVENT_PAYMENT_STARTED,
+        EVENT_PAYMENT_CLAIM,
+        EVENT_PAYMENT_CONFIRMED,
+        EVENT_PAYMENT_REVIEW,
+    }
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    event_type = models.CharField(max_length=28, choices=EVENT_CHOICES)
+    title = models.CharField(max_length=160)
+    message = models.CharField(max_length=500, blank=True, default="")
+    target_url = models.CharField(max_length=500, blank=True, default="/commerce/")
+    dedupe_key = models.CharField(max_length=180, blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["business", "created_at"], name="commerce_notice_recent_idx")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["business", "dedupe_key"],
+                condition=~models.Q(dedupe_key=""),
+                name="unique_commerce_notification_dedupe",
+            ),
+        ]
+
+    def __str__(self):
+        return self.title
+
+
+class CommerceNotificationRead(models.Model):
+    notification = models.ForeignKey(
+        CommerceNotification, on_delete=models.CASCADE, related_name="reads"
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="commerce_notification_reads"
+    )
+    read_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["notification", "user"], name="unique_commerce_notification_read"
+            ),
         ]

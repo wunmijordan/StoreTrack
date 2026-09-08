@@ -1,10 +1,13 @@
 from django.urls import path
 from . import views
 from . import payment_views
+from . import notification_views
 
 urlpatterns = [
     path("commerce/", views.commerce_dashboard, name="commerce_dashboard"),
     path("commerce/settings/", views.commerce_settings, name="commerce_settings"),
+    path("commerce/notifications/feed/", notification_views.notification_feed, name="commerce_notification_feed"),
+    path("commerce/notifications/read/", notification_views.notification_read, name="commerce_notification_read"),
     path("commerce/products/<int:good_id>/", views.storefront_product_edit, name="storefront_product_edit"),
     path("commerce/integrations/add/", views.integration_add, name="commerce_integration_add"),
     path("commerce/payment-settings/", payment_views.payment_settings, name="commerce_payment_settings"),
@@ -18,6 +21,10 @@ urlpatterns = [
     path("shop/<slug:business_slug>/", views.storefront, name="storefront"),
     path("shop/<slug:business_slug>/order-now/", views.order_now, name="storefront_order_now"),
     path("shop/<slug:business_slug>/order/", views.storefront_order, name="storefront_order"),
+    path("shop/<slug:business_slug>/checkouts/<uuid:checkout_id>/", views.storefront_checkout, name="storefront_checkout"),
+    path("shop/<slug:business_slug>/checkouts/<uuid:checkout_id>/status/", views.storefront_checkout_status, name="storefront_checkout_status"),
+    path("shop/<slug:business_slug>/checkouts/<uuid:checkout_id>/pay/", views.storefront_checkout_payment, name="storefront_checkout_payment"),
+    path("shop/<slug:business_slug>/checkouts/<uuid:checkout_id>/claim/", views.storefront_checkout_claim, name="storefront_checkout_claim"),
     path("shop/<slug:business_slug>/orders/<uuid:public_id>/", views.storefront_order_status, name="storefront_order_status"),
     path("shop/<slug:business_slug>/orders/<uuid:public_id>/preorder/", views.storefront_switch_preorder, name="storefront_switch_preorder"),
     path("api/v1/storefronts/<slug:business_slug>/products", views.api_products, name="commerce_api_products"),

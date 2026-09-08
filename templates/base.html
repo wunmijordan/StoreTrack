@@ -127,6 +127,196 @@
     {% block content %}{% endblock %}
   </main>
 
+  {% if user.is_authenticated and module_permissions.commerce.view %}
+  <aside id="commerce-notification-dock"
+         class="fixed bottom-3 right-3 z-[80] hidden w-[calc(100vw-1.5rem)] max-w-sm overflow-hidden rounded-2xl border border-stone-200 bg-[#FFFDF8] shadow-[0_20px_55px_rgba(33,29,26,.32)]"
+         data-feed-url="{% url 'commerce_notification_feed' %}"
+         data-read-url="{% url 'commerce_notification_read' %}"
+         aria-live="polite">
+    <div class="flex items-center gap-3 border-b border-white/10 px-3.5 py-3 text-white" style="background:var(--tenant-background)">
+      <span class="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/10" aria-hidden="true">
+        <svg viewBox="0 0 24 24" class="h-5 w-5 fill-none stroke-current" stroke-width="1.8"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>
+        <span class="absolute -right-1 -top-1 h-2.5 w-2.5 animate-pulse rounded-full bg-amber-400 ring-2 ring-white/80"></span>
+      </span>
+      <button type="button" id="commerce-notification-expand" class="min-w-0 flex-1 text-left" aria-expanded="false" aria-controls="commerce-notification-body">
+        <span class="block text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-300">Commerce activity</span>
+        <span class="block truncate text-sm font-semibold"><span id="commerce-notification-count">0</span> unread alert<span id="commerce-notification-plural">s</span></span>
+      </button>
+      <button type="button" id="commerce-notification-minimize" class="rounded-lg p-2 text-stone-300 transition hover:bg-white/10 hover:text-white" aria-label="Minimize commerce alerts">
+        <svg viewBox="0 0 24 24" class="h-4 w-4 fill-none stroke-current" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+    </div>
+    <div id="commerce-notification-body" class="hidden h-80 flex-col" aria-hidden="true">
+      <div class="flex items-center justify-between border-b border-stone-200 px-4 py-2.5">
+        <span class="text-[10px] font-bold uppercase tracking-[0.16em] text-stone-500">Unread activity</span>
+        <button type="button" id="commerce-notification-read-all" class="text-xs font-semibold text-stone-500 hover:text-stone-900">Mark all read</button>
+      </div>
+      <div id="commerce-notification-list" class="min-h-0 flex-1 divide-y divide-stone-100 overflow-y-auto overscroll-contain"></div>
+      <p class="border-t border-stone-200 px-4 py-2.5 text-[10px] leading-4 text-stone-400">Your unread list remains available until you mark its entries as read.</p>
+    </div>
+  </aside>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const dock = document.getElementById('commerce-notification-dock');
+      if (!dock) return;
+      const body = document.getElementById('commerce-notification-body');
+      const expand = document.getElementById('commerce-notification-expand');
+      const minimize = document.getElementById('commerce-notification-minimize');
+      const count = document.getElementById('commerce-notification-count');
+      const plural = document.getElementById('commerce-notification-plural');
+      const list = document.getElementById('commerce-notification-list');
+      const readAll = document.getElementById('commerce-notification-read-all');
+      let latestId = null;
+      let initialized = false;
+      let suppressNextAnnouncement = false;
+      let timer = null;
+
+      function csrfToken() {
+        const match = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
+        return match ? decodeURIComponent(match[1]) : '';
+      }
+      function setExpanded(value) {
+        body.classList.toggle('hidden', !value);
+        body.classList.toggle('flex', value);
+        body.setAttribute('aria-hidden', value ? 'false' : 'true');
+        expand.setAttribute('aria-expanded', value ? 'true' : 'false');
+        minimize.classList.toggle('rotate-180', !value);
+        minimize.setAttribute('aria-label', value ? 'Minimize commerce alerts' : 'Expand commerce alerts');
+      }
+      function playSound() {
+        try {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (!AudioContext) return;
+          const audio = new AudioContext();
+          const oscillator = audio.createOscillator();
+          const gain = audio.createGain();
+          oscillator.type = 'sine';
+          oscillator.frequency.setValueAtTime(740, audio.currentTime);
+          oscillator.frequency.exponentialRampToValueAtTime(980, audio.currentTime + .16);
+          gain.gain.setValueAtTime(.0001, audio.currentTime);
+          gain.gain.exponentialRampToValueAtTime(.16, audio.currentTime + .025);
+          gain.gain.exponentialRampToValueAtTime(.0001, audio.currentTime + .34);
+          oscillator.connect(gain); gain.connect(audio.destination);
+          oscillator.start(); oscillator.stop(audio.currentTime + .35);
+          oscillator.addEventListener('ended', () => audio.close());
+        } catch (error) { /* Browser autoplay policy may suppress background audio. */ }
+      }
+      function desktopAlert(item) {
+        if (!('Notification' in window) || Notification.permission !== 'granted') return;
+        const alert = new Notification(item.title, { body: item.message, tag: item.id, renotify: true });
+        alert.onclick = function () { window.focus(); window.location.href = item.target_url || '/commerce/'; alert.close(); };
+      }
+      function render(data) {
+        if (!data.enabled || !data.unread_count || !data.notifications.length) {
+          dock.classList.add('hidden');
+          setExpanded(false);
+          latestId = null;
+          initialized = true;
+          suppressNextAnnouncement = false;
+          return;
+        }
+        const newest = data.notifications[0];
+        count.textContent = data.unread_count;
+        plural.textContent = data.unread_count === 1 ? '' : 's';
+        list.replaceChildren();
+        data.notifications.forEach(item => {
+          const row = document.createElement('article');
+          row.className = 'px-4 py-3 transition hover:bg-stone-50';
+          const top = document.createElement('div');
+          top.className = 'flex items-start justify-between gap-3';
+          const copy = document.createElement('div');
+          copy.className = 'min-w-0';
+          const label = document.createElement('span');
+          label.className = item.event_type === 'payment_review'
+            ? 'inline-flex rounded-full bg-rose-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-rose-800'
+            : 'inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-900';
+          label.textContent = item.event_type === 'payment_review' ? 'Needs attention' : item.event_type.replaceAll('_', ' ');
+          const heading = document.createElement('h2');
+          heading.className = 'mt-1.5 text-sm font-semibold leading-5 text-stone-900';
+          heading.textContent = item.title;
+          const detail = document.createElement('p');
+          detail.className = 'mt-0.5 text-xs leading-4 text-stone-500';
+          detail.textContent = item.message;
+          copy.append(label, heading, detail);
+          const itemTime = document.createElement('time');
+          itemTime.className = 'shrink-0 pt-0.5 text-[10px] text-stone-400';
+          itemTime.textContent = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' }).format(new Date(item.created_at));
+          top.append(copy, itemTime);
+          const actions = document.createElement('div');
+          actions.className = 'mt-2 flex items-center gap-3';
+          const openItem = document.createElement('a');
+          openItem.href = item.target_url || '/commerce/';
+          openItem.className = 'text-[11px] font-semibold text-[#8f172d] hover:underline';
+          openItem.textContent = 'Open';
+          const readItem = document.createElement('button');
+          readItem.type = 'button';
+          readItem.dataset.notificationId = item.id;
+          readItem.className = 'commerce-notification-read text-[11px] font-semibold text-stone-400 hover:text-stone-800';
+          readItem.textContent = 'Mark read';
+          actions.append(openItem, readItem);
+          row.append(top, actions);
+          list.append(row);
+        });
+        dock.classList.remove('hidden');
+        if (initialized && latestId !== newest.id && !suppressNextAnnouncement) {
+          setExpanded(true);
+          if (data.sound_enabled) playSound();
+          if (data.desktop_enabled) desktopAlert(newest);
+        }
+        suppressNextAnnouncement = false;
+        latestId = newest.id;
+        initialized = true;
+      }
+      async function poll() {
+        try {
+          const response = await fetch(dock.dataset.feedUrl, { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+          if (response.ok) {
+            const data = await response.json();
+            render(data);
+            clearTimeout(timer);
+            timer = setTimeout(poll, Math.max(5, data.poll_seconds || 8) * 1000);
+            return;
+          }
+        } catch (error) { /* A later poll retries transient connectivity failures. */ }
+        clearTimeout(timer);
+        timer = setTimeout(poll, 15000);
+      }
+      async function acknowledge(payload) {
+        const readButtons = list.querySelectorAll('.commerce-notification-read');
+        readButtons.forEach(button => { button.disabled = true; });
+        readAll.disabled = true;
+        try {
+          const response = await fetch(dock.dataset.readUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken(), 'Accept': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (response.ok) {
+            suppressNextAnnouncement = true;
+            await poll();
+          }
+        } finally {
+          readButtons.forEach(button => { button.disabled = false; });
+          readAll.disabled = false;
+        }
+      }
+      minimize.addEventListener('click', () => setExpanded(expand.getAttribute('aria-expanded') !== 'true'));
+      expand.addEventListener('click', () => setExpanded(expand.getAttribute('aria-expanded') !== 'true'));
+      list.addEventListener('click', event => {
+        const button = event.target.closest('.commerce-notification-read');
+        if (button) acknowledge({ notification_ids: [button.dataset.notificationId] });
+      });
+      readAll.addEventListener('click', () => acknowledge({ all: true }));
+      document.addEventListener('click', event => {
+        if (expand.getAttribute('aria-expanded') === 'true' && !dock.contains(event.target)) setExpanded(false);
+      });
+      document.addEventListener('keydown', event => { if (event.key === 'Escape') setExpanded(false); });
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+      poll();
+    });
+  </script>
+  {% endif %}
+
   <script>
     document.addEventListener("DOMContentLoaded", function () {
       const shell = document.getElementById('mobile-nav-shell');

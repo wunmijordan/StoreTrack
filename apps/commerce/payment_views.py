@@ -32,6 +32,7 @@ from .payment_gateways import (
     paystack_signature_valid,
 )
 from .payment_services import (
+    capture_checkout_gateway_email,
     current_checkout_payment,
     current_payment,
     eligible_payment_methods,
@@ -89,9 +90,15 @@ def api_checkout_payment_initiate(request, business_slug, checkout_id):
     )
     try:
         data = json.loads(request.body or b"{}")
+        if not isinstance(data, dict):
+            raise ValidationError("Payment request must be a JSON object.")
+        method = (data.get("method") or "").strip().lower()
+        capture_checkout_gateway_email(
+            checkout, method, data.get("customer_email") or data.get("email")
+        )
         payment = initiate_payment(
             checkout=checkout,
-            method=data.get("method"),
+            method=method,
             idempotency_key=request.headers.get("Idempotency-Key", ""),
             return_url=data.get("return_url", ""),
         )

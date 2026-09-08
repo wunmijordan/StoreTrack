@@ -2,12 +2,15 @@ import hashlib
 import hmac
 import json
 from decimal import Decimal, InvalidOperation
+from uuid import uuid4
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
@@ -18,7 +21,22 @@ from inventory.models import FinishedGood
 from .forms import CommerceIntegrationForm, CommerceSettingsForm, StorefrontProductForm
 from .models import CommerceCheckoutSession, CommerceIntegration, CommerceIntake, CommerceSettings, StorefrontProduct
 from .services import ChannelMinimumError, accept_intake, create_intake, switch_intake_to_preorder
-from .checkout_services import CheckoutAvailabilityError, available_physical_stock, create_checkout, serialize_checkout
+from .checkout_services import (
+    CheckoutAvailabilityError,
+    available_physical_stock,
+    create_checkout,
+    expire_checkout_if_needed,
+    serialize_checkout,
+)
+from .payment_gateways import GatewayError
+from .payment_services import (
+    capture_checkout_gateway_email,
+    current_checkout_payment,
+    eligible_payment_methods,
+    initiate_payment,
+    serialize_payment,
+    submit_bank_claim,
+)
 
 
 def _settings_for(business):
@@ -50,7 +68,7 @@ def commerce_dashboard(request):
 def commerce_settings(request):
     if not is_business_admin(request.user, request.business): return render(request, "403.html", status=403)
     obj = _settings_for(request.business)
-    form = CommerceSettingsForm(request.POST or None, instance=obj)
+    form = CommerceSettingsForm(request.POST or None, request.FILES or None, instance=obj)
     if request.method == "POST" and form.is_valid():
         saved = form.save(commit=False); saved.business=request.business; saved.created_by = saved.created_by or request.user; saved.save()
         messages.success(request, "Commerce settings saved.")
@@ -99,17 +117,70 @@ def intake_accept(request, public_id):
     return redirect("commerce_dashboard")
 
 
-def _public_catalog(request, business, settings, *, order_now_mode=False):
-    products = StorefrontProduct.raw_objects.filter(
+def _public_products(business):
+    return StorefrontProduct.raw_objects.filter(
         business=business, published=True
     ).select_related("finished_good__business").prefetch_related("finished_good__channel_prices")
+
+
+def _public_catalog(request, business, settings, *, order_now_mode=False):
+    storefront_copy = vertical_config(business)["storefront"]
     return render(request, "commerce/storefront.html", {
         "store_business": business,
         "commerce_settings": settings,
-        "products": products,
+        "products": _public_products(business),
         "order_now_mode": order_now_mode,
         "commerce_channels": vertical_config(business)["commerce_channels"],
+        "storefront_copy": storefront_copy,
+        "checkout_key": uuid4().hex,
     })
+
+
+def _public_storefront_context(business):
+    return {
+        "store_business": business,
+        "commerce_settings": _settings_for(business),
+        "commerce_channels": vertical_config(business)["commerce_channels"],
+        "storefront_copy": vertical_config(business)["storefront"],
+    }
+
+
+def _validation_message(exc):
+    return "; ".join(exc.messages) if isinstance(exc, ValidationError) else str(exc)
+
+
+def _public_checkout(business, checkout_id):
+    checkout = get_object_or_404(
+        CommerceCheckoutSession.raw_objects.prefetch_related(
+            "items__storefront_product", "items__finished_good"
+        ),
+        business=business,
+        public_id=checkout_id,
+    )
+    expire_checkout_if_needed(checkout)
+    return checkout
+
+
+def _checkout_page_context(business, checkout, **extra):
+    payment = current_checkout_payment(checkout)
+    context = {
+        **_public_storefront_context(business),
+        "checkout": checkout,
+        "checkout_data": serialize_checkout(checkout),
+        "payment": payment,
+        "payment_data": serialize_payment(payment) if payment else None,
+        "payment_key": uuid4().hex,
+        "checkout_channel_label": vertical_config(business)["commerce_channels"].get(
+            checkout.sales_channel, checkout.get_sales_channel_display()
+        ),
+        "payment_methods": (
+            eligible_payment_methods(business)
+            if checkout.status == CommerceCheckoutSession.STATUS_AWAITING_PAYMENT
+            else []
+        ),
+    }
+    context.update(extra)
+    return context
 
 
 def storefront(request,business_slug):
@@ -135,11 +206,149 @@ def storefront_order(request,business_slug):
     if not _commerce_enabled(business) or not (settings.hosted_storefront_enabled or settings.order_now_link_enabled):
         return render(request,"404.html",status=404)
     try:
-        product=get_object_or_404(StorefrontProduct.raw_objects.select_related("finished_good"),business=business,public_id=request.POST.get("product_id"),published=True)
-        intake,_=create_intake(business=business,source=CommerceIntake.SOURCE_STOREFRONT,sales_channel=request.POST.get("order_mode"),ordering_mode=request.POST.get("ordering_mode"),customer={"name":request.POST.get("customer_name"),"phone":request.POST.get("phone"),"email":request.POST.get("email"),"address":request.POST.get("address")},items=[{"storefront_product":product,"quantity":request.POST.get("quantity")}],service_mode=request.POST.get("service_mode",""),table_reference=request.POST.get("table_reference",""))
-        return render(request,"commerce/storefront_success.html",{"store_business":business,"intake":intake})
-    except (ValidationError,InvalidOperation,ValueError) as exc:
-        return render(request,"commerce/storefront.html",{"store_business":business,"commerce_settings":_settings_for(business),"products":StorefrontProduct.raw_objects.filter(business=business,published=True).select_related("finished_good"),"commerce_channels":vertical_config(business)["commerce_channels"],"order_error":str(exc)},status=400)
+        customer_phone = (request.POST.get("phone") or "").strip()
+        customer_email = (request.POST.get("email") or "").strip()
+        if not customer_phone:
+            raise ValidationError("Phone number is required.")
+        if customer_email:
+            validate_email(customer_email)
+        product_ids = request.POST.getlist("product_id")
+        quantities = request.POST.getlist("quantity")
+        if not product_ids or len(product_ids) != len(quantities):
+            raise ValidationError("Choose at least one product and enter a quantity for each one.")
+        products = {
+            str(product.public_id): product
+            for product in StorefrontProduct.raw_objects.filter(
+                business=business,
+                public_id__in=product_ids,
+                published=True,
+            ).select_related("finished_good__business").prefetch_related("finished_good__channel_prices")
+        }
+        items = []
+        for product_id, quantity in zip(product_ids, quantities):
+            product = products.get(product_id)
+            if product is None:
+                raise ValidationError("One of the selected products is no longer available.")
+            items.append({"storefront_product": product, "quantity": quantity})
+        checkout, _ = create_checkout(
+            business=business,
+            source=CommerceIntake.SOURCE_STOREFRONT,
+            order_mode=request.POST.get("order_mode"),
+            customer={
+                "name": request.POST.get("customer_name"),
+                "phone": customer_phone,
+                "email": customer_email,
+                "address": request.POST.get("address"),
+            },
+            items=items,
+            idempotency_key=request.POST.get("checkout_key") or f"hosted-{uuid4().hex}",
+            service_mode=request.POST.get("service_mode", ""),
+            table_reference=request.POST.get("table_reference", ""),
+        )
+        return redirect("storefront_checkout", business_slug=business.slug, checkout_id=checkout.public_id)
+    except (ValidationError, InvalidOperation, TypeError, ValueError) as exc:
+        return render(request,"commerce/storefront.html",{
+            "store_business":business,
+            "commerce_settings":_settings_for(business),
+            "products":_public_products(business),
+            "commerce_channels":vertical_config(business)["commerce_channels"],
+            "storefront_copy":vertical_config(business)["storefront"],
+            "order_now_mode":request.POST.get("catalog_mode") == "order_now",
+            "order_error":_validation_message(exc),
+            "checkout_key":uuid4().hex,
+        },status=400)
+
+
+@require_http_methods(["GET"])
+def storefront_checkout(request, business_slug, checkout_id):
+    business = get_object_or_404(Business, slug=business_slug)
+    if not _commerce_enabled(business):
+        return render(request, "404.html", status=404)
+    checkout = _public_checkout(business, checkout_id)
+    return render(
+        request,
+        "commerce/storefront_checkout.html",
+        _checkout_page_context(business, checkout),
+    )
+
+
+@require_http_methods(["GET"])
+def storefront_checkout_status(request, business_slug, checkout_id):
+    """Small public polling response for a checkout's unguessable tracking link."""
+    business = get_object_or_404(Business, slug=business_slug)
+    if not _commerce_enabled(business):
+        return JsonResponse({"detail": "Checkout unavailable."}, status=404)
+    checkout = _public_checkout(business, checkout_id)
+    payment = current_checkout_payment(checkout)
+    intake = checkout.materialized_intake
+    return JsonResponse({
+        "checkout_status": checkout.status,
+        "payment_status": payment.status if payment else None,
+        "order_id": str(intake.public_id) if intake else None,
+        "order_number": intake.public_number if intake else None,
+        "updated_at": checkout.updated_at.isoformat(),
+    })
+
+
+@require_http_methods(["POST"])
+def storefront_checkout_payment(request, business_slug, checkout_id):
+    business = get_object_or_404(Business, slug=business_slug)
+    if not _commerce_enabled(business):
+        return render(request, "404.html", status=404)
+    checkout = _public_checkout(business, checkout_id)
+    method = (request.POST.get("method") or "").strip().lower()
+    payment_key = (request.POST.get("payment_key") or uuid4().hex).strip()[:64]
+    try:
+        capture_checkout_gateway_email(checkout, method, request.POST.get("payment_email"))
+        return_url = request.build_absolute_uri(
+            reverse(
+                "storefront_checkout",
+                kwargs={"business_slug": business.slug, "checkout_id": checkout.public_id},
+            )
+        )
+        payment = initiate_payment(
+            checkout=checkout,
+            method=method,
+            idempotency_key=f"hosted:{checkout.public_id}:{payment_key}",
+            return_url=return_url,
+        )
+        if payment.authorization_url:
+            return redirect(payment.authorization_url)
+        return redirect("storefront_checkout", business_slug=business.slug, checkout_id=checkout.public_id)
+    except (ValidationError, GatewayError, TypeError, ValueError) as exc:
+        checkout.refresh_from_db()
+        return render(
+            request,
+            "commerce/storefront_checkout.html",
+            _checkout_page_context(business, checkout, payment_error=_validation_message(exc)),
+            status=400,
+        )
+
+
+@require_http_methods(["POST"])
+def storefront_checkout_claim(request, business_slug, checkout_id):
+    business = get_object_or_404(Business, slug=business_slug)
+    if not _commerce_enabled(business):
+        return render(request, "404.html", status=404)
+    checkout = _public_checkout(business, checkout_id)
+    payment = current_checkout_payment(checkout)
+    try:
+        if payment is None:
+            raise ValidationError("Start a bank-transfer payment before submitting its reference.")
+        submit_bank_claim(
+            payment=payment,
+            payer_name=request.POST.get("payer_name") or checkout.customer_name,
+            transfer_reference=request.POST.get("transfer_reference"),
+        )
+        return redirect("storefront_checkout", business_slug=business.slug, checkout_id=checkout.public_id)
+    except (ValidationError, TypeError, ValueError) as exc:
+        checkout.refresh_from_db()
+        return render(
+            request,
+            "commerce/storefront_checkout.html",
+            _checkout_page_context(business, checkout, payment_error=_validation_message(exc)),
+            status=400,
+        )
 
 
 def _api_business_and_auth(request,business_slug,write=False):
@@ -181,10 +390,10 @@ def api_products(request,business_slug):
         if p.allow_stock_order:legacy_modes.append("order")
         if business.uses_production and (p.allow_online_order or p.allow_distribution_order):legacy_modes.append("preorder")
         image_url = p.public_image_url
-        if image_url and image_url.startswith("/"):
-            image_url = request.build_absolute_uri(image_url)
-        rows.append({"id":str(p.public_id),"name":p.display_name,"description":p.description,"image_url":image_url,"unit":p.finished_good.unit,"available_now":str(available_physical_stock(p.finished_good)),"order_modes":order_modes,"ordering_modes":legacy_modes,"min_quantity":str(p.min_quantity),"preorder_min_quantity":str(p.preorder_min_quantity),"distribution_min_quantity":str(p.distribution_min_quantity),"max_quantity":str(p.max_quantity) if p.max_quantity is not None else None,"preorder_lead_time":p.preorder_lead_time,"stock_price":str(p.finished_good.selling_price_for("physical_store")),"preorder_price":str(p.finished_good.selling_price_for("online")),"distribution_price":str(p.finished_good.selling_price_for("distribution"))})
-    return JsonResponse({"business":business.name,"service":business.get_vertical_display(),"products":rows})
+        if image_url and "://" not in image_url:
+            image_url = request.build_absolute_uri(f"/{image_url.lstrip('/')}")
+        rows.append({"id":str(p.public_id),"name":p.display_name,"description":p.description,"image":image_url,"image_url":image_url,"unit":p.finished_good.unit,"available_now":str(available_physical_stock(p.finished_good)),"order_modes":order_modes,"ordering_modes":legacy_modes,"min_quantity":str(p.min_quantity),"preorder_min_quantity":str(p.preorder_min_quantity),"distribution_min_quantity":str(p.distribution_min_quantity),"max_quantity":str(p.max_quantity) if p.max_quantity is not None else None,"preorder_lead_time":p.preorder_lead_time,"stock_price":str(p.finished_good.selling_price_for("physical_store")),"preorder_price":str(p.finished_good.selling_price_for("online")),"distribution_price":str(p.finished_good.selling_price_for("distribution"))})
+    return JsonResponse({"business":business.name,"business_slug":business.slug,"service":business.get_vertical_display(),"products":rows})
 
 
 @csrf_exempt
@@ -195,6 +404,16 @@ def api_checkouts(request, business_slug):
         return JsonResponse({"detail": "Invalid or disabled commerce API credential."}, status=403)
     try:
         data = json.loads(request.body or b"{}")
+        customer = data.get("customer") or {}
+        if not isinstance(customer, dict):
+            raise ValidationError("Customer must be a JSON object.")
+        customer_phone = str(customer.get("phone") or "").strip()
+        customer_email = str(customer.get("email") or "").strip()
+        if not customer_phone:
+            raise ValidationError("Customer phone number is required.")
+        if customer_email:
+            validate_email(customer_email)
+        customer = {**customer, "phone": customer_phone, "email": customer_email}
         products = {
             str(p.public_id): p
             for p in StorefrontProduct.raw_objects.filter(
@@ -203,6 +422,8 @@ def api_checkouts(request, business_slug):
         }
         items = []
         for row in data.get("items") or []:
+            if not isinstance(row, dict):
+                raise ValidationError("Each checkout item must be a JSON object.")
             product = products.get(str(row.get("product_id")))
             if not product:
                 raise ValidationError("Unknown or unpublished product.")
@@ -213,7 +434,7 @@ def api_checkouts(request, business_slug):
             order_mode=data.get("order_mode") or data.get("sales_channel"),
             ordering_mode=data.get("ordering_mode"),
             external_order_id=str(data.get("external_order_id") or ""),
-            customer=data.get("customer") or {},
+            customer=customer,
             service_mode=str(data.get("service_mode") or ""),
             table_reference=str(data.get("table_reference") or ""),
             items=items,
@@ -303,7 +524,11 @@ def storefront_switch_preorder(request, business_slug, public_id):
     intake = get_object_or_404(CommerceIntake.raw_objects, business=business, public_id=public_id)
     try:
         intake = switch_intake_to_preorder(intake, user=None)
-        return render(request, "commerce/storefront_success.html", {"store_business": business, "intake": intake})
+        return render(
+            request,
+            "commerce/storefront_success.html",
+            {**_public_storefront_context(business), "intake": intake},
+        )
     except ValidationError as exc:
         return JsonResponse({"detail": "; ".join(exc.messages)}, status=400)
 
@@ -327,7 +552,11 @@ def storefront_order_status(request, business_slug, public_id):
     if not _commerce_enabled(business):
         return render(request, "404.html", status=404)
     intake = get_object_or_404(CommerceIntake.raw_objects.prefetch_related("items__finished_good"), business=business, public_id=public_id)
-    return render(request, "commerce/storefront_status.html", {"store_business": business, "intake": intake})
+    return render(
+        request,
+        "commerce/storefront_status.html",
+        {**_public_storefront_context(business), "intake": intake},
+    )
 
 
 @csrf_exempt

@@ -1,20 +1,329 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ store_business.name }} · {% if order_now_mode %}Order Now{% else %}Storefront{% endif %}</title><script src="https://cdn.tailwindcss.com"></script></head>
-<body class="bg-[#FAF6EF] text-stone-900"><main class="max-w-5xl mx-auto p-5">
-  <header class="rounded-xl p-5 text-white mb-5" style="background:{{ store_business.background_color }}"><h1 class="text-2xl font-semibold">{{ store_business.name }}{% if order_now_mode %} · Order Now{% endif %}</h1><p class="text-sm opacity-80">{{ commerce_settings.public_note|default:"Choose the order channel whose pricing and minimum fit your request." }}</p></header>
-  {% if order_error %}<div class="mb-4 bg-rose-50 border border-rose-200 text-rose-700 rounded p-3">{{ order_error }}</div>{% endif %}
-  <div class="grid md:grid-cols-2 gap-4">{% for p in products %}<article class="bg-white rounded-xl border border-stone-200 p-4">
-    {% if p.public_image_url %}<img src="{{ p.public_image_url }}" alt="{{ p.display_name }}" class="mb-3 h-48 w-full rounded-lg bg-stone-100 object-cover" loading="lazy">{% endif %}
-    <h2 class="font-semibold text-lg">{{ p.display_name }}</h2><p class="text-sm text-stone-500">{{ p.description }}</p><p class="mt-2 text-sm">Available now: <strong>{{ p.available_now }} {{ p.finished_good.unit }}</strong></p>
-    <div class="mt-3 grid gap-2 text-sm">
-      {% if p.allow_stock_order %}<div class="rounded border p-2"><strong>{{ commerce_channels.physical_store }}</strong><div>{{ store_business.currency_symbol }}{{ p.stock_price }} · minimum {{ p.min_quantity }}</div><div class="text-xs text-stone-500">Available-stock route</div></div>{% endif %}
-      {% if p.allow_online_order %}<div class="rounded border p-2"><strong>{{ commerce_channels.online }}</strong><div>{{ store_business.currency_symbol }}{{ p.preorder_price }} · minimum {{ p.preorder_min_quantity }}</div><div class="text-xs text-stone-500">{% if store_business.uses_production %}Made-to-order route{% else %}Available-stock route{% endif %}{% if p.preorder_lead_time and store_business.uses_production %} · {{ p.preorder_lead_time }}{% endif %}</div></div>{% endif %}
-      {% if p.allow_distribution_order %}<div class="rounded border border-amber-200 bg-amber-50/40 p-2"><strong>{{ commerce_channels.distribution }}</strong><div>{{ store_business.currency_symbol }}{{ p.distribution_price }} · minimum {{ p.distribution_min_quantity }}</div><div class="text-xs text-stone-500">{% if store_business.uses_production %}Made-to-order route{% else %}Available-stock route{% endif %}</div></div>{% endif %}
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="{{ store_business.background_color }}">
+  <title>{{ store_business.name }} · {% if order_now_mode %}Order Now{% else %}Catalogue{% endif %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap');
+    :root { --brand: {{ store_business.accent_color }}; --brand-dark: {{ store_business.background_color }}; }
+    body { font-family: 'DM Sans', sans-serif; background: #f7f4ee; color: #211d1a; }
+    .font-display { font-family: 'Fraunces', serif; }
+    .catalogue-noise { background-image: radial-gradient(rgba(255,255,255,.16) 1px, transparent 1px); background-size: 18px 18px; }
+    .product-card { box-shadow: 0 14px 42px rgba(43,36,31,.08); transition: transform .24s ease, box-shadow .24s ease; }
+    .product-card:hover { transform: translateY(-4px); box-shadow: 0 22px 55px rgba(43,36,31,.14); }
+    .product-card img { transition: transform .55s cubic-bezier(.2,.8,.2,1); }
+    .product-card:hover img { transform: scale(1.045); }
+    .line-clamp-2 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+    .channel-filter[aria-pressed="true"] { background: var(--brand); color: white; border-color: var(--brand); box-shadow: 0 8px 24px color-mix(in srgb, var(--brand) 22%, transparent); }
+    dialog::backdrop { background: rgba(25,20,17,.68); backdrop-filter: blur(5px); }
+    @media (prefers-reduced-motion: reduce) { .product-card, .product-card img { transition: none; } }
+    @media (max-width: 640px) { dialog[open] { margin: auto 0 0; width: 100%; max-width: none; border-radius: 1.5rem 1.5rem 0 0; } }
+  </style>
+</head>
+<body class="min-h-screen">
+  <header class="relative isolate overflow-hidden text-white" style="background:var(--brand-dark)">
+    {% if commerce_settings.storefront_hero_image %}
+    <div class="absolute inset-y-0 right-0 w-full md:w-[58%]">
+      <img src="{{ commerce_settings.storefront_hero_image.url }}" alt="" class="h-full w-full object-cover opacity-75" style="object-position:{{ commerce_settings.storefront_hero_image_position }}">
+      <div class="absolute inset-0" style="background:linear-gradient(90deg,var(--brand-dark) 0%,var(--brand-dark) 8%,rgba(0,0,0,.2) 68%,rgba(0,0,0,.08) 100%)"></div>
     </div>
-    <form method="post" action="{% url 'storefront_order' store_business.slug %}" class="mt-3 space-y-2">{% csrf_token %}<input type="hidden" name="product_id" value="{{ p.public_id }}"><input required name="customer_name" placeholder="Your name" class="w-full border rounded px-3 py-2 text-sm"><input name="phone" placeholder="Phone" class="w-full border rounded px-3 py-2 text-sm"><input name="email" type="email" placeholder="Email" class="w-full border rounded px-3 py-2 text-sm"><input required name="quantity" type="number" step="0.01" min="0.01" value="{{ p.min_quantity }}" class="w-full border rounded px-3 py-2 text-sm"><div class="grid gap-2">
-      {% if p.allow_stock_order %}<button name="order_mode" value="physical_store" class="rounded px-3 py-2 text-white text-sm" style="background:{{ store_business.accent_color }}">{{ commerce_channels.physical_store }}</button>{% endif %}
-      {% if p.allow_online_order %}<button name="order_mode" value="online" class="rounded px-3 py-2 border text-sm">{{ commerce_channels.online }}</button>{% endif %}
-      {% if p.allow_distribution_order %}<button name="order_mode" value="distribution" class="rounded px-3 py-2 border border-amber-300 bg-amber-50 text-sm">{{ commerce_channels.distribution }}</button>{% endif %}
-    </div></form>
-  </article>{% endfor %}</div>
-</main></body></html>
+    {% else %}<div class="absolute -right-20 -top-36 h-80 w-80 rounded-full opacity-20 blur-3xl" style="background:var(--brand)"></div>{% endif %}
+    <div class="catalogue-noise absolute inset-0 opacity-30"></div>
+    <div class="relative mx-auto max-w-7xl px-5 pb-10 pt-6 sm:px-8 sm:pb-12 sm:pt-7">
+      <nav class="flex items-center justify-between gap-4">
+        <a href="{% url 'storefront' store_business.slug %}" class="min-w-0">
+          <span class="block truncate font-display text-xl font-semibold sm:text-2xl">{{ store_business.name }}</span>
+          <span class="mt-0.5 block text-[10px] font-bold uppercase tracking-[.22em] text-white/55">{{ storefront_copy.range_label }}</span>
+        </a>
+        <div class="flex items-center gap-2"><button type="button" id="open-order-history" class="hidden rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-[11px] font-semibold backdrop-blur transition hover:bg-white/20">Track orders</button><span class="rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-[11px] font-semibold backdrop-blur">{% if order_now_mode %}Order now{% else %}Browse &amp; order{% endif %}</span></div>
+      </nav>
+      <div class="mt-8 max-w-xl sm:mt-10">
+        <p class="text-[11px] font-bold uppercase tracking-[.22em] text-white/65">{{ storefront_copy.eyebrow }}</p>
+        <h1 class="mt-3 font-display text-3xl font-semibold leading-[1.08] sm:text-5xl">{{ commerce_settings.storefront_headline|default:storefront_copy.headline }}</h1>
+        <p class="mt-4 max-w-lg text-sm leading-6 text-white/75">{{ commerce_settings.public_note|default:storefront_copy.intro }}</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-7xl px-4 pb-20 sm:px-8">
+    <section class="relative z-10 -mt-6 rounded-2xl border border-stone-200/80 bg-white/95 p-3 shadow-[0_18px_50px_rgba(43,36,31,.12)] backdrop-blur sm:-mt-7 sm:flex sm:items-center sm:gap-3 sm:p-4">
+      <label class="relative block min-w-0 flex-1">
+        <span class="sr-only">Search products</span>
+        <svg viewBox="0 0 24 24" class="pointer-events-none absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 fill-none stroke-stone-400" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+        <input id="catalogue-search" type="search" placeholder="Search {{ storefront_copy.range_label|lower }}" autocomplete="off" class="h-12 w-full rounded-xl border border-stone-200 bg-stone-50 pl-11 pr-4 text-sm outline-none transition focus:border-stone-400 focus:bg-white focus:ring-4 focus:ring-stone-100">
+      </label>
+      <div class="mt-3 flex gap-2 overflow-x-auto pb-1 sm:mt-0 sm:pb-0" aria-label="Filter by ordering option">
+        <button type="button" class="channel-filter shrink-0 rounded-xl border border-stone-200 px-3.5 py-3 text-xs font-semibold transition" data-channel="all" aria-pressed="true">{{ storefront_copy.all_label }}</button>
+        <button type="button" class="channel-filter shrink-0 rounded-xl border border-stone-200 px-3.5 py-3 text-xs font-semibold transition" data-channel="physical_store" aria-pressed="false">{{ commerce_channels.physical_store }}</button>
+        <button type="button" class="channel-filter shrink-0 rounded-xl border border-stone-200 px-3.5 py-3 text-xs font-semibold transition" data-channel="online" aria-pressed="false">{{ commerce_channels.online }}</button>
+        <button type="button" class="channel-filter shrink-0 rounded-xl border border-stone-200 px-3.5 py-3 text-xs font-semibold transition" data-channel="distribution" aria-pressed="false">{{ commerce_channels.distribution }}</button>
+      </div>
+    </section>
+
+    {% if order_error %}<div class="mt-6 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800" role="alert"><strong>We could not send that order.</strong> {{ order_error }}</div>{% endif %}
+
+    <section class="mt-10">
+      <div class="flex items-end justify-between gap-4">
+        <div><p class="text-[10px] font-bold uppercase tracking-[.2em] text-stone-400">{{ storefront_copy.range_label }}</p><h2 class="mt-1 font-display text-2xl font-semibold text-stone-900 sm:text-3xl">{{ storefront_copy.range_heading }}</h2></div>
+        <p class="hidden max-w-xs text-right text-xs leading-5 text-stone-500 sm:block">Each ordering option shows its own price and minimum.</p>
+      </div>
+
+      <div id="catalogue-grid" class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {% for p in products %}
+        <article class="product-card group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-stone-200/80 bg-white" data-product-card data-product-id="{{ p.public_id }}" data-product-name="{{ p.display_name }}" data-unit="{{ p.finished_good.unit }}" data-search="{{ p.display_name|lower }} {{ p.description|lower }}" data-modes="{% if p.allow_stock_order %} physical_store{% endif %}{% if p.allow_online_order %} online{% endif %}{% if p.allow_distribution_order %} distribution{% endif %}" data-min-physical_store="{{ p.min_quantity }}" data-min-online="{{ p.preorder_min_quantity }}" data-min-distribution="{{ p.distribution_min_quantity }}" data-price-physical_store="{{ p.stock_price }}" data-price-online="{{ p.preorder_price }}" data-price-distribution="{{ p.distribution_price }}" data-max="{% if p.max_quantity %}{{ p.max_quantity }}{% endif %}">
+          <div class="relative aspect-[16/10] overflow-hidden bg-stone-100">
+            {% if p.public_image_url %}<img src="{{ p.public_image_url }}" alt="{{ p.display_name }}" class="h-full w-full object-cover" loading="lazy">
+            {% else %}<div class="flex h-full w-full items-center justify-center bg-gradient-to-br from-stone-100 via-[#efe8dc] to-stone-200"><div class="flex h-20 w-20 items-center justify-center rounded-full border border-white/80 bg-white/55 shadow-inner backdrop-blur"><svg viewBox="0 0 24 24" class="h-8 w-8 fill-none stroke-stone-400" stroke-width="1.35"><path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg></div></div>{% endif %}
+            <div class="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/45 to-transparent"></div>
+            <div class="absolute bottom-3 left-3 flex flex-wrap gap-1.5">
+              {% if p.allow_stock_order %}<span class="rounded-full border border-white/25 bg-black/35 px-2.5 py-1 text-[10px] font-semibold text-white backdrop-blur">{{ commerce_channels.physical_store }}</span>{% endif %}
+              {% if p.allow_online_order %}<span class="rounded-full border border-white/25 bg-black/35 px-2.5 py-1 text-[10px] font-semibold text-white backdrop-blur">{{ commerce_channels.online }}</span>{% endif %}
+              {% if p.allow_distribution_order %}<span class="rounded-full border border-white/25 bg-black/35 px-2.5 py-1 text-[10px] font-semibold text-white backdrop-blur">{{ commerce_channels.distribution }}</span>{% endif %}
+            </div>
+          </div>
+          <div class="flex flex-1 flex-col p-4">
+            <h3 class="font-display text-lg font-semibold leading-tight text-stone-900">{{ p.display_name }}</h3>
+            <p class="line-clamp-2 mt-1.5 min-h-[2rem] text-xs leading-4 text-stone-500">{{ p.description|default:"Choose from the ordering options below." }}</p>
+            <div class="mt-3 space-y-1.5 border-y border-stone-100 py-2.5 text-[11px]">
+              {% if p.allow_stock_order %}<div class="flex items-center justify-between gap-3"><span class="truncate text-stone-500">{{ commerce_channels.physical_store }}</span><span class="shrink-0 font-semibold text-stone-900">{{ store_business.currency_symbol }}{{ p.stock_price }} <span class="font-normal text-stone-400">/ {{ p.finished_good.unit }}</span></span></div>{% endif %}
+              {% if p.allow_online_order %}<div class="flex items-center justify-between gap-3"><span class="truncate text-stone-500">{{ commerce_channels.online }}</span><span class="shrink-0 font-semibold text-stone-900">{{ store_business.currency_symbol }}{{ p.preorder_price }} <span class="font-normal text-stone-400">/ {{ p.finished_good.unit }}</span></span></div>{% endif %}
+              {% if p.allow_distribution_order %}<div class="flex items-center justify-between gap-3"><span class="truncate text-stone-500">{{ commerce_channels.distribution }}</span><span class="shrink-0 font-semibold text-stone-900">{{ store_business.currency_symbol }}{{ p.distribution_price }} <span class="font-normal text-stone-400">/ {{ p.finished_good.unit }}</span></span></div>{% endif %}
+            </div>
+            <button type="button" class="add-product mt-auto flex w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-xs font-semibold text-white transition hover:brightness-90 focus:outline-none focus:ring-4 focus:ring-stone-200" style="background:var(--brand)"><span class="add-product-label">Add to basket</span><span aria-hidden="true">+</span></button>
+          </div>
+        </article>
+        {% empty %}
+        <div class="col-span-full rounded-2xl border border-dashed border-stone-300 bg-white/60 px-6 py-16 text-center"><p class="font-display text-xl font-semibold text-stone-700">The catalogue is being prepared.</p><p class="mt-2 text-sm text-stone-500">Please check back soon.</p></div>
+        {% endfor %}
+      </div>
+      <div id="catalogue-empty" class="mt-6 hidden rounded-2xl border border-dashed border-stone-300 bg-white/60 px-6 py-14 text-center"><p class="font-display text-xl font-semibold text-stone-700">No products match this search.</p><button type="button" id="catalogue-reset" class="mt-3 text-sm font-semibold underline underline-offset-4" style="color:var(--brand)">Reset filters</button></div>
+    </section>
+  </main>
+
+  <footer class="border-t border-stone-200 bg-white px-5 py-8 text-center"><p class="font-display text-lg font-semibold">{{ store_business.name }}</p><p class="mt-1 text-xs text-stone-400">Ordering made simple with StoreTrack</p></footer>
+
+  <div id="basket-dock" class="pointer-events-none fixed inset-x-0 bottom-4 z-30 hidden px-4">
+    <button type="button" id="open-basket" class="pointer-events-auto mx-auto flex w-full max-w-xl items-center justify-between rounded-2xl border border-white/15 px-4 py-3 text-left text-white shadow-[0_18px_55px_rgba(25,20,17,.32)] backdrop-blur" style="background:color-mix(in srgb,var(--brand-dark) 94%,transparent)">
+      <span><strong class="block text-sm"><span id="basket-count">0</span> selected</strong><small class="text-white/65">Review quantities and checkout</small></span><span class="rounded-xl bg-white px-3 py-2 text-xs font-bold" style="color:var(--brand-dark)">View basket →</span>
+    </button>
+  </div>
+
+  <dialog id="basket-dialog" class="m-auto max-h-[94dvh] w-[min(94vw,44rem)] overflow-y-auto rounded-3xl border-0 bg-[#fffdf9] p-0 shadow-2xl">
+    <div class="sticky top-0 z-10 flex items-center justify-between border-b border-stone-100 bg-[#fffdf9]/95 px-5 py-4 backdrop-blur sm:px-7">
+      <div><p class="text-[10px] font-bold uppercase tracking-[.18em] text-stone-400">Your basket</p><h2 class="font-display text-xl font-semibold text-stone-900">Review and checkout</h2></div>
+      <button type="button" id="close-basket" class="flex h-9 w-9 items-center justify-center rounded-full border border-stone-200 bg-white text-xl text-stone-500 shadow-sm hover:text-stone-900" aria-label="Close basket">×</button>
+    </div>
+    <form id="basket-form" method="post" action="{% url 'storefront_order' store_business.slug %}" class="px-5 pb-7 pt-5 sm:px-7 sm:pb-8">{% csrf_token %}
+      <input type="hidden" name="checkout_key" value="{{ checkout_key }}"><input type="hidden" name="catalog_mode" value="{% if order_now_mode %}order_now{% else %}storefront{% endif %}">
+      <div id="basket-items" class="divide-y divide-stone-100 rounded-2xl border border-stone-200 bg-white"></div>
+      <p id="basket-mode-error" class="mt-3 hidden rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900" role="alert"></p>
+      <div class="mt-6 grid gap-3 sm:grid-cols-2">
+        <label class="text-xs font-semibold text-stone-600">Name <span class="text-rose-600">*</span><input required name="customer_name" autocomplete="name" class="mt-1.5 h-11 w-full rounded-xl border border-stone-300 bg-white px-3 text-sm font-normal outline-none focus:border-stone-500 focus:ring-4 focus:ring-stone-100"></label>
+        <label class="text-xs font-semibold text-stone-600">Phone <span class="text-rose-600">*</span><input required name="phone" autocomplete="tel" inputmode="tel" class="mt-1.5 h-11 w-full rounded-xl border border-stone-300 bg-white px-3 text-sm font-normal outline-none focus:border-stone-500 focus:ring-4 focus:ring-stone-100"></label>
+        <label class="text-xs font-semibold text-stone-600 sm:col-span-2">Email <span class="font-normal text-stone-400">(optional)</span><input name="email" type="email" autocomplete="email" class="mt-1.5 h-11 w-full rounded-xl border border-stone-300 bg-white px-3 text-sm font-normal outline-none focus:border-stone-500 focus:ring-4 focus:ring-stone-100"></label>
+        <label class="text-xs font-semibold text-stone-600 sm:col-span-2">Delivery or contact address<textarea name="address" rows="2" autocomplete="street-address" class="mt-1.5 w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-stone-500 focus:ring-4 focus:ring-stone-100"></textarea></label>
+      </div>
+      <div class="mt-6"><p class="text-xs font-semibold text-stone-600">Choose one ordering option for this basket</p><div class="mt-2 grid gap-2">
+        <button type="submit" name="order_mode" value="physical_store" data-checkout-mode="physical_store" class="channel-submit flex items-center justify-between rounded-xl border border-stone-200 bg-white px-3.5 py-3 text-left text-sm shadow-sm transition hover:border-stone-400 disabled:cursor-not-allowed disabled:opacity-45"><span><strong class="block text-stone-900">{{ commerce_channels.physical_store }}</strong><small class="mode-note text-stone-500">{{ storefront_copy.immediate_order }}</small></span><strong class="mode-total shrink-0 text-stone-900"></strong></button>
+        <button type="submit" name="order_mode" value="online" data-checkout-mode="online" class="channel-submit flex items-center justify-between rounded-xl border border-stone-200 bg-white px-3.5 py-3 text-left text-sm shadow-sm transition hover:border-stone-400 disabled:cursor-not-allowed disabled:opacity-45"><span><strong class="block text-stone-900">{{ commerce_channels.online }}</strong><small class="mode-note text-stone-500">{% if store_business.uses_production %}{{ storefront_copy.prepared_order }}{% else %}{{ storefront_copy.immediate_order }}{% endif %}</small></span><strong class="mode-total shrink-0 text-stone-900"></strong></button>
+        <button type="submit" name="order_mode" value="distribution" data-checkout-mode="distribution" class="channel-submit flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-left text-sm shadow-sm transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-45"><span><strong class="block text-stone-900">{{ commerce_channels.distribution }}</strong><small class="mode-note text-stone-500">{% if store_business.uses_production %}{{ storefront_copy.prepared_order }}{% else %}{{ storefront_copy.immediate_order }}{% endif %}</small></span><strong class="mode-total shrink-0 text-stone-900"></strong></button>
+      </div></div>
+      <p class="mt-4 text-xs leading-5 text-stone-400">Prices and availability are checked again by {{ store_business.name }} before payment. An order is created only after full payment is verified.</p>
+    </form>
+  </dialog>
+
+  <dialog id="order-history-dialog" class="m-auto max-h-[86dvh] w-[min(94vw,34rem)] overflow-y-auto rounded-3xl border-0 bg-[#fffdf9] p-0 shadow-2xl">
+    <div class="sticky top-0 z-10 flex items-center justify-between border-b border-stone-100 bg-[#fffdf9]/95 px-5 py-4 backdrop-blur sm:px-6">
+      <div><p class="text-[10px] font-bold uppercase tracking-[.18em] text-stone-400">Saved on this device</p><h2 class="font-display text-xl font-semibold text-stone-900">Your order history</h2></div>
+      <button type="button" id="close-order-history" class="flex h-9 w-9 items-center justify-center rounded-full border border-stone-200 bg-white text-xl text-stone-500 shadow-sm hover:text-stone-900" aria-label="Close order history">×</button>
+    </div>
+    <div class="px-5 py-5 sm:px-6">
+      <div id="order-history-items" class="space-y-3"></div>
+      <button type="button" id="clear-order-history" class="mt-5 text-xs font-semibold text-stone-400 underline underline-offset-4 hover:text-rose-700">Clear order history on this device</button>
+      <p class="mt-3 text-xs leading-5 text-stone-400">History stays in this browser. Keep your phone number and order reference available when contacting {{ store_business.name }}.</p>
+    </div>
+  </dialog>
+
+  <script>
+    (function () {
+      const search = document.getElementById('catalogue-search');
+      const cards = Array.from(document.querySelectorAll('[data-product-card]'));
+      const filters = Array.from(document.querySelectorAll('.channel-filter'));
+      const empty = document.getElementById('catalogue-empty');
+      const reset = document.getElementById('catalogue-reset');
+      const dialog = document.getElementById('basket-dialog');
+      const basketForm = document.getElementById('basket-form');
+      const basketItems = document.getElementById('basket-items');
+      const basketDock = document.getElementById('basket-dock');
+      const basketCount = document.getElementById('basket-count');
+      const modeError = document.getElementById('basket-mode-error');
+      const modeButtons = Array.from(document.querySelectorAll('[data-checkout-mode]'));
+      const historyButton = document.getElementById('open-order-history');
+      const historyDialog = document.getElementById('order-history-dialog');
+      const historyItems = document.getElementById('order-history-items');
+      const basket = new Map();
+      const basketStorageKey = 'storetrack:storefront-basket:{{ store_business.slug|escapejs }}';
+      const historyStorageKey = 'storetrack:storefront-order-history:{{ store_business.slug|escapejs }}';
+      let activeChannel = 'all';
+      function readOrderHistory() {
+        try {
+          const value = JSON.parse(localStorage.getItem(historyStorageKey) || '[]');
+          return Array.isArray(value) ? value : [];
+        } catch (error) { return []; }
+      }
+      function safeHistoryPath(value) {
+        try {
+          const url = new URL(value || '', window.location.origin);
+          const shopPrefix = '{% url "storefront" store_business.slug %}';
+          return url.origin === window.location.origin && url.pathname.startsWith(shopPrefix) ? `${url.pathname}${url.search}` : '';
+        } catch (error) { return ''; }
+      }
+      function renderOrderHistory() {
+        const history = readOrderHistory().filter(entry => entry && safeHistoryPath(entry.href));
+        historyButton.classList.toggle('hidden', history.length === 0);
+        historyItems.replaceChildren();
+        history.forEach(entry => {
+          const link = document.createElement('a');
+          link.href = safeHistoryPath(entry.href);
+          link.className = 'block rounded-2xl border border-stone-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-stone-300 hover:shadow-md';
+          const top = document.createElement('div'); top.className = 'flex items-start justify-between gap-3';
+          const reference = document.createElement('strong'); reference.className = 'font-display text-base text-stone-900'; reference.textContent = entry.reference || 'Saved checkout';
+          const status = document.createElement('span'); status.className = 'shrink-0 rounded-full bg-stone-100 px-2.5 py-1 text-[10px] font-semibold text-stone-600'; status.textContent = entry.status || 'Open';
+          top.append(reference, status);
+          const details = document.createElement('p'); details.className = 'mt-2 text-xs text-stone-500';
+          const updated = entry.updatedAt ? new Date(entry.updatedAt) : null;
+          details.textContent = [entry.amount, updated && !Number.isNaN(updated.valueOf()) ? updated.toLocaleString() : ''].filter(Boolean).join(' · ');
+          const action = document.createElement('p'); action.className = 'mt-3 text-xs font-semibold'; action.style.color = 'var(--brand)'; action.textContent = 'View latest status →';
+          link.append(top, details, action); historyItems.append(link);
+        });
+      }
+      function applyFilters() {
+        const query = search.value.trim().toLowerCase(); let visible = 0;
+        cards.forEach(card => {
+          const matchesText = !query || card.dataset.search.includes(query);
+          const matchesChannel = activeChannel === 'all' || card.dataset.modes.split(/\s+/).includes(activeChannel);
+          const show = matchesText && matchesChannel;
+          card.classList.toggle('hidden', !show); if (show) visible += 1;
+        });
+        empty.classList.toggle('hidden', visible !== 0 || cards.length === 0);
+      }
+      search.addEventListener('input', applyFilters);
+      filters.forEach(button => button.addEventListener('click', function () {
+        activeChannel = button.dataset.channel;
+        filters.forEach(item => item.setAttribute('aria-pressed', item === button ? 'true' : 'false'));
+        applyFilters();
+      }));
+      reset.addEventListener('click', function () {
+        search.value = ''; activeChannel = 'all';
+        filters.forEach(item => item.setAttribute('aria-pressed', item.dataset.channel === 'all' ? 'true' : 'false'));
+        applyFilters(); search.focus();
+      });
+      function productFromCard(card) {
+        const modes = card.dataset.modes.trim().split(/\s+/).filter(Boolean);
+        const minimums = {}; const prices = {};
+        modes.forEach(mode => { minimums[mode] = Number(card.dataset[`min${mode[0].toUpperCase()}${mode.slice(1)}`] || 0); prices[mode] = Number(card.dataset[`price${mode[0].toUpperCase()}${mode.slice(1)}`] || 0); });
+        const preferred = modes.includes('physical_store') ? 'physical_store' : modes[0];
+        return { id: card.dataset.productId, name: card.dataset.productName, unit: card.dataset.unit, modes, minimums, prices, max: Number(card.dataset.max || 0), quantity: minimums[preferred] || 1, card };
+      }
+      function setAddedState(product, added) {
+        const label = product.card.querySelector('.add-product-label');
+        label.textContent = added ? 'Added to basket' : 'Add to basket';
+        product.card.querySelector('.add-product').querySelector('[aria-hidden]').textContent = added ? '✓' : '+';
+      }
+      function saveBasket() {
+        try {
+          if (!basket.size) { localStorage.removeItem(basketStorageKey); return; }
+          localStorage.setItem(basketStorageKey, JSON.stringify(Array.from(basket.values()).map(product => ({ id: product.id, quantity: product.quantity }))));
+        } catch (error) { /* Private browsing/storage restrictions must not block checkout. */ }
+      }
+      function restoreBasket() {
+        let saved = [];
+        try { saved = JSON.parse(localStorage.getItem(basketStorageKey) || '[]'); } catch (error) { saved = []; }
+        if (!Array.isArray(saved)) saved = [];
+        saved.forEach(row => {
+          const card = cards.find(item => item.dataset.productId === String(row.id || ''));
+          const quantity = Number(row.quantity);
+          if (!card || !Number.isFinite(quantity) || quantity <= 0) return;
+          const product = productFromCard(card); product.quantity = quantity;
+          basket.set(product.id, product); setAddedState(product, true);
+        });
+        renderBasket();
+      }
+      function refreshModes() {
+        let anyAvailable = false;
+        modeButtons.forEach(button => {
+          const mode = button.dataset.checkoutMode;
+          const supported = basket.size > 0 && Array.from(basket.values()).every(product => product.modes.includes(mode));
+          button.classList.toggle('hidden', !supported);
+          if (!supported) return;
+          anyAvailable = true; let total = 0; const short = [];
+          basket.forEach(product => {
+            total += product.quantity * product.prices[mode];
+            if (product.quantity < product.minimums[mode]) short.push(`${product.name}: minimum ${product.minimums[mode]} ${product.unit}`);
+            if (product.max && product.quantity > product.max) short.push(`${product.name}: maximum ${product.max} ${product.unit}`);
+          });
+          button.disabled = short.length > 0;
+          button.querySelector('.mode-total').textContent = `{{ store_business.currency_symbol }}${total.toFixed(2)}`;
+          button.querySelector('.mode-note').textContent = short.length ? short.join(' · ') : button.value === 'physical_store' ? '{{ storefront_copy.immediate_order|escapejs }}' : '{% if store_business.uses_production %}{{ storefront_copy.prepared_order|escapejs }}{% else %}{{ storefront_copy.immediate_order|escapejs }}{% endif %}';
+        });
+        modeError.textContent = anyAvailable ? '' : 'These products do not share an ordering option. Remove one item or create separate checkouts.';
+        modeError.classList.toggle('hidden', anyAvailable);
+      }
+      function renderBasket() {
+        basketItems.replaceChildren();
+        basket.forEach(product => {
+          const row = document.createElement('div'); row.className = 'flex items-center gap-3 p-3.5';
+          const copy = document.createElement('div'); copy.className = 'min-w-0 flex-1';
+          const name = document.createElement('strong'); name.className = 'block truncate text-sm text-stone-900'; name.textContent = product.name;
+          const unit = document.createElement('span'); unit.className = 'mt-0.5 block text-xs text-stone-400'; unit.textContent = `Measured in ${product.unit}`;
+          copy.append(name, unit);
+          const input = document.createElement('input'); input.type = 'number'; input.inputMode = 'decimal'; input.step = '0.01'; input.min = '0.01'; if (product.max) input.max = product.max; input.value = product.quantity; input.setAttribute('aria-label', `Quantity for ${product.name}`); input.className = 'h-10 w-24 rounded-xl border border-stone-300 px-2.5 text-sm outline-none focus:border-stone-500 focus:ring-4 focus:ring-stone-100';
+          input.addEventListener('input', () => { product.quantity = Number(input.value || 0); saveBasket(); refreshModes(); });
+          const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'flex h-9 w-9 items-center justify-center rounded-full text-lg text-stone-400 hover:bg-rose-50 hover:text-rose-700'; remove.setAttribute('aria-label', `Remove ${product.name}`); remove.textContent = '×';
+          remove.addEventListener('click', () => { basket.delete(product.id); setAddedState(product, false); renderBasket(); if (!basket.size) dialog.close(); });
+          row.append(copy, input, remove); basketItems.append(row);
+        });
+        basketCount.textContent = basket.size; basketDock.classList.toggle('hidden', basket.size === 0); saveBasket(); refreshModes();
+      }
+      document.querySelectorAll('.add-product').forEach(button => button.addEventListener('click', function () {
+        const card = button.closest('[data-product-card]'); const id = card.dataset.productId;
+        if (!basket.has(id)) { const product = productFromCard(card); basket.set(id, product); setAddedState(product, true); }
+        renderBasket();
+      }));
+      document.getElementById('open-basket').addEventListener('click', () => { renderBasket(); dialog.showModal(); });
+      document.getElementById('close-basket').addEventListener('click', () => dialog.close());
+      historyButton.addEventListener('click', () => { renderOrderHistory(); historyDialog.showModal(); });
+      document.getElementById('close-order-history').addEventListener('click', () => historyDialog.close());
+      document.getElementById('clear-order-history').addEventListener('click', () => {
+        try { localStorage.removeItem(historyStorageKey); } catch (error) {}
+        historyDialog.close(); renderOrderHistory();
+      });
+      basketForm.addEventListener('submit', function (event) {
+        if (!basket.size || !event.submitter || event.submitter.disabled) { event.preventDefault(); return; }
+        basketForm.querySelectorAll('.generated-basket-field').forEach(field => field.remove());
+        basket.forEach(product => {
+          [['product_id', product.id], ['quantity', product.quantity]].forEach(([name, value]) => { const input = document.createElement('input'); input.type = 'hidden'; input.name = name; input.value = value; input.className = 'generated-basket-field'; basketForm.append(input); });
+        });
+      });
+      window.addEventListener('pageshow', function (event) {
+        if (!event.persisted) return;
+        const key = basketForm.querySelector('[name="checkout_key"]');
+        if (key) key.value = window.crypto && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+      });
+      dialog.addEventListener('click', event => {
+        const bounds = dialog.getBoundingClientRect();
+        if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) dialog.close();
+      });
+      historyDialog.addEventListener('click', event => {
+        const bounds = historyDialog.getBoundingClientRect();
+        if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) historyDialog.close();
+      });
+      restoreBasket();
+      renderOrderHistory();
+    })();
+  </script>
+</body>
+</html>

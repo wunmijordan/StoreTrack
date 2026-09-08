@@ -38,6 +38,19 @@ from sales.models import Sale, SaleItem
 from expenses.models import Expense
 
 
+def marketing_home(request):
+    """Public product overview; remembered authenticated sessions continue to the app."""
+    if request.user.is_authenticated:
+        return redirect("dashboard")
+    from accounts.models import SubscriptionPlan
+    plans = (
+        SubscriptionPlan.objects.filter(active=True)
+        .prefetch_related("module_entitlements")
+        .order_by("monthly_price", "id")
+    )
+    return render(request, "marketing/home.html", {"plans": plans})
+
+
 def today():
     return timezone.localdate()
 
@@ -1401,6 +1414,7 @@ def business_settings(request):
         return render(request, "403.html", status=403)
     seed_business_modules(request.business)
     if request.method == "POST":
+        previous_slug = request.business.slug
         form = BusinessForm(request.POST, instance=request.business)
         if form.is_valid():
             business = form.save()
@@ -1411,6 +1425,8 @@ def business_settings(request):
                     "vertical": business.vertical,
                     "background_color": business.background_color,
                     "accent_color": business.accent_color,
+                    "previous_slug": previous_slug,
+                    "slug": business.slug,
                 },
             )
             messages.success(request, "Business preferences updated.")

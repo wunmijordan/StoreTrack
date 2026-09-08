@@ -4,11 +4,12 @@
   <h2 class="text-xl font-semibold font-display text-[#8f172d]">Business Settings</h2>
   <p class="text-sm text-stone-500 mt-1 mb-5">Brand this workspace and choose the vocabulary and service details that match how {{ biz.name }} operates.</p>
 
-  <form method="post" class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-5">
+  <form method="post" id="business-settings-form" class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-5">
     {% csrf_token %}
     {% if form.non_field_errors %}<div class="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-md p-3 mb-3">{{ form.non_field_errors }}</div>{% endif %}
     <div class="grid sm:grid-cols-2 gap-x-4">
       {% include "_field.html" with field=form.name %}
+      {% include "_field.html" with field=form.slug %}
       {% include "_field.html" with field=form.vertical %}
       {% include "_field.html" with field=form.currency_symbol %}
       {% include "_field.html" with field=form.background_color %}
@@ -26,6 +27,7 @@
         {% if form.restaurant_table_service.errors %}<div class="text-xs text-rose-600 mt-1">{{ form.restaurant_table_service.errors|join:", " }}</div>{% endif %}
       </div>
     </div>
+    <div class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900"><strong>Public link notice:</strong> changing this address updates both <span class="font-mono">/shop/{{ biz.slug }}/</span> and <span class="font-mono">/api/v1/storefronts/{{ biz.slug }}/</span>. Update connected websites and shared links immediately after saving.</div>
     <p class="text-xs text-stone-500 mb-4">Changing the service adjusts labels and workflow capability; it does not rewrite or delete existing inventory, orders, sales, or finance data. Wholesale and retail use direct product procurement and stock sales, so Production is safely hidden and blocked while either service is active.</p>
     <button class="px-4 py-2 text-sm rounded-md font-medium bg-[#8f172d] text-white hover:bg-[#4D1C25]">Save preferences</button>
   </form>
@@ -65,5 +67,12 @@
   document.getElementById('id_background_color')?.addEventListener('input', updateThemePreview);
   document.getElementById('id_accent_color')?.addEventListener('input', updateThemePreview);
   updateThemePreview();
+  document.getElementById('business-settings-form')?.addEventListener('submit', function (event) {
+    const originalSlug = '{{ biz.slug|escapejs }}';
+    const newSlug = document.getElementById('id_slug')?.value.trim().toLowerCase();
+    if (newSlug && newSlug !== originalSlug && !window.confirm('Change the public business address? Existing storefront links and website API URLs will stop working until they are updated.')) {
+      event.preventDefault();
+    }
+  });
 </script>
 {% endblock %}

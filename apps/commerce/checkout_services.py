@@ -17,11 +17,13 @@ from .models import (
     CommerceCheckoutSession,
     CommerceIntake,
     CommerceIntakeItem,
+    CommerceNotification,
     CommercePayment,
     CommercePaymentReceipt,
     CommerceSettings,
     StorefrontProduct,
 )
+from .notification_services import queue_commerce_notification
 from .services import (
     ChannelMinimumError,
     _channel_allowed,
@@ -287,8 +289,27 @@ def create_checkout(
     ])
     audit(
         business, None, "commerce_checkout_create", checkout,
-        f"Checkout {checkout.public_id} created before intake",
-        {"sales_channel": sales_channel, "amount": str(total), "expires_at": expires_at.isoformat()},
+        f"Checkout {checkout.public_id} for {checkout.customer_name} created before intake",
+        {
+            "customer_name": checkout.customer_name,
+            "source": source,
+            "sales_channel": sales_channel,
+            "amount": str(total),
+            "expires_at": expires_at.isoformat(),
+        },
+    )
+    source_label = dict(CommerceIntake.SOURCE_CHOICES).get(source, "commerce channel")
+    channel_label = vertical_config(business)["commerce_channels"].get(sales_channel, sales_channel)
+    queue_commerce_notification(
+        business=business,
+        event_type=CommerceNotification.EVENT_CHECKOUT_RECEIVED,
+        title=f"New checkout from {source_label}",
+        message=(
+            f"{checkout.customer_name} selected {channel_label} for "
+            f"{business.currency_symbol}{total:,.2f}. Payment is still pending."
+        ),
+        target_url="/commerce/",
+        dedupe_key=f"checkout:{checkout.public_id}:received",
     )
     return checkout, True
 

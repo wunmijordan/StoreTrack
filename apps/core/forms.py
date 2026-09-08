@@ -8,7 +8,7 @@ class BusinessForm(forms.ModelForm):
     class Meta:
         model = Business
         fields = [
-            "name", "vertical", "currency_symbol", "background_color", "accent_color", "tagline",
+            "name", "slug", "vertical", "currency_symbol", "background_color", "accent_color", "tagline",
             "restaurant_table_service",
         ]
         widgets = {
@@ -21,6 +21,14 @@ class BusinessForm(forms.ModelForm):
         for f in self.fields.values():
             f.widget.attrs["class"] = INPUT_CLS
         self.fields["vertical"].label = "Service"
+        self.fields["slug"].label = "Public business address"
+        self.fields["slug"].help_text = (
+            "Choose a short unique address such as sunrisestore. Letters, numbers, hyphens and underscores are allowed. "
+            "Changing it also changes storefront and API links."
+        )
         self.fields["background_color"].label = "Navigation / background color"
         self.fields["accent_color"].label = "Button / action color"
         self.fields["restaurant_table_service"].widget.attrs["class"] = "h-4 w-4 accent-[#8f172d]"
+
+    def clean_slug(self):
+        return (self.cleaned_data.get("slug") or "").strip().lower()

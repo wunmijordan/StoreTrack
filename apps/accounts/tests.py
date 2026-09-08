@@ -1,4 +1,7 @@
+import time
+
 from django.test import TestCase
+from django.test import override_settings
 from django.urls import reverse
 
 from core.models import Business
@@ -18,6 +21,12 @@ from .subscription_services import (
 
 
 class TenantSignupTests(TestCase):
+    def test_public_home_is_marketing_and_authenticated_home_remembers_workspace(self):
+        response = self.client.get(reverse("marketing_home"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "From stock to sale, in one place", html=False)
+        self.assertContains(response, "Sign in")
+
     def test_signup_provisions_business_admin_and_starter_trial(self):
         response = self.client.post(reverse("signup"), {
             "business_name": "Plate & Pantry",
@@ -88,6 +97,22 @@ class TenantRoutingTests(TestCase):
         response = self.client.get(reverse("business_settings"))
         self.assertEqual(response.context["biz"], self.beta)
 
+    def test_authenticated_root_continues_to_dashboard(self):
+        response = self.client.get(reverse("marketing_home"))
+        self.assertRedirects(response, reverse("dashboard"), fetch_redirect_response=False)
+
+    @override_settings(AUTHENTICATED_IDLE_TIMEOUT_SECONDS=60)
+    def test_idle_authenticated_root_requires_sign_in_instead_of_showing_marketing(self):
+        session = self.client.session
+        session["storetrack_last_activity"] = int(time.time()) - 120
+        session.save()
+        response = self.client.get(reverse("marketing_home"))
+        self.assertRedirects(
+            response,
+            f"{reverse('login')}?next={reverse('dashboard')}",
+            fetch_redirect_response=False,
+        )
+
     def test_user_cannot_switch_to_business_without_membership(self):
         outsider = Business.objects.create(name="Outsider", slug="outsider")
         response = self.client.post(reverse("switch_business"), {"business_id": outsider.pk})
@@ -138,6 +163,7 @@ class BusinessSettingsAccessTests(TestCase):
         self.client.force_login(self.admin)
         response = self.client.post(reverse("business_settings"), {
             "name": "New Name",
+            "slug": "bakery",
             "vertical": Business.VERTICAL_RESTAURANT,
             "currency_symbol": "$",
             "background_color": "#173B45",
@@ -152,6 +178,22 @@ class BusinessSettingsAccessTests(TestCase):
         self.assertEqual(self.business.accent_color, "#126E82")
         self.assertEqual(self.business.background_color, "#173B45")
         self.assertEqual(self.business.vertical, Business.VERTICAL_RESTAURANT)
+
+    def test_business_admin_can_choose_a_custom_public_slug(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(reverse("business_settings"), {
+            "name": self.business.name,
+            "slug": "theoven",
+            "vertical": self.business.vertical,
+            "currency_symbol": self.business.currency_symbol,
+            "background_color": self.business.background_color,
+            "accent_color": self.business.accent_color,
+            "tagline": self.business.tagline,
+            "restaurant_table_service": "on",
+        })
+        self.assertRedirects(response, reverse("business_settings"), fetch_redirect_response=False)
+        self.business.refresh_from_db()
+        self.assertEqual(self.business.slug, "theoven")
 
     def test_non_admin_cannot_open_business_preferences(self):
         self.client.force_login(self.manager)

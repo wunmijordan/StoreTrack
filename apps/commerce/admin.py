@@ -6,6 +6,8 @@ from .models import (
     CommerceIntegration,
     CommerceIntake,
     CommerceIntakeItem,
+    CommerceNotification,
+    CommerceNotificationRead,
     CommercePayment,
     CommercePaymentAllocation,
     CommercePaymentClaim,
@@ -49,3 +51,5 @@ admin.site.register(CommercePaymentClaim, ImmutablePaymentAdmin)
 admin.site.register(CommercePaymentReceipt, ImmutablePaymentAdmin)
 admin.site.register(CommercePaymentAllocation, ImmutablePaymentAdmin)
 admin.site.register(CommerceGatewayEvent, ImmutablePaymentAdmin)
+admin.site.register(CommerceNotification, ImmutablePaymentAdmin)
+admin.site.register(CommerceNotificationRead, ImmutablePaymentAdmin)

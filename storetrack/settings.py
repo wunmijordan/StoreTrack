@@ -162,6 +162,9 @@ MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", BASE_DIR / "media"))
 # Auth
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'dashboard'
+# Authenticated browsers return straight to the workspace while active. After
+# this idle period, re-authentication is required instead of showing marketing.
+AUTHENTICATED_IDLE_TIMEOUT_SECONDS = int(os.environ.get("STORETRACK_IDLE_TIMEOUT_SECONDS", "28800"))
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

@@ -4,7 +4,8 @@ from . import finance_views as finance
 from expenses import views as expense_views
 
 urlpatterns = [
-    path("", views.dashboard, name="dashboard"),
+    path("", views.marketing_home, name="marketing_home"),
+    path("dashboard/", views.dashboard, name="dashboard"),
     path("business/settings/", views.business_settings, name="business_settings"),
     path("business/switch/", views.switch_business, name="switch_business"),
     path("search/", views.dashboard_search, name="dashboard_search"),

@@ -312,7 +312,7 @@ A tenant with no website can enable:
 /shop/{business_slug}/
 ```
 
-A business with a simple existing site can use the same URL as its **Order Now** destination. The hosted route writes only Commerce Intake records; staff acceptance performs the stock/production transition.
+A business with a simple existing site can use the same URL as its **Order Now** destination. Customers can place several products in one basket. The hosted route validates that basket into a short-lived `CommerceCheckoutSession`, shows only payment methods that are enabled and fully configured for the tenant, and creates no Commerce Intake, Sale, or Production record while payment is pending. Verified full payment materializes exactly one intake; browser returns never confirm payment. The captured customer name is retained on the checkout/intake snapshot and in the commerce audit entry.
 
 ### Payment state
 
@@ -322,10 +322,10 @@ Commerce payment state is separate from order and fulfilment state. Paystack and
 
 These are different integration directions that converge on the same Commerce Intake:
 
-- **Headless API**: a website/app controlled by the tenant actively calls StoreTrack. It fetches the StoreTrack catalogue, submits orders with the generated API key, and checks order status. This is the preferred route for a custom bakery/restaurant website.
+- **Headless API**: a website/app controlled by the tenant actively calls StoreTrack. It fetches the StoreTrack catalogue, creates a pre-intake checkout with the generated API key, completes payment, and then tracks the resulting order. This is the preferred route for a custom business website.
 - **Platform webhook / connector**: an external commerce platform or adapter pushes events into StoreTrack after an order occurs there. The connector sends StoreTrack's normalized order payload to `/api/v1/connectors/{business_slug}/{integration_id}/orders` and signs the raw request body with HMAC-SHA256 using the generated webhook secret in `X-StoreTrack-Signature`.
 
-The connector boundary is intentionally normalized rather than embedding Shopify/WooCommerce-specific payloads into StoreTrack's core service. Provider-specific adapters can translate their payload into this contract. Both routes create `CommerceIntake` and therefore retain the same server-side pricing, tenant policy, stock/pre-order routing, idempotency and audit behavior.
+The connector boundary is intentionally normalized rather than embedding Shopify/WooCommerce-specific payloads into StoreTrack's core service. Provider-specific adapters can translate their payload into this contract. The new headless route uses the payment-first checkout boundary; the compatibility connector still creates `CommerceIntake` directly. Both retain server-side pricing, tenant policy, stock/pre-order routing, idempotency and customer-attributed audit behavior.
 
 ## Independent commerce switches
 
