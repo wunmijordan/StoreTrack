@@ -1,14 +1,14 @@
 ---
 name: simplify
 description: >
-  Review changed StoreTrack code for reuse, correctness, efficiency, tenant
+  Review changed INPROFIC code for reuse, correctness, efficiency, tenant
   safety, and consistency with existing domain flows; fix issues before
   presenting the implementation.
 version: "1.0"
 updated: 2026-09-04
 ---
 
-# Simplify (StoreTrack)
+# Simplify (INPROFIC)
 
 Run after every implementation.
 

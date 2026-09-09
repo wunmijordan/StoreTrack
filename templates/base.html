@@ -1,10 +1,11 @@
-{% load core_extras %}
+{% load core_extras static %}
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{ biz.name|default:"Stock Ledger" }}</title>
+  <title>{% if biz %}{{ biz.name }} · {% endif %}INPROFIC</title>
+  <link rel="icon" type="image/png" href="{% static 'core/brand/inprofic-mark.png' %}">
   <script src="https://cdn.tailwindcss.com"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -65,12 +66,15 @@
     }
   </style>
 </head>
-<body class="min-h-screen flex" style="--tenant-background: {{ biz.background_color|default:'#4D1C25' }}; --tenant-background-contrast: {{ biz.background_text_color|default:'#FFFFFF' }}; --tenant-button: {{ biz.accent_color|default:'#8F172D' }}; --tenant-button-contrast: {{ biz.button_text_color|default:'#FFFFFF' }}">
+<body class="min-h-screen flex" style="--tenant-background: {{ biz.background_color|default:'#050733' }}; --tenant-background-contrast: {{ biz.background_text_color|default:'#FFFFFF' }}; --tenant-button: {{ biz.accent_color|default:'#D14900' }}; --tenant-button-contrast: {{ biz.button_text_color|default:'#FFFFFF' }}">
 
   {% if user.is_authenticated %}
   <aside class="desktop-sidebar tenant-sidebar hidden md:flex flex-col">
     <div class="shrink-0 px-5 py-5 border-b border-white/10">
-      <a href="{% url 'dashboard' %}" class="font-semibold mt-1 font-display">{{ biz.name }}</a>
+      <a href="{% url 'dashboard' %}" aria-label="INPROFIC dashboard" class="block">
+        <img src="{% static 'core/brand/inprofic-logo-on-dark.png' %}" alt="INPROFIC" class="h-8 w-auto max-w-full" width="1953" height="359">
+      </a>
+      <div class="mt-3 min-w-0 truncate font-display font-semibold">{{ biz.name }}</div>
       <div class="text-[10px] tracking-[0.2em] uppercase text-[#C69A3E]">{{ biz.tagline|default:vertical_ui.platform_label }}</div>
       {% if subscription %}<a href="{% url 'subscription_payment' %}" class="inline-flex mt-2 items-center gap-1 rounded-full px-2 py-1 text-[10px] font-semibold {% if subscription.is_expiring_soon %}bg-rose-500 text-white{% else %}bg-white/10 text-white{% endif %}">{{ subscription.plan.name }}{% if subscription.founder_lifetime %} · Founder lifetime{% elif subscription.status == 'trial' and subscription.is_effectively_active %} · Trial{% elif subscription.status == 'active' %} · Paid{% else %} · {{ subscription.effective_status_label }}{% endif %}</a>{% else %}{% if can_manage_business %}<a href="{% url 'subscription_plans' %}" class="inline-flex mt-2 rounded-full bg-white/10 px-2 py-1 text-[10px] font-semibold text-white">Choose plan</a>{% endif %}{% endif %}
       {% if available_businesses|length > 1 %}
@@ -93,7 +97,10 @@
 
   <div id="mobile-nav-shell" class="tenant-sidebar md:hidden fixed top-0 inset-x-0 z-40">
     <div class="relative z-10 flex items-center justify-between px-4 py-3 tenant-sidebar">
-      <a href="{% url 'dashboard' %}" class="font-semibold font-display">{{ biz.name }}</a>
+      <a href="{% url 'dashboard' %}" class="flex min-w-0 items-center gap-2 font-semibold font-display">
+        <img src="{% static 'core/brand/inprofic-logo-on-dark.png' %}" alt="INPROFIC" class="h-6 w-auto max-w-32 shrink-0 sm:h-7" width="1953" height="359">
+        <span class="truncate">{{ biz.name }}</span>
+      </a>
       <button type="button" id="mobile-nav-button" aria-controls="mobile-nav-panel" aria-expanded="false" aria-label="Toggle navigation" class="cursor-pointer p-1 text-xl leading-none"><span aria-hidden="true">☰</span></button>
     </div>
     <div id="mobile-nav-panel" class="tenant-sidebar mobile-nav-panel flex flex-col text-sm border-t border-white/10" data-open="false" aria-hidden="true" inert>
@@ -132,6 +139,7 @@
          class="fixed bottom-3 right-3 z-[80] hidden w-[calc(100vw-1.5rem)] max-w-sm overflow-hidden rounded-2xl border border-stone-200 bg-[#FFFDF8] shadow-[0_20px_55px_rgba(33,29,26,.32)]"
          data-feed-url="{% url 'commerce_notification_feed' %}"
          data-read-url="{% url 'commerce_notification_read' %}"
+         data-socket-path="/ws/commerce/notifications/"
          aria-live="polite">
     <div class="flex items-center gap-3 border-b border-white/10 px-3.5 py-3 text-white" style="background:var(--tenant-background)">
       <span class="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/10" aria-hidden="true">
@@ -170,6 +178,12 @@
       let initialized = false;
       let suppressNextAnnouncement = false;
       let timer = null;
+      let socket = null;
+      let socketConnected = false;
+      let reconnectTimer = null;
+      let reconnectAttempt = 0;
+      let pageClosing = false;
+      let refreshSequence = 0;
 
       function csrfToken() {
         const match = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
@@ -207,6 +221,7 @@
         alert.onclick = function () { window.focus(); window.location.href = item.target_url || '/commerce/'; alert.close(); };
       }
       function render(data) {
+        document.dispatchEvent(new CustomEvent('inprofic:commerce-notifications', { detail: data }));
         if (!data.enabled || !data.unread_count || !data.notifications.length) {
           dock.classList.add('hidden');
           setExpanded(false);
@@ -246,7 +261,7 @@
           actions.className = 'mt-2 flex items-center gap-3';
           const openItem = document.createElement('a');
           openItem.href = item.target_url || '/commerce/';
-          openItem.className = 'text-[11px] font-semibold text-[#8f172d] hover:underline';
+          openItem.className = 'text-[11px] font-semibold text-[#d14900] hover:underline';
           openItem.textContent = 'Open';
           const readItem = document.createElement('button');
           readItem.type = 'button';
@@ -268,18 +283,54 @@
         initialized = true;
       }
       async function poll() {
+        const sequence = ++refreshSequence;
         try {
           const response = await fetch(dock.dataset.feedUrl, { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
           if (response.ok) {
             const data = await response.json();
+            if (sequence !== refreshSequence) return;
             render(data);
             clearTimeout(timer);
-            timer = setTimeout(poll, Math.max(5, data.poll_seconds || 8) * 1000);
+            if (!socketConnected) {
+              timer = setTimeout(poll, Math.max(5, data.poll_seconds || 8) * 1000);
+            }
             return;
           }
         } catch (error) { /* A later poll retries transient connectivity failures. */ }
+        if (sequence !== refreshSequence) return;
         clearTimeout(timer);
         timer = setTimeout(poll, 15000);
+      }
+      function connectSocket() {
+        if (!('WebSocket' in window) || pageClosing || socket) return;
+        const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const connection = new WebSocket(`${scheme}//${window.location.host}${dock.dataset.socketPath}`);
+        socket = connection;
+        connection.addEventListener('open', () => {
+          socketConnected = true;
+          reconnectAttempt = 0;
+          clearTimeout(timer);
+          clearTimeout(reconnectTimer);
+          poll();
+        });
+        connection.addEventListener('message', event => {
+          try {
+            const message = JSON.parse(event.data);
+            if (message.type === 'notifications.changed') poll();
+          } catch (error) { /* Ignore malformed transport messages. */ }
+        });
+        connection.addEventListener('close', () => {
+          if (socket === connection) socket = null;
+          socketConnected = false;
+          if (pageClosing) return;
+          clearTimeout(timer);
+          timer = setTimeout(poll, 1000);
+          const delay = Math.min(30000, 1000 * (2 ** reconnectAttempt)) + Math.random() * 500;
+          reconnectAttempt += 1;
+          clearTimeout(reconnectTimer);
+          reconnectTimer = setTimeout(connectSocket, delay);
+        });
+        connection.addEventListener('error', () => connection.close());
       }
       async function acknowledge(payload) {
         const readButtons = list.querySelectorAll('.commerce-notification-read');
@@ -311,8 +362,17 @@
         if (expand.getAttribute('aria-expanded') === 'true' && !dock.contains(event.target)) setExpanded(false);
       });
       document.addEventListener('keydown', event => { if (event.key === 'Escape') setExpanded(false); });
-      document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) { poll(); connectSocket(); }
+      });
+      window.addEventListener('pagehide', () => {
+        pageClosing = true;
+        clearTimeout(timer);
+        clearTimeout(reconnectTimer);
+        if (socket) socket.close();
+      });
       poll();
+      connectSocket();
     });
   </script>
   {% endif %}

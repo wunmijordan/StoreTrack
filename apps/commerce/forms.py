@@ -159,20 +159,20 @@ class CommercePaymentConfigurationForm(forms.ModelForm):
             if not cleaned.get("paystack_secret_key"):
                 self.add_error("paystack_secret_key", "Add the Paystack secret key before enabling Paystack.")
             if not cleaned.get("paystack_account"):
-                self.add_error("paystack_account", "Choose the StoreTrack settlement account before enabling Paystack.")
+                self.add_error("paystack_account", "Choose the INPROFIC settlement account before enabling Paystack.")
         monnify_required = ("monnify_api_key", "monnify_secret_key", "monnify_contract_code")
         if cleaned.get("monnify_enabled"):
             for name in monnify_required:
                 if not cleaned.get(name):
                     self.add_error(name, "This credential is required when Monnify is enabled.")
             if not cleaned.get("monnify_account"):
-                self.add_error("monnify_account", "Choose the StoreTrack settlement account before enabling Monnify.")
+                self.add_error("monnify_account", "Choose the INPROFIC settlement account before enabling Monnify.")
         if cleaned.get("bank_transfer_enabled"):
             for name in ("bank_name", "bank_account_name", "bank_account_number"):
                 if not cleaned.get(name):
                     self.add_error(name, "This bank detail is required when bank transfer is enabled.")
             if not cleaned.get("bank_cash_account"):
-                self.add_error("bank_cash_account", "Choose the StoreTrack bank account before enabling bank transfer.")
+                self.add_error("bank_cash_account", "Choose the INPROFIC bank account before enabling bank transfer.")
         if cleaned.get("cash_enabled") and not cleaned.get("cash_account"):
-            self.add_error("cash_account", "Choose the StoreTrack cash account before enabling cash.")
+            self.add_error("cash_account", "Choose the INPROFIC cash account before enabling cash.")
         return cleaned

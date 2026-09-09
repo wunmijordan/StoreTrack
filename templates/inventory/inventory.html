@@ -625,8 +625,8 @@
       <line x1="${pad.left}" x2="${width - pad.right}" y1="${zeroY}" y2="${zeroY}" stroke="#A8A29E" stroke-width="1" stroke-dasharray="4 4" />
       ${grid}
       ${bars}
-      <polyline points="${points}" fill="none" stroke="#8f172d" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
-      ${rows.map((r, i) => `<circle cx="${x(i)}" cy="${y(r.closing)}" r="3.5" fill="#8f172d"><title>${r.date}: ${fmt(r.closing)}</title></circle>`).join('')}
+      <polyline points="${points}" fill="none" stroke="var(--tenant-button)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+      ${rows.map((r, i) => `<circle cx="${x(i)}" cy="${y(r.closing)}" r="3.5" fill="var(--tenant-button)"><title>${r.date}: ${fmt(r.closing)}</title></circle>`).join('')}
       ${labels}
     `;
   }

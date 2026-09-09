@@ -1,4 +1,5 @@
 import time
+from decimal import Decimal
 
 from django.test import TestCase
 from django.test import override_settings
@@ -26,6 +27,16 @@ class TenantSignupTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "From stock to sale, in one place", html=False)
         self.assertContains(response, "Sign in")
+
+    def test_marketing_plan_prices_include_thousands_separators(self):
+        plans = ensure_default_plans()
+        plan = plans["starter"]
+        plan.monthly_price = Decimal("12345.67")
+        plan.save(update_fields=["monthly_price"])
+
+        response = self.client.get(reverse("marketing_home"))
+
+        self.assertContains(response, "₦12,345.67")
 
     def test_signup_provisions_business_admin_and_starter_trial(self):
         response = self.client.post(reverse("signup"), {
@@ -100,6 +111,12 @@ class TenantRoutingTests(TestCase):
     def test_authenticated_root_continues_to_dashboard(self):
         response = self.client.get(reverse("marketing_home"))
         self.assertRedirects(response, reverse("dashboard"), fetch_redirect_response=False)
+
+    def test_authenticated_user_can_open_marketing_page_from_navigation(self):
+        response = self.client.get(f'{reverse("marketing_home")}?view=marketing')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Go to your workspace")
 
     @override_settings(AUTHENTICATED_IDLE_TIMEOUT_SECONDS=60)
     def test_idle_authenticated_root_requires_sign_in_instead_of_showing_marketing(self):

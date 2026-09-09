@@ -30,14 +30,14 @@ class Business(models.Model):
     vertical = models.CharField(max_length=20, choices=VERTICAL_CHOICES, default=VERTICAL_BAKERY)
     accent_color = models.CharField(
         max_length=7,
-        default="#8F172D",
-        validators=[RegexValidator(r"^#[0-9A-Fa-f]{6}$", "Use a six-digit hex colour such as #8F172D.")],
+        default="#D14900",
+        validators=[RegexValidator(r"^#[0-9A-Fa-f]{6}$", "Use a six-digit hex colour such as #D14900.")],
         help_text="Used for primary buttons, links, headings, and action highlights.",
     )
     background_color = models.CharField(
         max_length=7,
-        default="#4D1C25",
-        validators=[RegexValidator(r"^#[0-9A-Fa-f]{6}$", "Use a six-digit hex colour such as #4D1C25.")],
+        default="#050733",
+        validators=[RegexValidator(r"^#[0-9A-Fa-f]{6}$", "Use a six-digit hex colour such as #050733.")],
         help_text="Used for persistent branded backgrounds such as the navigation area.",
     )
     tagline = models.CharField(max_length=100, blank=True, default="")

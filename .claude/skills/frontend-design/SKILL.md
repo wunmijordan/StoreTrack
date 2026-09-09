@@ -1,24 +1,24 @@
 ---
 name: frontend-design
 description: >
-  Design and implement polished StoreTrack Django template/UI work while preserving
+  Design and implement polished INPROFIC Django template/UI work while preserving
   existing form, JavaScript, permission, responsive, branding, and workflow behavior.
   Use for templates, modals, dashboards, forms, tables, navigation, print views, and UI refactors.
 version: "1.0"
 updated: 2026-09-04
 ---
 
-# Frontend Design — StoreTrack
+# Frontend Design — INPROFIC
 
-Use this skill whenever the task changes HTML templates, CSS/Tailwind classes, JavaScript-driven formsets, dashboards, modals, tables, navigation, exports/print surfaces, or the visual presentation of a StoreTrack workflow.
+Use this skill whenever the task changes HTML templates, CSS/Tailwind classes, JavaScript-driven formsets, dashboards, modals, tables, navigation, exports/print surfaces, or the visual presentation of a INPROFIC workflow.
 
 ## Primary objective
 
-Improve usability and visual quality **without changing business semantics accidentally**. StoreTrack templates are not decorative shells: many of them carry formset prefixes, hidden management fields, pricing resolvers, channel-specific visibility, stock calculations, confirmation flows, and permission-aware actions.
+Improve usability and visual quality **without changing business semantics accidentally**. INPROFIC templates are not decorative shells: many of them carry formset prefixes, hidden management fields, pricing resolvers, channel-specific visibility, stock calculations, confirmation flows, and permission-aware actions.
 
-## StoreTrack design language
+## INPROFIC design language
 
-- Preserve the existing warm/off-white StoreTrack visual system unless the user explicitly asks for a redesign.
+- Preserve the existing warm/off-white INPROFIC visual system unless the user explicitly asks for a redesign.
 - Use the established dominant burgundy accent (`#8f172d`) where an accent is appropriate.
 - Prefer restrained hierarchy: clear headings, compact operational tables, legible status badges, and obvious primary actions.
 - Keep finance/stock status colors semantically consistent:
@@ -38,7 +38,7 @@ Improve usability and visual quality **without changing business semantics accid
 
 ## Dynamic formset rules
 
-StoreTrack uses Django formsets heavily. When adding/removing rows:
+INPROFIC uses Django formsets heavily. When adding/removing rows:
 
 - preserve the correct `<prefix>-TOTAL_FORMS` management field;
 - never assume a prefix is `form`;

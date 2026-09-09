@@ -1,9 +1,12 @@
 from django.urls import path
 from . import views
 from . import finance_views as finance
+from . import operations
 from expenses import views as expense_views
 
 urlpatterns = [
+    path("health/", operations.health, name="health"),
+    path("ops/run-jobs/", operations.run_jobs, name="run_jobs"),
     path("", views.marketing_home, name="marketing_home"),
     path("dashboard/", views.dashboard, name="dashboard"),
     path("business/settings/", views.business_settings, name="business_settings"),

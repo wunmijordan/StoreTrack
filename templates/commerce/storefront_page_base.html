@@ -1,3 +1,4 @@
+{% load static %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -5,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="{{ store_business.background_color }}">
   <title>{% block title %}{{ store_business.name }}{% endblock %}</title>
+  <link rel="icon" type="image/png" href="{% static 'core/brand/inprofic-mark.png' %}">
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap');
@@ -33,6 +35,6 @@
     </nav>
   </header>
   {% block content %}{% endblock %}
-  <footer class="mt-16 border-t border-stone-200 bg-white px-5 py-8 text-center"><p class="font-display text-lg font-semibold">{{ store_business.name }}</p><p class="mt-1 text-xs text-stone-400">Ordering made simple with StoreTrack</p></footer>
+  <footer class="mt-16 border-t border-stone-200 bg-white px-5 py-8 text-center"><p class="font-display text-lg font-semibold">{{ store_business.name }}</p><p class="mt-3 flex flex-col items-center gap-1.5 text-xs text-stone-400"><img src="{% static 'core/brand/inprofic-logo-on-light.png' %}" alt="INPROFIC" class="h-7 w-auto" width="2097" height="361"><span>Ordering made simple</span></p></footer>
 </body>
 </html>

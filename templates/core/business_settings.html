@@ -16,9 +16,9 @@
       {% include "_field.html" with field=form.accent_color %}
       <div class="sm:col-span-2 rounded-md border border-[#E7DFCC] bg-white p-3 mb-3">
         <div class="text-xs font-medium text-stone-600 mb-2">Theme preview</div>
-        <div id="theme-preview" class="flex items-center justify-between gap-3 rounded-md px-3 py-2" style="background: {{ form.background_color.value|default:'#4D1C25' }}; color: {{ biz.background_text_color }}">
+        <div id="theme-preview" class="flex items-center justify-between gap-3 rounded-md px-3 py-2" style="background: {{ form.background_color.value|default:'#050733' }}; color: {{ biz.background_text_color }}">
           <span class="text-sm font-semibold">{{ form.name.value|default:biz.name }}</span>
-          <span id="theme-button-preview" class="rounded-md px-3 py-1.5 text-xs font-semibold" style="background: {{ form.accent_color.value|default:'#8F172D' }}; color: {{ biz.button_text_color }}">Primary action</span>
+          <span id="theme-button-preview" class="rounded-md px-3 py-1.5 text-xs font-semibold" style="background: {{ form.accent_color.value|default:'#D14900' }}; color: {{ biz.button_text_color }}">Primary action</span>
         </div>
       </div>
       <div class="sm:col-span-2">{% include "_field.html" with field=form.tagline %}</div>
@@ -51,8 +51,8 @@
     return ((red * 299 + green * 587 + blue * 114) / 1000) > 150 ? '#211D1A' : '#FFFFFF';
   }
   function updateThemePreview() {
-    const background = document.getElementById('id_background_color')?.value || '#4D1C25';
-    const button = document.getElementById('id_accent_color')?.value || '#8F172D';
+    const background = document.getElementById('id_background_color')?.value || '#050733';
+    const button = document.getElementById('id_accent_color')?.value || '#D14900';
     const panel = document.getElementById('theme-preview');
     const action = document.getElementById('theme-button-preview');
     if (panel) {

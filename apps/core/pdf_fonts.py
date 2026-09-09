@@ -6,13 +6,13 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
 
-PDF_DISPLAY_FONT = "StoreTrackFrauncesSemiBold"
-PDF_BODY_FONT = "StoreTrackInter"
-PDF_BODY_BOLD_FONT = "StoreTrackInterSemiBold"
-PDF_BODY_ITALIC_FONT = "StoreTrackInterItalic"
-PDF_BODY_BOLD_ITALIC_FONT = "StoreTrackInterSemiBoldItalic"
-PDF_MONO_FONT = "StoreTrackPlexMono"
-PDF_MONO_MEDIUM_FONT = "StoreTrackPlexMonoMedium"
+PDF_DISPLAY_FONT = "INPROFICFrauncesSemiBold"
+PDF_BODY_FONT = "INPROFICInter"
+PDF_BODY_BOLD_FONT = "INPROFICInterSemiBold"
+PDF_BODY_ITALIC_FONT = "INPROFICInterItalic"
+PDF_BODY_BOLD_ITALIC_FONT = "INPROFICInterSemiBoldItalic"
+PDF_MONO_FONT = "INPROFICPlexMono"
+PDF_MONO_MEDIUM_FONT = "INPROFICPlexMonoMedium"
 
 _FONT_DIR = Path(__file__).resolve().parent / "static" / "core" / "fonts"
 _FONT_FILES = {

@@ -183,7 +183,7 @@ def initialize_monnify(payment, config):
             "customerName": target.customer_name,
             "customerEmail": email,
             "paymentReference": payment.reference,
-            "paymentDescription": f"StoreTrack commerce {payment.reference}",
+            "paymentDescription": f"INPROFIC commerce {payment.reference}",
             "currencyCode": payment.currency,
             "contractCode": contract_code,
             "redirectUrl": payment.return_url,

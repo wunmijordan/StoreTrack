@@ -3,6 +3,7 @@ import logging
 from django.db import IntegrityError, transaction
 
 from .models import CommerceNotification, CommerceSettings
+from .realtime import publish_business_notifications_changed
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +29,21 @@ def notify_commerce(*, business, event_type, title, message="", target_url="/com
     }
     try:
         if values["dedupe_key"]:
-            notice, _ = CommerceNotification.raw_objects.get_or_create(
+            notice, created = CommerceNotification.raw_objects.get_or_create(
                 business=business,
                 dedupe_key=values["dedupe_key"],
                 defaults={key: value for key, value in values.items() if key not in {"business", "dedupe_key"}},
             )
+            if created:
+                transaction.on_commit(
+                    lambda: publish_business_notifications_changed(business.pk)
+                )
             return notice
-        return CommerceNotification.raw_objects.create(**values)
+        notice = CommerceNotification.raw_objects.create(**values)
+        transaction.on_commit(
+            lambda: publish_business_notifications_changed(business.pk)
+        )
+        return notice
     except IntegrityError:
         # A concurrent callback may win the unique dedupe race.
         return CommerceNotification.raw_objects.filter(

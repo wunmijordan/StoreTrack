@@ -426,7 +426,7 @@ class ProductionRunForm(StyledModelForm):
         required=False,
         label="Existing pending orders to include",
         help_text=(
-            "Optionally attach pending orders that are already in StoreTrack. "
+            "Optionally attach pending orders that are already in INPROFIC. "
             "After saving the run, you can also create new customer orders directly inside it."
         ),
         widget=forms.SelectMultiple(attrs={"size": "7"}),

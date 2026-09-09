@@ -254,7 +254,7 @@ class CheckoutBoundaryTests(TestCase):
         )
         response = self.client.get(
             f"/api/v1/storefronts/{self.business.slug}/checkouts/{checkout.public_id}",
-            HTTP_X_STORETRACK_KEY=other_integration.api_key,
+            HTTP_X_INPROFIC_KEY=other_integration.api_key,
         )
         self.assertEqual(response.status_code, 403)
 
@@ -269,7 +269,7 @@ class CheckoutBoundaryTests(TestCase):
             endpoint,
             data=json.dumps(payload),
             content_type="application/json",
-            HTTP_X_STORETRACK_KEY=self.integration.api_key,
+            HTTP_X_INPROFIC_KEY=self.integration.api_key,
             HTTP_IDEMPOTENCY_KEY="api-missing-phone",
         )
         self.assertEqual(response.status_code, 400)
@@ -280,7 +280,7 @@ class CheckoutBoundaryTests(TestCase):
             endpoint,
             data=json.dumps(payload),
             content_type="application/json",
-            HTTP_X_STORETRACK_KEY=self.integration.api_key,
+            HTTP_X_INPROFIC_KEY=self.integration.api_key,
             HTTP_IDEMPOTENCY_KEY="api-phone-no-email",
         )
         self.assertEqual(response.status_code, 201)

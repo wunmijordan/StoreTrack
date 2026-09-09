@@ -12,4 +12,5 @@
 {% if can_manage_business %}<a href="{% url 'subscription_plans' %}" class="{{ row_class }} {% if current == 'subscription_plans' or current == 'subscription_payment' or current == 'subscription_add_service' %}bg-white/10 text-white font-medium{% else %}text-[#D8E3DB] hover:bg-white/5{% endif %}">Plan & Billing</a>{% endif %}
 {% if user.is_superuser %}<a href="{% url 'founder_subscriptions' %}" class="{{ row_class }} {% if current == 'founder_subscriptions' %}bg-white/10 text-white font-medium{% else %}text-[#D8E3DB] hover:bg-white/5{% endif %}">Founder Console</a>{% endif %}
 {% if can_manage_business %}<a href="{% url 'business_settings' %}" class="{{ row_class }} {% if current == 'business_settings' %}bg-white/10 text-white font-medium{% else %}text-[#D8E3DB] hover:bg-white/5{% endif %}">Business Settings</a>{% endif %}
+<a href="{% url 'marketing_home' %}?view=marketing" class="{{ row_class }} mt-2 border-t border-white/10 text-[#D8E3DB] hover:bg-white/5">Go to INPROFIC</a>
 {% endwith %}

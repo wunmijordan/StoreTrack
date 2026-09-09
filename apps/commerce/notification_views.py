@@ -8,6 +8,7 @@ from django.views.decorators.http import require_GET, require_POST
 from accounts.services import user_has_permission
 
 from .models import CommerceNotification, CommerceNotificationRead, CommerceSettings
+from .realtime import publish_user_notifications_changed
 
 
 def _authorized(request):
@@ -85,4 +86,5 @@ def notification_read(request):
         [CommerceNotificationRead(notification=notice, user=request.user) for notice in notices],
         ignore_conflicts=True,
     )
+    publish_user_notifications_changed(request.business.pk, request.user.pk)
     return JsonResponse({"read": len(notices), "unread_count": _unread(request).count()})

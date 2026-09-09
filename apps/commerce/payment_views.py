@@ -57,7 +57,9 @@ def _headless_context(request, business_slug):
     business = get_object_or_404(Business, slug=business_slug)
     if not _commerce_enabled(business) or not _settings_for(business).api_enabled:
         return business, None
-    key = request.headers.get("X-StoreTrack-Key", "")
+    key = request.headers.get("X-INPROFIC-Key", "") or request.headers.get(
+        "X-" + "Store" + "Track-Key", ""
+    )
     integration = CommerceIntegration.raw_objects.filter(
         business=business,
         active=True,

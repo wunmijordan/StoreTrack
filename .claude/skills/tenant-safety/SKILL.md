@@ -1,14 +1,14 @@
 ---
 name: tenant-safety
 description: >
-  Audit StoreTrack changes for multi-business tenant isolation. Use for new
+  Audit INPROFIC changes for multi-business tenant isolation. Use for new
   models, query changes, admin/user management, reports, exports, finance,
   Shared Production Runs, or any feature that reads IDs from a request.
 version: "1.0"
 updated: 2026-09-04
 ---
 
-# Tenant Safety (StoreTrack)
+# Tenant Safety (INPROFIC)
 
 ## Invariants
 

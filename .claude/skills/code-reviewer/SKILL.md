@@ -1,16 +1,16 @@
 ---
 name: code-reviewer
 description: >
-  Deep review of StoreTrack Python, Django templates and vanilla JavaScript.
+  Deep review of INPROFIC Python, Django templates and vanilla JavaScript.
   Use before packaging a substantial feature or whenever a changed file is
   large, transaction-heavy, or crosses production/inventory/finance domains.
 version: "1.0"
 updated: 2026-09-04
 ---
 
-# Code Reviewer (StoreTrack)
+# Code Reviewer (INPROFIC)
 
-Review changed code against StoreTrack's actual architecture rather than a
+Review changed code against INPROFIC's actual architecture rather than a
 generic Django checklist.
 
 ## Correctness

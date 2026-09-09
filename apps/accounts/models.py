@@ -397,7 +397,7 @@ class SubscriptionPayment(models.Model):
 
 
 class SubscriptionPaymentSettings(models.Model):
-    """Founder-controlled availability for new StoreTrack plan checkouts.
+    """Founder-controlled availability for new INPROFIC plan checkouts.
 
     Provider credentials remain environment-owned. Disabling a provider stops
     new payment attempts but deliberately does not invalidate existing ones.

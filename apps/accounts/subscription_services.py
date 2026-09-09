@@ -211,7 +211,7 @@ def create_payment_request(subscription, plan, *, months=1, billing_cycle="month
         months = 12
     amount = payment_amount(plan, subscription.services.count(), months, billing_cycle=billing_cycle)
     if amount <= 0:
-        raise ValidationError("This plan does not yet have a payable price configured. Contact the StoreTrack founder/superuser.")
+        raise ValidationError("This plan does not yet have a payable price configured. Contact the INPROFIC founder/superuser.")
     return SubscriptionPayment.objects.create(
         subscription=subscription,
         plan=plan,

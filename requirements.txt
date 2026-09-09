@@ -1,5 +1,11 @@
 Django>=5.0,<6.0
+channels[daphne]>=4.2,<5
+channels-redis>=4.2,<5
+dj-database-url>=2.2,<4
+django-storages[s3]>=1.14.4,<2
+psycopg[binary]>=3.2,<4
 python-dotenv==1.2.3
 openpyxl>=3.1,<4
 reportlab>=4.0,<5
 Pillow>=10,<13
+whitenoise>=6.8,<7

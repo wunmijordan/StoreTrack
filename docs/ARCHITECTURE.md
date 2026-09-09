@@ -1,12 +1,12 @@
-# StoreTrack Architecture
+# INPROFIC Architecture
 
-An index of how StoreTrack is put together, and why. StoreTrack is deliberately
+An index of how INPROFIC is put together, and why. INPROFIC is deliberately
 small, but its domains are connected so procurement, production, sales and
 finance describe one business flow rather than four isolated ledgers.
 
-## What StoreTrack can be described as today
+## What INPROFIC can be described as today
 
-> **StoreTrack is a production-aware commercial management system for
+> **INPROFIC is a production-aware commercial management system for
 > businesses that procure materials, prepare or manufacture finished goods,
 > manage inventory, sell through multiple channels, and track the resulting
 > payables, receivables and cash flow.**
@@ -49,12 +49,12 @@ storetrack/
 
 ## Repository prompt skills
 
-StoreTrack includes a project-local skill library under `.claude/skills/`,
+INPROFIC includes a project-local skill library under `.claude/skills/`,
 modelled after the structured `SKILL.md` pattern used by larger agent-driven
-Django projects. These skills capture StoreTrack-specific invariants so prompts
+Django projects. These skills capture INPROFIC-specific invariants so prompts
 can load focused context without bloating every task.
 
-The skills currently cover the full StoreTrack reference, simplification,
+The skills currently cover the full INPROFIC reference, simplification,
 tenant safety, production integrity, finance integrity, migration safety and
 systematic debugging. They are documentation/instruction assets only: Django
 does not import them, they add no database tables, and they do not constitute a
@@ -159,7 +159,7 @@ resolved price as a historical snapshot.
 
 ## Shared production runs (multi-customer / multi-product)
 
-StoreTrack supports an optional `ProductionRun` above ordinary production
+INPROFIC supports an optional `ProductionRun` above ordinary production
 orders for bakery-style planning where several customer/store orders are
 produced together in one coordinated exercise.
 
@@ -267,7 +267,7 @@ materials/cost records used to produce it.
 
 This is **production-batch traceability, not yet full supplier-lot
 traceability**. Raw-material lots are not yet maintained as separate stock
-pools, so StoreTrack should not claim exact lot-level genealogy until that
+pools, so INPROFIC should not claim exact lot-level genealogy until that
 future layer is implemented.
 
 ## Quality control
@@ -397,7 +397,7 @@ without altering role definitions or tenant-owned records.
 
 ## "A user should be able to answer:"
 
-StoreTrack's intended value can be expressed as a chain of business questions:
+INPROFIC's intended value can be expressed as a chain of business questions:
 
 ### What did we buy?
 **Procurement** records suppliers, purchase orders, received quantities,
@@ -538,14 +538,14 @@ Shared Production Run creation uses a multi-select dropdown of eligible Pending 
 
 ## Commerce and subscriptions (2026-09)
 
-StoreTrack now has an additive `commerce` app and an account-level subscription entitlement layer. Commerce uses `CommerceIntake` as the only public/external write boundary; API/storefront callers never write Production, Sales, stock or Finance directly. See `docs/COMMERCE_INTEGRATION.md`.
+INPROFIC now has an additive `commerce` app and an account-level subscription entitlement layer. Commerce uses `CommerceIntake` as the only public/external write boundary; API/storefront callers never write Production, Sales, stock or Finance directly. See `docs/COMMERCE_INTEGRATION.md`.
 
 Commercial subscriptions are translated into explicit `BusinessModuleAccess` rows. Existing businesses without a `BusinessSubscription` remain legacy/permissive until they opt in; new signups begin a 30-day STARTER trial. Additional service lines are separate `Business` profiles linked by `SubscriptionService` under the same commercial subscription. See `docs/SUBSCRIPTIONS.md`.
 
 ## Subscription checkout and commerce integration surfaces (September 2026 refinement)
 
-Subscription billing is initiated inside StoreTrack. Paystack and Monnify are hosted-checkout providers: StoreTrack creates the subscription payment request, initializes checkout server-side, redirects the tenant to the provider, then verifies callbacks/webhooks server-side before extending entitlements. Provider secrets live in deployment environment variables, not templates or tenant websites.
+Subscription billing is initiated inside INPROFIC. Paystack and Monnify are hosted-checkout providers: INPROFIC creates the subscription payment request, initializes checkout server-side, redirects the tenant to the provider, then verifies callbacks/webhooks server-side before extending entitlements. Provider secrets live in deployment environment variables, not templates or tenant websites.
 
 Plans support monthly and yearly billing. The founder controls monthly price, yearly discount percentage, and additional-service discount percentage centrally. The annual discount applies to the complete 12-month subscription total after additional-service pricing is calculated.
 
-Commerce remains payment-provider neutral at the intake boundary. The four independently switchable public surfaces are the hosted storefront, Order Now link, headless API, and platform connector (all beneath the Commerce master switch and BusinessModuleAccess entitlement). Headless API is for a tenant-owned website/app actively calling StoreTrack; the connector endpoint is for third-party platforms/adapters pushing signed normalized order events into StoreTrack.
+Commerce remains payment-provider neutral at the intake boundary. The four independently switchable public surfaces are the hosted storefront, Order Now link, headless API, and platform connector (all beneath the Commerce master switch and BusinessModuleAccess entitlement). Headless API is for a tenant-owned website/app actively calling INPROFIC; the connector endpoint is for third-party platforms/adapters pushing signed normalized order events into INPROFIC.

@@ -104,7 +104,7 @@ def _manual_instructions(config, method):
     if method == CommercePayment.METHOD_BANK_TRANSFER:
         return config.bank_instructions or "Use the checkout/payment reference when transferring, then submit your transfer reference for staff verification."
     if method == CommercePayment.METHOD_CASH:
-        return config.cash_instructions or "Pay an authorized staff member. Cash remains pending until the receipt is confirmed in StoreTrack."
+        return config.cash_instructions or "Pay an authorized staff member. Cash remains pending until the receipt is confirmed in INPROFIC."
     return ""
 
 

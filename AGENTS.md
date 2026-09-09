@@ -1,4 +1,4 @@
-# StoreTrack — Codex project instructions
+# INPROFIC — Codex project instructions
 
 This file is the persistent project instruction entry point for OpenAI Codex.
 It applies to the repository unless a more-specific nested `AGENTS.md` overrides it.
@@ -6,7 +6,7 @@ It applies to the repository unless a more-specific nested `AGENTS.md` overrides
 ## Start here
 
 1. Read `README.md` for project orientation.
-2. For substantial StoreTrack work, read `.codex/skills/storetrack/SKILL.md`.
+2. For substantial INPROFIC work, read `.codex/skills/storetrack/SKILL.md`.
 3. Load the focused skill(s) below when the task matches.
 4. User instructions take precedence over skill guidance. Skills are safeguards and workflows, not reasons to ignore an explicit user request.
 5. Before packaging a change, apply `.codex/skills/simplify/SKILL.md` plus the relevant domain-integrity skill.
@@ -15,7 +15,7 @@ It applies to the repository unless a more-specific nested `AGENTS.md` overrides
 
 | Skill | Load when |
 | --- | --- |
-| `storetrack` | Cross-app, architectural, or broad StoreTrack changes |
+| `storetrack` | Cross-app, architectural, or broad INPROFIC changes |
 | `frontend-design` | Django templates, forms, formsets, modals, dashboards, tables, navigation, UI/UX |
 | `excalidraw-diagram` | Architecture diagrams, process maps, pitch visuals, diagrammatic documentation |
 | `production-integrity` | Recipes, production, Shared Runs, stock, batches, offcuts, reversal |
@@ -28,7 +28,7 @@ It applies to the repository unless a more-specific nested `AGENTS.md` overrides
 
 All skill files live at `.codex/skills/<skill>/SKILL.md`.
 
-## Critical StoreTrack invariants
+## Critical INPROFIC invariants
 
 - Preserve business scoping. Do not make a Business-owned query global by accident.
 - Stock-mutating operations must remain auditable and transactional.

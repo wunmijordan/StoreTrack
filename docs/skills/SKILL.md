@@ -1,16 +1,16 @@
 ---
 name: storetrack-reference
 description: >
-  Human-readable index for StoreTrack repository prompt skills. Coding agents
+  Human-readable index for INPROFIC repository prompt skills. Coding agents
   should start with CLAUDE.md and load a focused .claude/skills/*/SKILL.md file
   when the task matches that domain.
 version: "1.0"
 updated: 2026-09-04
 ---
 
-# StoreTrack Prompt Skills
+# INPROFIC Prompt Skills
 
-StoreTrack includes project-local prompt skills under `.claude/skills/` and a Codex mirror under `.codex/skills/`. The root `AGENTS.md` is the Codex/VS Code entry point.
+INPROFIC includes project-local prompt skills under `.claude/skills/` and a Codex mirror under `.codex/skills/`. The root `AGENTS.md` is the Codex/VS Code entry point.
 They are documentation/instruction assets for coding agents; they do not run in
 Django, change application permissions, or require a model/provider/API key.
 
@@ -18,7 +18,7 @@ Django, change application permissions, or require a model/provider/API key.
 
 | Skill | Use when |
 | --- | --- |
-| `storetrack` | Cross-app or architecture-heavy StoreTrack work |
+| `storetrack` | Cross-app or architecture-heavy INPROFIC work |
 | `frontend-design` | Django template/UI/formset/dashboard work |
 | `excalidraw-diagram` | Architecture, process, and business-pitch diagrams |
 | `simplify` | After every implementation |
@@ -51,7 +51,7 @@ that mutate the live database implicitly.
 
 ## Runtime AI is separate
 
-This repository-level skill library does **not** mean StoreTrack has a runtime
+This repository-level skill library does **not** mean INPROFIC has a runtime
 AI assistant. A future runtime prompt/AI feature should be implemented
 separately, with explicit provider configuration, tenant-safe prompt context,
 permissions, logging, failure handling and cost controls.

@@ -107,7 +107,7 @@ class CommerceSettings(BusinessOwnedModel):
     )
     notification_sound_enabled = models.BooleanField(
         default=True,
-        help_text="Play a short sound when new activity arrives while StoreTrack is open.",
+        help_text="Play a short sound when new activity arrives while INPROFIC is open.",
     )
     notification_desktop_enabled = models.BooleanField(
         default=True,

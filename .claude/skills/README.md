@@ -1,4 +1,4 @@
-# StoreTrack project skills
+# INPROFIC project skills
 
 These are project-local prompt skills for coding agents.
 

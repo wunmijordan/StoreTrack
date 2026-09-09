@@ -1,14 +1,14 @@
 ---
 name: migration-safety
 description: >
-  Plan and review StoreTrack Django migrations against the current migration
+  Plan and review INPROFIC Django migrations against the current migration
   graph and live SQLite deployment. Use before adding, renaming, removing or
   changing model fields, especially after the user reports remote migrations.
 version: "1.0"
 updated: 2026-09-04
 ---
 
-# Migration Safety (StoreTrack)
+# Migration Safety (INPROFIC)
 
 ## Rules
 

@@ -80,7 +80,7 @@ class CommercePaymentTestBase(TestCase):
         )
 
     def api_post(self, path, payload, *, idem=None):
-        headers = {"HTTP_X_STORETRACK_KEY": self.integration.api_key}
+        headers = {"HTTP_X_INPROFIC_KEY": self.integration.api_key}
         if idem is not None:
             headers["HTTP_IDEMPOTENCY_KEY"] = idem
         return self.client.post(path, json.dumps(payload), content_type="application/json", **headers)
@@ -165,7 +165,7 @@ class HeadlessPaymentApiTests(CommercePaymentTestBase):
             path,
             json.dumps({"method": "cash"}),
             content_type="application/json",
-            HTTP_X_STORETRACK_KEY=other_integration.api_key,
+            HTTP_X_INPROFIC_KEY=other_integration.api_key,
             HTTP_IDEMPOTENCY_KEY="cross-tenant",
         )
         self.assertEqual(response.status_code, 404)
@@ -173,18 +173,18 @@ class HeadlessPaymentApiTests(CommercePaymentTestBase):
 
     def test_current_payment_and_order_detail_remain_backward_compatible(self):
         detail_url = f"/api/v1/storefronts/{self.business.slug}/orders/{self.intake.public_id}"
-        empty = self.client.get(detail_url, HTTP_X_STORETRACK_KEY=self.integration.api_key)
+        empty = self.client.get(detail_url, HTTP_X_INPROFIC_KEY=self.integration.api_key)
         self.assertEqual(empty.status_code, 200)
         self.assertIn("payment_state", empty.json())
         self.assertIsNone(empty.json()["payment"])
 
         payment = self.make_payment()
         current_url = f"{detail_url}/payments/current"
-        current = self.client.get(current_url, HTTP_X_STORETRACK_KEY=self.integration.api_key)
+        current = self.client.get(current_url, HTTP_X_INPROFIC_KEY=self.integration.api_key)
         self.assertEqual(current.status_code, 200)
         self.assertEqual(current.json()["payment_id"], str(payment.public_id))
         self.assertEqual(current.json()["balance"], "5000.00")
-        enriched = self.client.get(detail_url, HTTP_X_STORETRACK_KEY=self.integration.api_key)
+        enriched = self.client.get(detail_url, HTTP_X_INPROFIC_KEY=self.integration.api_key)
         self.assertEqual(enriched.json()["payment"]["method"], "cash")
 
     def test_bank_claim_is_evidence_only_and_deduplicated(self):

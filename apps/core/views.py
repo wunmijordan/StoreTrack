@@ -40,7 +40,7 @@ from expenses.models import Expense
 
 def marketing_home(request):
     """Public product overview; remembered authenticated sessions continue to the app."""
-    if request.user.is_authenticated:
+    if request.user.is_authenticated and request.GET.get("view") != "marketing":
         return redirect("dashboard")
     from accounts.models import SubscriptionPlan
     plans = (
@@ -1719,5 +1719,5 @@ def backup_json(request):
         objects.extend(model.objects.all())
     data = serializers.serialize("json", objects, indent=2)
     response = HttpResponse(data, content_type="application/json")
-    response["Content-Disposition"] = f'attachment; filename="storetrack-backup-{today()}.json"'
+    response["Content-Disposition"] = f'attachment; filename="inprofic-backup-{today()}.json"'
     return response

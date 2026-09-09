@@ -58,6 +58,7 @@ class BusinessMiddleware:
 EXEMPT_PREFIXES = (
     "/accounts/login", "/accounts/logout", "/accounts/signup",
     "/business/settings", "/business/switch", "/admin", "/static", "/media/", "/shop/",
+    "/health/", "/ops/",
     "/api/v1/storefronts/", "/api/v1/connectors/",
     "/users/plans/payment/callback/", "/users/plans/payment/webhook/",
 )

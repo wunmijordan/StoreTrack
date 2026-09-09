@@ -1,32 +1,32 @@
 ---
 name: excalidraw-diagram
 description: >
-  Create clear, business-ready Excalidraw diagrams for StoreTrack architecture,
+  Create clear, business-ready Excalidraw diagrams for INPROFIC architecture,
   operating flows, multi-tenant design, production workflows, finance flows, and pitch materials.
   Use when a user asks for a diagrammatic document, system map, process flow, or pitch visual.
 version: "1.0"
 updated: 2026-09-04
 ---
 
-# Excalidraw Diagram — StoreTrack
+# Excalidraw Diagram — INPROFIC
 
 Use this skill for diagrams intended for technical documentation, internal planning, onboarding, or business/investor/customer pitches.
 
 ## Goal
 
-Turn StoreTrack concepts into a diagram that can be understood quickly without requiring the source code beside it. The diagram should be accurate enough for engineers while remaining legible to business stakeholders when the context is a pitch.
+Turn INPROFIC concepts into a diagram that can be understood quickly without requiring the source code beside it. The diagram should be accurate enough for engineers while remaining legible to business stakeholders when the context is a pitch.
 
 ## Choose the diagram type first
 
 Prefer one primary message per diagram:
 
-- **Business capability map** — what StoreTrack manages from procurement through production, stock, sales, finance, and audit.
+- **Business capability map** — what INPROFIC manages from procurement through production, stock, sales, finance, and audit.
 - **Production flow** — Order → Shared Production Run → proportional material release → ProductionBatch → customer/store/offcut/wastage/shortage.
 - **Shared run allocation** — multiple customers/channels/products coordinated in one run while commercial orders remain separate.
 - **Inventory traceability** — RawMaterial receipt → release → batch → FinishedGood → sale/reconciliation/non-stock destination.
 - **Finance flow** — receivables/payables, CashAccount, FinancialTransaction, payment/reversal relationships.
 - **Multi-tenant architecture** — Business ownership, request.business/session context, tenant-scoped data, global superuser boundary.
-- **Pitch architecture** — simplified layers: users/channels, StoreTrack operating core, controls/analytics, integrations/future extensions.
+- **Pitch architecture** — simplified layers: users/channels, INPROFIC operating core, controls/analytics, integrations/future extensions.
 
 Do not combine every one of these into a single unreadable canvas.
 
@@ -45,7 +45,7 @@ Do not combine every one of these into a single unreadable canvas.
 
 For business-facing diagrams:
 
-- use StoreTrack burgundy (`#8f172d`) as the dominant accent where the rendering tool permits;
+- use INPROFIC burgundy (`#8f172d`) as the dominant accent where the rendering tool permits;
 - use a light neutral canvas;
 - keep text short and high-contrast;
 - use rounded boxes for business capabilities/entities and arrows for movement/state transitions;
@@ -91,6 +91,6 @@ Before finalizing:
 3. Are customer demand, production, stock, and finance kept conceptually separate?
 4. Is text readable at normal document/slide scale?
 5. Are there unnecessary crossings or duplicate labels?
-6. Does the diagram reflect the current StoreTrack architecture rather than an earlier conversation state?
+6. Does the diagram reflect the current INPROFIC architecture rather than an earlier conversation state?
 
 If the diagram documents implemented architecture, inspect the current models/views/docs before drawing it.

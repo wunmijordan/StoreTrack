@@ -1,4 +1,4 @@
-# StoreTrack — Remaining Product Evolution
+# INPROFIC — Remaining Product Evolution
 
 This document is the forward plan **relative to what is already implemented**.
 It intentionally excludes the completed customer master, production
@@ -6,7 +6,7 @@ yield/wastage, production-batch traceability and first-stage quality-control
 work. It also accounts for the Finance changes already implemented: supplier
 partial payments/payables and Distribution/Online receivable settlement.
 
-The aim is not to turn StoreTrack into a generic ERP. The recommended direction
+The aim is not to turn INPROFIC into a generic ERP. The recommended direction
 is a focused **production-to-commerce system for small and mid-sized businesses
 that prepare or manufacture products before selling them**.
 
@@ -170,7 +170,7 @@ Introduce a first-class `RawMaterialLot` / received-lot model with:
 ### 4.2 Consumption allocation
 
 Production consumption should identify which raw-material lots were consumed.
-Only then can StoreTrack honestly answer:
+Only then can INPROFIC honestly answer:
 
 > Which supplier lot went into this finished-good batch?
 
@@ -432,13 +432,13 @@ Permissions should be action-based, especially for:
 ## 12. Payment integration — deliberately deferred
 
 Do **not** build the Moniepoint integration as a parallel bookkeeping system.
-When ready, integrate payment infrastructure into StoreTrack's existing
+When ready, integrate payment infrastructure into INPROFIC's existing
 Finance model.
 
 Preferred architecture:
 
 ```
-StoreTrack order
+INPROFIC order
       ↓
 Payment request
       ↓
@@ -452,7 +452,7 @@ Receivable -> Received
 ```
 
 Potential future integrations include Moniepoint POS/payment rails and
-Monnify for online payments. The provider should confirm payment; StoreTrack
+Monnify for online payments. The provider should confirm payment; INPROFIC
 should remain the business system of record.
 
 ## 13. Recommended implementation order
@@ -491,7 +491,7 @@ should remain the business system of record.
 21. Formal double-entry accounting layer
 22. Advanced forecasting/automation
 
-The ordering is deliberate: **first make StoreTrack know what should be
+The ordering is deliberate: **first make INPROFIC know what should be
 produced, then make it explain how efficiently it was produced, then make it
 control fulfilment and financial consequences, and only afterward add scale
 and external integrations.**

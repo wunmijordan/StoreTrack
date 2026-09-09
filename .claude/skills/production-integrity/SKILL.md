@@ -1,14 +1,14 @@
 ---
 name: production-integrity
 description: >
-  Preserve StoreTrack production, recipe, batch, stock, offcut, shortage,
+  Preserve INPROFIC production, recipe, batch, stock, offcut, shortage,
   Shared Run, QC, costing and reversal invariants. Use for any production or
   inventory-mutating implementation.
 version: "1.0"
 updated: 2026-09-04
 ---
 
-# Production Integrity (StoreTrack)
+# Production Integrity (INPROFIC)
 
 ## Core invariants
 

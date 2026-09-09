@@ -4,7 +4,7 @@
 
 ## Architectural intent
 
-StoreTrack should remain the system of record for tenant identity, products,
+INPROFIC should remain the system of record for tenant identity, products,
 pricing, production, inventory, sales, receivables and cash. Customer-facing
 ordering should be built into the same Django application and database, while
 the same ordering capability is exposed through a stable integration boundary
@@ -13,7 +13,7 @@ for existing websites and third-party ordering platforms.
 These are complementary entry points, not separate ordering systems:
 
 ```text
-StoreTrack customer storefront ----+
+INPROFIC customer storefront ----+
                                     |
 Existing business website ----------+--> Shared commerce/order service
                                     |             |
@@ -24,7 +24,7 @@ Third-party ordering platform ------+             v
 
 The shared commerce service is responsible for tenant resolution, product and
 quantity validation, server-side pricing, idempotency, customer/service data,
-availability and routing. StoreTrack's own storefront can call it directly.
+availability and routing. INPROFIC's own storefront can call it directly.
 External systems call the same contract through an API or signed webhook.
 
 External systems must never write directly to `production.Order`, `sales.Sale`,
@@ -32,7 +32,7 @@ stock balances or finance records. Direct writes could bypass price snapshots,
 material release, batch costing, expiry, stock allocation, receivables and audit
 rules.
 
-## Supported ways to plug StoreTrack into another website
+## Supported ways to plug INPROFIC into another website
 
 ### 1. Hosted storefront
 
@@ -42,16 +42,16 @@ Each tenant can have a public path such as:
 https://app.example.com/shop/blue-kitchen/
 ```
 
-An existing website only needs an **Order now** link. StoreTrack owns catalogue
+An existing website only needs an **Order now** link. INPROFIC owns catalogue
 validation and checkout, so the host website requires no complex integration.
 This should be the first delivery because it has the lowest compatibility and
 deployment risk.
 
 ### 2. Embeddable catalogue or order button
 
-A small JavaScript component can display StoreTrack products on an existing
-site. Checkout should still open the hosted StoreTrack route. The tenant's site
-controls placement and presentation; StoreTrack remains authoritative for
+A small JavaScript component can display INPROFIC products on an existing
+site. Checkout should still open the hosted INPROFIC route. The tenant's site
+controls placement and presentation; INPROFIC remains authoritative for
 prices, availability and order creation.
 
 ### 3. Headless API
@@ -66,23 +66,23 @@ GET  /api/v1/storefronts/{business_slug}/orders/{public_id}
 
 Order submission should require an idempotency key. Product and order
 identifiers exposed publicly should be non-sequential UUIDs. Submitted totals
-must be ignored and recalculated from StoreTrack pricing.
+must be ignored and recalculated from INPROFIC pricing.
 
 The human-facing `number` is generated from a locked per-business sequence and
 may therefore repeat across different tenants (for example, each tenant may
 have `WEB-000001`). Integrations must identify an order by `business_slug` plus
-its StoreTrack `id` UUID, never by `number` alone.
+its INPROFIC `id` UUID, never by `number` alone.
 
 The product payload also exposes customer-facing metadata such as `image_url`
-and an `order_modes` array containing vertical-specific labels, StoreTrack
+and an `order_modes` array containing vertical-specific labels, INPROFIC
 channel prices, fulfilment routes, and per-mode quantity limits.
 
 ### 4. Platform connectors
 
 Shopify-, WooCommerce- or restaurant-platform-style connectors translate each
-provider's signed webhook payload into the same StoreTrack intake contract.
+provider's signed webhook payload into the same INPROFIC intake contract.
 Provider order IDs must be unique per tenant/integration so retries cannot
-create duplicate StoreTrack orders.
+create duplicate INPROFIC orders.
 
 ## Customer-order intake boundary
 
@@ -94,7 +94,7 @@ can contain:
 - source/integration and external order ID;
 - customer/contact snapshot;
 - requested products and quantities;
-- StoreTrack-calculated price snapshots;
+- INPROFIC-calculated price snapshots;
 - service mode, table/reference, delivery or pickup details;
 - payment state kept separately from fulfilment state;
 - links to the accepted production order, sale and customer record;
@@ -150,7 +150,7 @@ remain independent states.
 ## Distribution Market Stock integration
 
 `FinishedGood.stock` represents Physical Store stock and cannot safely answer
-public Distribution availability. StoreTrack therefore maintains separate,
+public Distribution availability. INPROFIC therefore maintains separate,
 batch-aware Distribution Market Stock lots.
 
 New unassigned Distribution production flows as follows:
@@ -249,7 +249,7 @@ back-office behavior remains unchanged until a tenant enables the new channel.
 
 ## Implemented commerce boundary (September 2026)
 
-StoreTrack now implements the API-first version of this plan while retaining the hosted storefront and simple **Order Now** link as alternative entry points.
+INPROFIC now implements the API-first version of this plan while retaining the hosted storefront and simple **Order Now** link as alternative entry points.
 
 ### Commerce is a subscription module
 
@@ -263,13 +263,13 @@ An explicit `BusinessModuleAccess.enabled=False` remains the hard ceiling. The s
 
 ### Public product publication
 
-`commerce.StorefrontProduct` is a publication/configuration layer around the existing `inventory.FinishedGood`. It does not duplicate stock. Products are unpublished by default and can independently offer Physical Store/direct, Online and Distribution/bulk order modes. Each mode exposes its StoreTrack-resolved channel price and minimum quantity. Distribution/bulk has a dedicated per-product minimum. Product images are uploaded to tenant-partitioned media storage; the catalog API exposes the uploaded file as an absolute `image_url`. The former URL field remains a fallback for pre-existing live records, but is no longer editable in the publishing form.
+`commerce.StorefrontProduct` is a publication/configuration layer around the existing `inventory.FinishedGood`. It does not duplicate stock. Products are unpublished by default and can independently offer Physical Store/direct, Online and Distribution/bulk order modes. Each mode exposes its INPROFIC-resolved channel price and minimum quantity. Distribution/bulk has a dedicated per-product minimum. Product images are uploaded to tenant-partitioned media storage; the catalog API exposes the uploaded file as an absolute `image_url`. The former URL field remains a fallback for pre-existing live records, but is no longer editable in the publishing form.
 
 For production-centric services, `FinishedGood.physical_saleable_stock` is the immediate storefront availability. Distribution Market Stock remains a separate pool. The existing explicit Market Stock → Physical Store transfer updates the same FinishedGood shelf balance/transfer allowance, so the storefront/API sees the new availability automatically without a commerce-specific stock sync.
 
 ### Sales channel versus fulfilment route
 
-The website's commercial choice is preserved on `CommerceIntake.sales_channel` as `physical_store`, `online`, or `distribution`. `CommerceIntake.ordering_mode` remains the internal fulfilment route and is derived by StoreTrack:
+The website's commercial choice is preserved on `CommerceIntake.sales_channel` as `physical_store`, `online`, or `distribution`. `CommerceIntake.ordering_mode` remains the internal fulfilment route and is derived by INPROFIC:
 
 - production businesses: Physical Store/direct uses available stock, while Online and Distribution/bulk create made-to-order Production demand after staff acceptance;
 - wholesale and retail businesses: all three channel prices use procured finished stock and never invoke Production.
@@ -300,9 +300,13 @@ GET  /api/v1/storefronts/{business_slug}/orders/{public_uuid}
 POST /api/v1/storefronts/{business_slug}/orders/{public_uuid}/preorder
 ```
 
-Product GET is public when Commerce/API are enabled. Order create/status mutation uses a tenant-bound `CommerceIntegration` API key supplied as `X-StoreTrack-Key`. Order creation also requires an `Idempotency-Key`; duplicate retries return the existing intake instead of creating another operational order.
+Product GET is public when Commerce/API are enabled. Order create/status mutation uses a tenant-bound `CommerceIntegration` API key supplied as `X-INPROFIC-Key`. Order creation also requires an `Idempotency-Key`; duplicate retries return the existing intake instead of creating another operational order.
 
-Submitted totals are ignored. StoreTrack resolves the selected channel price itself and snapshots it into `CommerceIntakeItem`.
+Clients should move to the INPROFIC header names shown here. The server still
+accepts the former branded key/signature headers so existing integrations do not
+fail during the rename.
+
+Submitted totals are ignored. INPROFIC resolves the selected channel price itself and snapshots it into `CommerceIntakeItem`.
 
 ### Hosted storefront and Order Now
 
@@ -322,10 +326,10 @@ Commerce payment state is separate from order and fulfilment state. Paystack and
 
 These are different integration directions that converge on the same Commerce Intake:
 
-- **Headless API**: a website/app controlled by the tenant actively calls StoreTrack. It fetches the StoreTrack catalogue, creates a pre-intake checkout with the generated API key, completes payment, and then tracks the resulting order. This is the preferred route for a custom business website.
-- **Platform webhook / connector**: an external commerce platform or adapter pushes events into StoreTrack after an order occurs there. The connector sends StoreTrack's normalized order payload to `/api/v1/connectors/{business_slug}/{integration_id}/orders` and signs the raw request body with HMAC-SHA256 using the generated webhook secret in `X-StoreTrack-Signature`.
+- **Headless API**: a website/app controlled by the tenant actively calls INPROFIC. It fetches the INPROFIC catalogue, creates a pre-intake checkout with the generated API key, completes payment, and then tracks the resulting order. This is the preferred route for a custom business website.
+- **Platform webhook / connector**: an external commerce platform or adapter pushes events into INPROFIC after an order occurs there. The connector sends INPROFIC's normalized order payload to `/api/v1/connectors/{business_slug}/{integration_id}/orders` and signs the raw request body with HMAC-SHA256 using the generated webhook secret in `X-INPROFIC-Signature`.
 
-The connector boundary is intentionally normalized rather than embedding Shopify/WooCommerce-specific payloads into StoreTrack's core service. Provider-specific adapters can translate their payload into this contract. The new headless route uses the payment-first checkout boundary; the compatibility connector still creates `CommerceIntake` directly. Both retain server-side pricing, tenant policy, stock/pre-order routing, idempotency and customer-attributed audit behavior.
+The connector boundary is intentionally normalized rather than embedding Shopify/WooCommerce-specific payloads into INPROFIC's core service. Provider-specific adapters can translate their payload into this contract. The new headless route uses the payment-first checkout boundary; the compatibility connector still creates `CommerceIntake` directly. Both retain server-side pricing, tenant policy, stock/pre-order routing, idempotency and customer-attributed audit behavior.
 
 ## Independent commerce switches
 
@@ -345,8 +349,8 @@ The BusinessModuleAccess Commerce entitlement remains the commercial hard ceilin
 
 ## Exact website integration flow
 
-Keep `X-StoreTrack-Key` in the website server environment; never expose it in
-browser JavaScript. The website displays StoreTrack data but does not decide
+Keep `X-INPROFIC-Key` in the website server environment; never expose it in
+browser JavaScript. The website displays INPROFIC data but does not decide
 authoritative prices, totals, payment success, or fulfilment routing.
 
 ### 1. Fetch products and render order modes
@@ -379,7 +383,7 @@ is used; the returned `fulfilment_mode` is authoritative.
 
 ```http
 POST /api/v1/storefronts/{business_slug}/orders
-X-StoreTrack-Key: <server-side credential>
+X-INPROFIC-Key: <server-side credential>
 Idempotency-Key: <one stable UUID per checkout submission>
 Content-Type: application/json
 ```
@@ -403,13 +407,13 @@ Content-Type: application/json
 ```
 
 Do not send `total`, `unit_price`, `amount`, `fulfilment_mode`, or a Production
-identifier. StoreTrack returns `id`, `number`, `order_mode`, its derived
+identifier. INPROFIC returns `id`, `number`, `order_mode`, its derived
 `fulfilment_mode`, and the authoritative `total`.
 
 Persist `business_slug` and the returned UUID `id` as the integration identity.
 Treat `number` as a tenant-local display/reference value only.
 
-If Distribution/bulk quantity is too low, StoreTrack returns HTTP 400:
+If Distribution/bulk quantity is too low, INPROFIC returns HTTP 400:
 
 ```json
 {
@@ -429,7 +433,7 @@ after the customer chooses one. Never silently change their channel.
 
 ```http
 POST /api/v1/storefronts/{business_slug}/orders/{order_id}/payments/initiate
-X-StoreTrack-Key: <server-side credential>
+X-INPROFIC-Key: <server-side credential>
 Idempotency-Key: <one stable UUID per payment selection>
 Content-Type: application/json
 ```
@@ -444,36 +448,36 @@ Content-Type: application/json
 Allowed methods are `paystack`, `monnify`, `bank_transfer`, and `cash`. Never
 send an amount. For a gateway, redirect only to the returned
 `authorization_url`. For bank transfer, show `bank_account`, `instructions`,
-and the StoreTrack `reference`. For cash, show the instructions and keep the UI
+and the INPROFIC `reference`. For cash, show the instructions and keep the UI
 pending.
 
 ### 4. Submit bank evidence without self-confirming it
 
 ```http
 POST /api/v1/storefronts/{business_slug}/orders/{order_id}/payments/current/claim
-X-StoreTrack-Key: <server-side credential>
+X-INPROFIC-Key: <server-side credential>
 Content-Type: application/json
 
 {"payer_name": "Customer name", "transfer_reference": "bank/session/reference"}
 ```
 
-Treat `awaiting_verification` as pending. Only an authorized StoreTrack user can
+Treat `awaiting_verification` as pending. Only an authorized INPROFIC user can
 confirm it after checking actual credit.
 
-### 5. Poll StoreTrack after a browser return
+### 5. Poll INPROFIC after a browser return
 
 The website return page never marks payment paid. It polls:
 
 ```http
 GET /api/v1/storefronts/{business_slug}/orders/{order_id}/payments/current
 GET /api/v1/storefronts/{business_slug}/orders/{order_id}
-X-StoreTrack-Key: <server-side credential>
+X-INPROFIC-Key: <server-side credential>
 ```
 
 Use `payment.status`, `amount_paid`, and `balance`. Show order `status`, payment
 status, and `fulfilment_state` separately.
 
-Gateway webhook URLs point directly to StoreTrack, not the website:
+Gateway webhook URLs point directly to INPROFIC, not the website:
 
 ```text
 /api/v1/storefronts/{business_slug}/payments/paystack/webhook

@@ -1,14 +1,14 @@
 ---
 name: finance-integrity
 description: >
-  Preserve StoreTrack finance, receivable, payable, CashAccount and
+  Preserve INPROFIC finance, receivable, payable, CashAccount and
   FinancialTransaction integrity. Use when changes touch payments, sales,
   procurement, expenses, order completion, reversal, exports, or analytics.
 version: "1.0"
 updated: 2026-09-04
 ---
 
-# Finance Integrity (StoreTrack)
+# Finance Integrity (INPROFIC)
 
 ## Principles
 
@@ -39,7 +39,7 @@ Finance tables and analytics.
 
 ## Subscription gateway rules
 
-- StoreTrack currently supports Paystack and Monnify for SaaS subscription checkout.
+- INPROFIC currently supports Paystack and Monnify for SaaS subscription checkout.
 - Provider secret credentials must remain server-side/environment-only.
 - A browser callback or redirect is never sufficient proof of payment; use provider verification and keep `mark_payment_paid()` idempotent.
 - Webhook signature validation precedes provider verification. The entitlement update happens only after authoritative amount/status verification.

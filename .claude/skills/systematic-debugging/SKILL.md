@@ -1,7 +1,7 @@
 ---
 name: systematic-debugging
 description: >
-  Debug StoreTrack errors by tracing model -> form/formset -> view -> template
+  Debug INPROFIC errors by tracing model -> form/formset -> view -> template
   -> stock/finance side effects. Use for traceback-driven bugs, silent form
   failures, dynamic-row JavaScript problems, migration mismatches, or bugs
   spanning several apps.
@@ -9,12 +9,12 @@ version: "1.0"
 updated: 2026-09-04
 ---
 
-# Systematic Debugging (StoreTrack)
+# Systematic Debugging (INPROFIC)
 
 ## Method
 
 1. **Reproduce from the traceback or workflow**, not from assumptions.
-2. **Find the first StoreTrack frame** in a Python traceback; library frames are
+2. **Find the first INPROFIC frame** in a Python traceback; library frames are
    usually consequences.
 3. **Check schema vs model** for `OperationalError: no such column`.
 4. **For forms that appear to do nothing**, inspect:
@@ -32,7 +32,7 @@ updated: 2026-09-04
 
 ## Silent-form checklist
 
-Dynamic StoreTrack formsets have previously failed because cloned rows inherited
+Dynamic INPROFIC formsets have previously failed because cloned rows inherited
 an "already wired" marker or because numeric fields were cloned blank. Always
 verify newly added rows receive:
 

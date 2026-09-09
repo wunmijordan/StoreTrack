@@ -147,7 +147,7 @@ def initialize_monnify(payment: SubscriptionPayment, *, email: str, customer_nam
             "customerName": customer_name or payment.subscription.primary_business.name,
             "customerEmail": email,
             "paymentReference": payment.reference,
-            "paymentDescription": f"StoreTrack {payment.plan.name} {payment.get_billing_cycle_display()} subscription",
+            "paymentDescription": f"INPROFIC {payment.plan.name} {payment.get_billing_cycle_display()} subscription",
             "currencyCode": "NGN",
             "contractCode": contract_code,
             "redirectUrl": callback_url,
@@ -194,7 +194,7 @@ def monnify_signature_valid(raw_body: bytes, signature: str):
     _, secret_key, _ = _monnify_credentials()
     # Monnify documents that sandbox webhook notifications may omit the
     # monnify-signature header. Sandbox events still undergo authoritative
-    # server-side transaction verification before StoreTrack grants access.
+    # server-side transaction verification before INPROFIC grants access.
     if not signature and "sandbox.monnify.com" in _monnify_base_url():
         return True
     expected = hmac.new(secret_key.encode("utf-8"), raw_body, hashlib.sha512).hexdigest()

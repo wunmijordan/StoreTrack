@@ -1,6 +1,8 @@
 from decimal import Decimal
+from unittest.mock import AsyncMock
 
-from django.test import TestCase
+from asgiref.sync import async_to_sync
+from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 
 from accounts.models import BusinessModuleAccess, CustomUser, UserBusiness
@@ -9,6 +11,7 @@ from core.models import AuditLog, Business, CashAccount
 from inventory.models import FinishedGood
 
 from .checkout_services import create_checkout
+from .consumers import CommerceNotificationConsumer
 from .models import (
     CommerceCheckoutSession,
     CommerceIntake,
@@ -20,6 +23,7 @@ from .models import (
     StorefrontProduct,
 )
 from .notification_services import notify_commerce
+from .realtime import business_notification_group, user_notification_group
 from .payment_services import record_verified_payment
 from .services import create_intake
 
@@ -329,3 +333,59 @@ class CommerceNotificationTests(TestCase):
                 business=self.business, idempotency_key="hosted-without-phone"
             ).exists()
         )
+
+
+class CommerceNotificationSocketTests(TransactionTestCase):
+    def setUp(self):
+        self.business = Business.objects.create(
+            name="Socket Shop", slug="socket-shop", vertical=Business.VERTICAL_RETAIL
+        )
+        BusinessModuleAccess.objects.create(
+            business=self.business, module="commerce", enabled=True
+        )
+        roles = seed_business_roles(self.business)
+        self.user = CustomUser.objects.create_user(
+            username="socket-admin", password="password", fullname="Socket Admin"
+        )
+        UserBusiness.objects.create(
+            user=self.user,
+            business=self.business,
+            role=roles[CustomUser.ROLE_BUSINESS_ADMIN],
+        )
+        self.other_business = Business.objects.create(
+            name="Other Socket Shop", slug="other-socket-shop"
+        )
+        self.outsider = CustomUser.objects.create_user(
+            username="socket-outsider", password="password", fullname="Outsider"
+        )
+
+    def test_access_resolver_enforces_active_membership_and_permission(self):
+        self.assertEqual(
+            CommerceNotificationConsumer._resolve_access(self.user, self.business.pk),
+            (self.business.pk, self.user.pk),
+        )
+        self.assertIsNone(
+            CommerceNotificationConsumer._resolve_access(self.outsider, self.business.pk)
+        )
+
+    def test_group_names_keep_business_and_user_signals_isolated(self):
+        self.assertNotEqual(
+            business_notification_group(self.business.pk),
+            business_notification_group(self.other_business.pk),
+        )
+        self.assertIn(
+            business_notification_group(self.business.pk),
+            user_notification_group(self.business.pk, self.user.pk),
+        )
+
+    def test_changed_event_sends_browser_refresh_signal(self):
+        consumer = CommerceNotificationConsumer()
+        consumer.send_json = AsyncMock()
+        async_to_sync(consumer.notifications_changed)({
+            "type": "notifications.changed",
+            "reason": "created",
+        })
+        consumer.send_json.assert_awaited_once_with({
+            "type": "notifications.changed",
+            "reason": "created",
+        })

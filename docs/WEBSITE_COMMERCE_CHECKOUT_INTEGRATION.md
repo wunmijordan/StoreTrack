@@ -1,15 +1,15 @@
-# StoreTrack Website Commerce Checkout Integration
+# INPROFIC Website Commerce Checkout Integration
 
-This is the complete contract for connecting a business-owned website to StoreTrack’s headless Commerce API.
+This is the complete contract for connecting a business-owned website to INPROFIC’s headless Commerce API.
 
 The required architecture is payment-first:
 
 ```text
 website basket
-  -> StoreTrack checkout (validated, priced, optionally reserved)
-  -> StoreTrack payment
+  -> INPROFIC checkout (validated, priced, optionally reserved)
+  -> INPROFIC payment
   -> verified full settlement
-  -> exactly one StoreTrack commerce order/intake
+  -> exactly one INPROFIC commerce order/intake
   -> operational acceptance, fulfilment, Sales/Production and Finance
 ```
 
@@ -17,11 +17,11 @@ Do not use the legacy `/orders` endpoint for a new website. It exists only so ol
 
 ## 1. Responsibilities and security
 
-StoreTrack is authoritative for published products, channel labels and availability, quantity limits, channel prices, reservations, payable totals, payment eligibility, gateway verification and the resulting commerce order.
+INPROFIC is authoritative for published products, channel labels and availability, quantity limits, channel prices, reservations, payable totals, payment eligibility, gateway verification and the resulting commerce order.
 
-The website owns its catalogue presentation, basket, customer-facing history and server-side StoreTrack client. Never send a price or amount from the browser. Never expose `X-StoreTrack-Key` in browser JavaScript, source control, analytics or a public environment variable. Call authenticated endpoints from the website server. Product image URLs are public and may be rendered directly by the browser.
+The website owns its catalogue presentation, basket, customer-facing history and server-side INPROFIC client. Never send a price or amount from the browser. Never expose `X-INPROFIC-Key` in browser JavaScript, source control, analytics or a public environment variable. Call authenticated endpoints from the website server. Product image URLs are public and may be rendered directly by the browser.
 
-## 2. Configure StoreTrack
+## 2. Configure INPROFIC
 
 ### 2.1 Access and public address
 
@@ -38,8 +38,8 @@ your-store
 The value is `{business_slug}` in all public URLs:
 
 ```text
-https://STORETRACK_HOST/shop/{business_slug}/
-https://STORETRACK_HOST/api/v1/storefronts/{business_slug}/...
+https://INPROFIC_HOST/shop/{business_slug}/
+https://INPROFIC_HOST/api/v1/storefronts/{business_slug}/...
 ```
 
 It must be unique. Changing it preserves all tenant data, but old storefront, API and webhook URLs stop resolving. Update every connected system immediately.
@@ -62,7 +62,7 @@ From **Commerce**, configure every product:
 - enable applicable ordering channels;
 - set each channel minimum and the optional maximum;
 - set production lead time where applicable;
-- verify its StoreTrack channel prices.
+- verify its INPROFIC channel prices.
 
 The API returns the uploaded image as an absolute URL in both `image` and the compatibility alias `image_url`.
 
@@ -70,7 +70,7 @@ On PythonAnywhere, media is not deployed by `collectstatic`. Add a Web-tab stati
 
 ```text
 URL:       /media/
-Directory: /home/YOUR_USERNAME/PATH_TO_STORETRACK/media
+Directory: /home/YOUR_USERNAME/PATH_TO_INPROFIC/media
 ```
 
 `MEDIA_ROOT` must point at the same persistent directory. Reload the web app, then open an API-returned image URL in a private browser window. It must return an image, not a login page or 404.
@@ -88,11 +88,11 @@ Create active settlement accounts in **Finance**, then open **Commerce → Payme
 
 Only fully configured methods are exposed. Credentials remain server-side.
 
-Register gateway webhooks directly against StoreTrack:
+Register gateway webhooks directly against INPROFIC:
 
 ```text
-POST https://STORETRACK_HOST/api/v1/storefronts/{business_slug}/payments/paystack/webhook
-POST https://STORETRACK_HOST/api/v1/storefronts/{business_slug}/payments/monnify/webhook
+POST https://INPROFIC_HOST/api/v1/storefronts/{business_slug}/payments/paystack/webhook
+POST https://INPROFIC_HOST/api/v1/storefronts/{business_slug}/payments/monnify/webhook
 ```
 
 The customer website must not proxy these webhooks. A browser return never confirms payment.
@@ -108,12 +108,12 @@ Open **Commerce → Add integration**:
 5. copy the generated key into the website server’s secrets.
 
 ```dotenv
-STORETRACK_BASE_URL=https://your-storetrack-host.example
-STORETRACK_BUSINESS_SLUG=yourstore
-STORETRACK_API_KEY=replace-with-the-tenant-api-key
+INPROFIC_BASE_URL=https://your-inprofic-host.example
+INPROFIC_BUSINESS_SLUG=yourstore
+INPROFIC_API_KEY=replace-with-the-tenant-api-key
 ```
 
-Do not put a trailing slash on `STORETRACK_BASE_URL`.
+Do not put a trailing slash on `INPROFIC_BASE_URL`.
 
 ## 3. HTTP conventions
 
@@ -126,7 +126,7 @@ Base path:
 Authenticated requests send:
 
 ```http
-X-StoreTrack-Key: <tenant API key>
+X-INPROFIC-Key: <tenant API key>
 Accept: application/json
 ```
 
@@ -156,8 +156,8 @@ This read is available only while the tenant’s Commerce and API switches are e
       "id": "7ea4b6b1-3c5a-4de1-9aba-3a7d28d3b810",
       "name": "Everyday Item",
       "description": "A useful product.",
-      "image": "https://your-storetrack-host.example/media/commerce/products/business-4/abc123.jpg",
-      "image_url": "https://your-storetrack-host.example/media/commerce/products/business-4/abc123.jpg",
+      "image": "https://your-inprofic-host.example/media/commerce/products/business-4/abc123.jpg",
+      "image_url": "https://your-inprofic-host.example/media/commerce/products/business-4/abc123.jpg",
       "unit": "pack",
       "available_now": "18.00",
       "order_modes": [
@@ -191,7 +191,7 @@ No image produces empty `image` and `image_url` strings. Use `image` in new code
 
 The stable mode codes are `physical_store`, `online` and `distribution`. Display the returned vertical-specific `label`. Production services normally use `preorder` fulfilment for online/distribution; wholesale and retail remain stock-based and are never forced through production.
 
-The hosted catalogue hides product counts. A headless website may similarly use `available_now` only for validation/UI disabling. StoreTrack always rechecks it during checkout.
+The hosted catalogue hides product counts. A headless website may similarly use `available_now` only for validation/UI disabling. INPROFIC always rechecks it during checkout.
 
 Older top-level fields such as `ordering_modes`, `stock_price` and `preorder_price` remain for compatibility. New code should use `order_modes`.
 
@@ -199,7 +199,7 @@ Older top-level fields such as `ordering_modes`, `stock_price` and `preorder_pri
 
 ```http
 GET /api/v1/storefronts/{business_slug}/payment-methods
-X-StoreTrack-Key: <tenant API key>
+X-INPROFIC-Key: <tenant API key>
 ```
 
 ```json
@@ -213,13 +213,13 @@ X-StoreTrack-Key: <tenant API key>
 }
 ```
 
-Possible codes are `paystack`, `monnify`, `bank_transfer` and `cash`. Render only what is returned. StoreTrack revalidates eligibility when payment starts.
+Possible codes are `paystack`, `monnify`, `bank_transfer` and `cash`. Render only what is returned. INPROFIC revalidates eligibility when payment starts.
 
 ## 6. Create checkout
 
 ```http
 POST /api/v1/storefronts/{business_slug}/checkouts
-X-StoreTrack-Key: <tenant API key>
+X-INPROFIC-Key: <tenant API key>
 Idempotency-Key: checkout_<website-cart-id>
 Content-Type: application/json
 ```
@@ -251,7 +251,7 @@ Rules:
 - all items must support one selected mode;
 - never send price, amount or total.
 
-StoreTrack records the customer name in the tenant audit trail, snapshots authoritative pricing and creates no Intake, Sale or Production record yet.
+INPROFIC records the customer name in the tenant audit trail, snapshots authoritative pricing and creates no Intake, Sale or Production record yet.
 
 HTTP `201` means created; `200` means an idempotent retry returned the existing checkout:
 
@@ -337,7 +337,7 @@ Other codes: `403` for invalid/disabled credential; `404` for unavailable tenant
 
 ```http
 POST /api/v1/storefronts/{business_slug}/checkouts/{checkout_id}/payments
-X-StoreTrack-Key: <tenant API key>
+X-INPROFIC-Key: <tenant API key>
 Idempotency-Key: payment_<website-attempt-id>
 Content-Type: application/json
 ```
@@ -390,13 +390,13 @@ The real `checkout` is the complete checkout serialization. Redirect to `authori
 {"method": "bank_transfer"}
 ```
 
-The response has `status: "pending"`, the StoreTrack `reference`, exact amount, `bank_account` and `instructions`.
+The response has `status: "pending"`, the INPROFIC `reference`, exact amount, `bank_account` and `instructions`.
 
 After transfer:
 
 ```http
 POST /api/v1/storefronts/{business_slug}/checkouts/{checkout_id}/payments/current/claim
-X-StoreTrack-Key: <tenant API key>
+X-INPROFIC-Key: <tenant API key>
 Content-Type: application/json
 ```
 
@@ -408,7 +408,7 @@ A new claim returns `201`; an idempotent repeat returns `200`. Status becomes `a
 
 ### Cash
 
-Initialize with `{"method":"cash"}`. Cash remains `pending`; there is no public confirmation endpoint. Authorized staff confirm physical receipt in StoreTrack.
+Initialize with `{"method":"cash"}`. Cash remains `pending`; there is no public confirmation endpoint. Authorized staff confirm physical receipt in INPROFIC.
 
 ## 9. Poll before an order exists
 
@@ -416,7 +416,7 @@ Poll every 5–10 seconds while the customer is waiting, then back off:
 
 ```http
 GET /api/v1/storefronts/{business_slug}/checkouts/{checkout_id}/payments/current
-X-StoreTrack-Key: <tenant API key>
+X-INPROFIC-Key: <tenant API key>
 ```
 
 ```json
@@ -443,7 +443,7 @@ Checkout-only status:
 
 ```http
 GET /api/v1/storefronts/{business_slug}/checkouts/{checkout_id}
-X-StoreTrack-Key: <tenant API key>
+X-INPROFIC-Key: <tenant API key>
 ```
 
 | Checkout status | Action |
@@ -482,7 +482,7 @@ After verified full payment:
 
 ```http
 GET /api/v1/storefronts/{business_slug}/orders/{order_id}
-X-StoreTrack-Key: <tenant API key>
+X-INPROFIC-Key: <tenant API key>
 ```
 
 This response separates `status`, `payment_state`/`payment`, and `fulfilment_state`, plus item requested/stock/production quantities. Do not collapse them into one website status.
@@ -507,7 +507,7 @@ Persist checkout history immediately after checkout creation, before gateway red
 
 Update it after every poll. For anonymous users, use a signed HTTP-only website session and optionally device-local links. Do not expose a phone-only public lookup without OTP; it can leak other customers’ orders.
 
-The hosted StoreTrack catalogue already saves tenant-specific unguessable tracking links in that browser. A headless website owns its own history UI.
+The hosted INPROFIC catalogue already saves tenant-specific unguessable tracking links in that browser. A headless website owns its own history UI.
 
 ## 12. Idempotency and reservations
 
@@ -528,25 +528,25 @@ Late verified payment or a safe-materialization failure becomes `paid_review`: f
 This JavaScript belongs on the website server, not in the browser:
 
 ```js
-const base = process.env.STORETRACK_BASE_URL;
-const slug = process.env.STORETRACK_BUSINESS_SLUG;
-const apiKey = process.env.STORETRACK_API_KEY;
+const base = process.env.INPROFIC_BASE_URL;
+const slug = process.env.INPROFIC_BUSINESS_SLUG;
+const apiKey = process.env.INPROFIC_API_KEY;
 
 async function storeTrack(path, { method = "GET", body, idempotencyKey } = {}) {
   const response = await fetch(`${base}/api/v1/storefronts/${slug}${path}`, {
     method,
     headers: {
       Accept: "application/json",
-      "X-StoreTrack-Key": apiKey,
+      "X-INPROFIC-Key": apiKey,
       ...(body ? { "Content-Type": "application/json" } : {}),
       ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {})
     },
     body: body ? JSON.stringify(body) : undefined,
     cache: "no-store"
   });
-  const payload = await response.json().catch(() => ({ detail: "Unreadable StoreTrack response." }));
+  const payload = await response.json().catch(() => ({ detail: "Unreadable INPROFIC response." }));
   if (!response.ok) {
-    const error = new Error(payload.detail || `StoreTrack returned ${response.status}`);
+    const error = new Error(payload.detail || `INPROFIC returned ${response.status}`);
     error.status = response.status;
     error.payload = payload;
     throw error;
@@ -570,7 +570,7 @@ The browser calls the website’s own API routes; the website server attaches th
 
 ## 14. Go-live checklist
 
-- [ ] StoreTrack uses HTTPS and correct `ALLOWED_HOSTS`.
+- [ ] INPROFIC uses HTTPS and correct `ALLOWED_HOSTS`.
 - [ ] `MEDIA_ROOT` is persistent and `/media/` is mapped on PythonAnywhere.
 - [ ] Commerce module, master switch and Headless API are enabled.
 - [ ] Final business slug matches website and gateway configuration.
@@ -578,14 +578,14 @@ The browser calls the website’s own API routes; the website server attaches th
 - [ ] All three applicable channel codes, labels, prices and limits are tested.
 - [ ] API key exists only in website server secrets.
 - [ ] Only configured payment methods appear.
-- [ ] Gateway webhooks point directly to StoreTrack.
+- [ ] Gateway webhooks point directly to INPROFIC.
 - [ ] Checkout requires name/phone; email is optional until a gateway requires it.
 - [ ] Website stores checkout history before redirect.
 - [ ] Browser return starts polling and never confirms payment.
 - [ ] `paid_review` prevents repeat charging.
 - [ ] Order UUID and display number are stored separately.
 - [ ] Duplicate requests and cross-tenant UUID/key attempts are tested.
-- [ ] Bank claims and cash wait for authorized StoreTrack verification.
+- [ ] Bank claims and cash wait for authorized INPROFIC verification.
 
 ## 15. Legacy compatibility only
 

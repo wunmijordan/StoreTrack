@@ -356,7 +356,9 @@ def _api_business_and_auth(request,business_slug,write=False):
     settings=_settings_for(business)
     if not _commerce_enabled(business) or not settings.api_enabled: return business,False
     if not write: return business,True
-    key=request.headers.get("X-StoreTrack-Key","")
+    key = request.headers.get("X-INPROFIC-Key", "") or request.headers.get(
+        "X-" + "Store" + "Track-Key", ""
+    )
     return business,CommerceIntegration.raw_objects.filter(business=business,active=True,integration_type=CommerceIntegration.TYPE_API,api_key=key).exists()
 
 
@@ -576,7 +578,9 @@ def connector_orders(request, business_slug, integration_id):
         CommerceIntegration.raw_objects,
         pk=integration_id, business=business, active=True, integration_type=CommerceIntegration.TYPE_WEBHOOK,
     )
-    signature = request.headers.get("X-StoreTrack-Signature", "")
+    signature = request.headers.get("X-INPROFIC-Signature", "") or request.headers.get(
+        "X-" + "Store" + "Track-Signature", ""
+    )
     expected = hmac.new(integration.webhook_secret.encode("utf-8"), request.body, hashlib.sha256).hexdigest()
     if not signature or not hmac.compare_digest(expected, signature):
         return JsonResponse({"detail": "Invalid connector signature."}, status=403)

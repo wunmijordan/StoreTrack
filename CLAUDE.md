@@ -1,4 +1,4 @@
-# StoreTrack — Agent Instructions
+# INPROFIC — Agent Instructions
 
 Read this before editing the repo. It's the scaled-down sibling of the
 ChurchForce foundation doc: same shape, far fewer moving parts. It is a
@@ -103,7 +103,7 @@ After editing:
 
 ## 7. Project prompt skills
 
-StoreTrack now includes repository-local skills under `.claude/skills/`. These
+INPROFIC now includes repository-local skills under `.claude/skills/`. These
 are instructions for coding/prompt agents, not runtime Django features. Load
 them when the task matches their domain:
 

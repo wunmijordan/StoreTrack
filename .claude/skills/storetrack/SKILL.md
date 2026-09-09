@@ -1,7 +1,7 @@
 ---
 name: storetrack
 description: >
-  Full StoreTrack project reference for implementation prompts. Use when a task
+  Full INPROFIC project reference for implementation prompts. Use when a task
   spans multiple apps, changes production/commercial behaviour, or CLAUDE.md is
   not enough context. Covers tenant isolation, proportional recipes, shared
   production runs, inventory, finance, reversals, and safe extension rules.
@@ -9,7 +9,7 @@ version: "1.0"
 updated: 2026-09-04
 ---
 
-# StoreTrack — Full Project Skill
+# INPROFIC — Full Project Skill
 
 Use this skill when implementing or reviewing a change that crosses app
 boundaries or could affect inventory, production, sales, finance, tenancy, or
@@ -17,7 +17,7 @@ historical traceability.
 
 ## 1. Product identity
 
-StoreTrack is a multi-business production-aware commercial management system
+INPROFIC is a multi-business production-aware commercial management system
 for businesses that procure materials, manufacture/prepare products, manage
 finished inventory, sell through several channels, and track the resulting
 cash, payables and receivables.
@@ -158,7 +158,7 @@ already-existing customer shortage.
 
 A completed order is not safely corrected by deleting it.
 
-Use the compensating reversal flow so StoreTrack can restore/reverse:
+Use the compensating reversal flow so INPROFIC can restore/reverse:
 
 - exact raw-material usage snapshots;
 - reversible FinishedGood stock;
@@ -265,7 +265,7 @@ After editing:
 
 ## Commerce and subscription billing invariants
 
-- Subscription checkout is owned by StoreTrack and currently supports Paystack and Monnify hosted checkout. Never expose provider secret keys client-side.
+- Subscription checkout is owned by INPROFIC and currently supports Paystack and Monnify hosted checkout. Never expose provider secret keys client-side.
 - Redirects/callbacks are not authoritative payment proof; verify server-side and keep confirmation idempotent.
 - Plans support monthly and yearly billing; annual discount and additional-service discount are founder-configurable.
 - During trial, plan UI must explicitly say Trial and show the trial end date.
@@ -273,7 +273,7 @@ After editing:
 - Headless API is tenant-owned website pull/push integration; connector is a signed event-push boundary for external platforms/adapters. Both must create Commerce Intake rather than write Sales/Production directly.
 ## Commerce checkout/payment boundary
 
-For new website/headless integrations, unpaid baskets live in `CommerceCheckoutSession`, not `CommerceIntake`. StoreTrack validates tenant scope, publication, channel pricing, quantity rules and availability before payment and snapshots the payable basket. Physical Store checkout quantities are temporarily reserved and direct/POS sales must respect those reservations.
+For new website/headless integrations, unpaid baskets live in `CommerceCheckoutSession`, not `CommerceIntake`. INPROFIC validates tenant scope, publication, channel pricing, quantity rules and availability before payment and snapshots the payable basket. Physical Store checkout quantities are temporarily reserved and direct/POS sales must respect those reservations.
 
 Only a fully verified `CommercePayment` may atomically materialize exactly one `CommerceIntake`. Paystack/Monnify browser redirects never confirm funds; provider webhooks are signature checked and independently verified server-side. Bank transfer claims and cash remain pending until authorized staff confirmation. Late/expired paid checkouts become `paid_review` and are recoverable without a second charge. Legacy `/orders` remains explicitly compatible during migration.
 

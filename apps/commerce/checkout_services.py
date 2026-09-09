@@ -130,7 +130,7 @@ def create_checkout(
     """Validate and snapshot a basket without creating CommerceIntake.
 
     For stock orders, FinishedGood rows are locked while the reservation is
-    calculated so concurrent StoreTrack checkouts cannot reserve the same units.
+    calculated so concurrent INPROFIC checkouts cannot reserve the same units.
     """
     idempotency_key = (idempotency_key or "").strip()
     if not idempotency_key:
@@ -158,7 +158,7 @@ def create_checkout(
     if len(product_ids) != len(set(product_ids)):
         raise ValidationError("Submit each product only once per checkout.")
 
-    # Lock every relevant FinishedGood in a deterministic order. All StoreTrack
+    # Lock every relevant FinishedGood in a deterministic order. All INPROFIC
     # checkout reservation writers use this same lock boundary.
     good_ids = sorted({row["storefront_product"].finished_good_id for row in items})
     locked_goods = {

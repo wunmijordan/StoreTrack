@@ -1,4 +1,4 @@
-# StoreTrack
+# INPROFIC
 
 A lightweight inventory, production, procurement, and sales system for bakery,
 restaurant, general-production, wholesale, and retail businesses — Django backend and server-rendered frontend in
@@ -97,7 +97,7 @@ To get a real bash terminal inside VSCode on Windows:
 2. Install the **WSL** extension in VSCode (search "WSL" in the Extensions
    panel — it's published by Microsoft).
 3. Open a WSL terminal (Ubuntu) and clone/place this project somewhere
-   inside the Linux filesystem, e.g. `~/projects/storetrack` — not
+   inside the Linux filesystem, e.g. `~/projects/inprofic` — not
    `/mnt/c/...` — WSL is noticeably faster and more reliable when the
    project lives inside the Linux filesystem rather than a Windows-mounted
    path.
@@ -116,18 +116,22 @@ From inside the project folder (in your WSL bash terminal):
 ```bash
 git init
 git add .
-git commit -m "Initial commit: StoreTrack, apps/-per-domain structure"
+git commit -m "Initial commit: INPROFIC, apps/-per-domain structure"
 ```
 
-Then on GitHub: create a new **empty** repository named `StoreTrack` (don't
+Then on GitHub: create a new **empty** repository named `INPROFIC` (don't
 initialize it with a README/license — you already have one, and that avoids
 a merge conflict on first push). Then:
 
 ```bash
-git remote add origin https://github.com/<your-username>/StoreTrack.git
+git remote add origin https://github.com/<your-username>/INPROFIC.git
 git branch -M main
 git push -u origin main
 ```
+
+Already have the project under its former repository/directory name? Follow
+[the rebrand rename guide](docs/RENAMING.md) to rename GitHub, update `origin`,
+move the local folder safely, and recreate the path-bound virtual environment.
 
 `.gitignore` already excludes `venv/`, `db.sqlite3`, and `__pycache__/`, so
 your database and virtualenv won't get committed.
@@ -138,20 +142,26 @@ Plain Django, so it runs on most hosts that support Python.
 
 **PythonAnywhere (free tier)** — persistent storage (your SQLite file
 survives restarts, unlike several free hosts that wipe the filesystem on
-redeploy), reachable at `yourusername.pythonanywhere.com`. Free tier has no
-custom domain (needs their $10/month plan).
+redeploy), reachable at `yourusername.pythonanywhere.com`. Custom domains and
+unrestricted external services require an appropriate paid plan.
 
 Steps: sign up → open a Bash console → clone this repo (or upload it) →
 create a virtualenv and `pip install -r requirements.txt` → in the **Web**
 tab, add a manually-configured web app pointing its WSGI file at
-`storetrack.wsgi.application` → set env vars `DJANGO_SECRET_KEY`,
-`DJANGO_DEBUG=False`, `DJANGO_ALLOWED_HOSTS=yourusername.pythonanywhere.com`
-→ `python manage.py migrate` and `createsuperuser` from the console →
-reload the web app.
+`storetrack.wsgi.application` → configure `.env.prod` with `SECRET_KEY`,
+`DEBUG=False`, `ALLOWED_HOSTS=yourusername.pythonanywhere.com`, and
+`CSRF_TRUSTED_ORIGINS=https://yourusername.pythonanywhere.com` → run the shared
+deployment command from [the deployment guide](docs/DEPLOYMENT.md) → reload the
+web app.
 
-Other options (Render, Railway, Fly.io, a VPS) all run Django fine — just
-confirm the free tier gives a **persistent disk**, or plan to switch
-`DATABASES` in `settings.py` to Postgres if it doesn't.
+Other options (Render, Railway, Fly.io, a VPS) all run Django fine. On an
+ephemeral service, use external PostgreSQL and object storage rather than
+SQLite or local uploaded media.
+
+For the supported Render ASGI + Supabase + Cloudflare R2 configuration,
+WebSocket notifications, environment variable placement, cron-job.org setup,
+and the shared production command, see
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Backup & restore
 
@@ -160,9 +170,9 @@ confirm the free tier gives a **persistent disk**, or plan to switch
 
 ## Security checklist before going live
 
-- [ ] `DJANGO_SECRET_KEY` set to a fresh random value
-- [ ] `DJANGO_DEBUG=False`
-- [ ] `DJANGO_ALLOWED_HOSTS` set to your real domain
+- [ ] `SECRET_KEY` set to a fresh random value
+- [ ] `DEBUG=False`
+- [ ] `ALLOWED_HOSTS` set to your real domain
 - [ ] Each staff member has their own login (Django admin → Users → Add user)
 
 ## What's next

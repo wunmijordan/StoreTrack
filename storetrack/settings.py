@@ -14,6 +14,9 @@ import os
 import sys
 from pathlib import Path
 
+import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -22,6 +25,18 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # mirrors the ChurchForce apps/ convention. Centralized here (rather than
 # duplicated in manage.py + asgi.py) since this project has one entrypoint.
 sys.path.insert(0, str(BASE_DIR / "apps"))
+
+
+def env_bool(name, default=False):
+    """Read common true/false environment spellings without case surprises."""
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def env_list(name):
+    return [value.strip() for value in os.environ.get(name, "").split(",") if value.strip()]
 
 
 # Quick-start development settings - unsuitable for production
@@ -35,16 +50,24 @@ SECRET_KEY = os.environ.get(
 )
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get("DEBUG", "True") == "True"
+DEBUG = env_bool("DEBUG", True)
 
 # Configure allowed domains safely. Fallback to localhost if nothing is provided.
-_hosts = os.environ.get("ALLOWED_HOSTS", "")
-ALLOWED_HOSTS = [h.strip() for h in _hosts.split(",") if h.strip()] or ["127.0.0.1", "localhost", "*"]
+ALLOWED_HOSTS = env_list("ALLOWED_HOSTS") or ["127.0.0.1", "localhost"]
+CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
+
+# Render supplies its assigned hostname automatically. Custom domains still go
+# in ALLOWED_HOSTS and CSRF_TRUSTED_ORIGINS explicitly.
+RENDER_EXTERNAL_HOSTNAME = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "").strip()
+if RENDER_EXTERNAL_HOSTNAME:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
+    CSRF_TRUSTED_ORIGINS.append(f"https://{RENDER_EXTERNAL_HOSTNAME}")
 
 
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -63,6 +86,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -92,14 +116,40 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'storetrack.wsgi.application'
+ASGI_APPLICATION = 'storetrack.asgi.application'
+
+# A single-process installation needs no external service. Set
+# CHANNEL_REDIS_URL before adding ASGI workers or running multiple instances so
+# notifications can cross process boundaries.
+CHANNEL_REDIS_URL = os.environ.get("CHANNEL_REDIS_URL", "").strip()
+if CHANNEL_REDIS_URL:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {"hosts": [CHANNEL_REDIS_URL]},
+        }
+    }
+else:
+    CHANNEL_LAYERS = {
+        "default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}
+    }
 
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 # Read the URL string from the environment variable (e.g. from your .env or .env.prod file)
-db_url = os.environ.get('DATABASE_URL', '')
+db_url = os.environ.get('DATABASE_URL', '').strip()
 
-if db_url.startswith('sqlite:////'):
+if db_url.startswith(('postgres://', 'postgresql://')):
+    DATABASES = {
+        'default': dj_database_url.parse(
+            db_url,
+            conn_max_age=int(os.environ.get("DB_CONN_MAX_AGE", "60")),
+            conn_health_checks=True,
+            ssl_require=env_bool("DB_SSL_REQUIRE", not DEBUG),
+        )
+    }
+elif db_url.startswith('sqlite:////'):
     # Production absolute path parsing (Handles 4 slashes)
     db_path = Path(db_url.replace('sqlite:////', '/'))
 elif db_url.startswith('sqlite:///'):
@@ -109,15 +159,16 @@ else:
     # Standard fallback path if no environment variable is found
     db_path = BASE_DIR / 'db.sqlite3'
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': db_path,
-        'OPTIONS': {
-            'timeout': 20,  # CRITICAL: Forces SQLite to wait up to 20s if files are locked by multiple staff members
+if not db_url.startswith(('postgres://', 'postgresql://')):
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': db_path,
+            'OPTIONS': {
+                'timeout': 20,  # Wait briefly instead of immediately failing on a concurrent local write.
+            }
         }
     }
-}
 
 
 # Password validation
@@ -154,17 +205,73 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'  # Required for running 'collectstatic' on PythonAnywhere
 MEDIA_URL = os.environ.get("MEDIA_URL", "/media/")
 MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", BASE_DIR / "media"))
+
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
+
+# Cloudflare R2 is opt-in. Leaving every R2 variable empty keeps local media,
+# which is the existing PythonAnywhere behavior.
+_r2_settings = {
+    "access_key": os.environ.get("R2_ACCESS_KEY_ID", "").strip(),
+    "secret_key": os.environ.get("R2_SECRET_ACCESS_KEY", "").strip(),
+    "bucket_name": os.environ.get("R2_BUCKET_NAME", "").strip(),
+    "endpoint_url": os.environ.get("R2_ENDPOINT_URL", "").strip().rstrip("/"),
+}
+if any(_r2_settings.values()) and not all(_r2_settings.values()):
+    raise ImproperlyConfigured(
+        "R2 media storage requires R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, "
+        "R2_BUCKET_NAME, and R2_ENDPOINT_URL together."
+    )
+
+if all(_r2_settings.values()):
+    r2_custom_domain = os.environ.get("R2_CUSTOM_DOMAIN", "").strip().rstrip("/")
+    r2_custom_domain = r2_custom_domain.removeprefix("https://").removeprefix("http://")
+    r2_media_location = os.environ.get("R2_MEDIA_LOCATION", "media").strip().strip("/") or "media"
+    STORAGES["default"] = {
+        "BACKEND": "storages.backends.s3.S3Storage",
+        "OPTIONS": {
+            **_r2_settings,
+            "region_name": os.environ.get("R2_REGION_NAME", "auto"),
+            "location": r2_media_location,
+            "default_acl": None,
+            "file_overwrite": False,
+            "querystring_auth": not bool(r2_custom_domain),
+            "custom_domain": r2_custom_domain or None,
+            "object_parameters": {"CacheControl": "max-age=86400"},
+        },
+    }
+    if r2_custom_domain:
+        MEDIA_URL = f"https://{r2_custom_domain}/{r2_media_location}/"
+
+# Proxy-aware production security. Render terminates TLS before forwarding to
+# Daphne; PythonAnywhere can enable the same settings from .env.prod.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if env_bool(
+    "TRUST_PROXY_SSL_HEADER", bool(RENDER_EXTERNAL_HOSTNAME)
+) else None
+SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", False)
+SESSION_COOKIE_SECURE = env_bool("SESSION_COOKIE_SECURE", False)
+CSRF_COOKIE_SECURE = env_bool("CSRF_COOKIE_SECURE", False)
+SECURE_HSTS_SECONDS = int(os.environ.get("SECURE_HSTS_SECONDS", "0"))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", False)
+SECURE_HSTS_PRELOAD = env_bool("SECURE_HSTS_PRELOAD", False)
+
+# Used only by the authenticated external maintenance endpoint.
+CRON_SECRET = os.environ.get("CRON_SECRET", "")
 
 # Auth
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'dashboard'
 # Authenticated browsers return straight to the workspace while active. After
 # this idle period, re-authentication is required instead of showing marketing.
-AUTHENTICATED_IDLE_TIMEOUT_SECONDS = int(os.environ.get("STORETRACK_IDLE_TIMEOUT_SECONDS", "28800"))
+AUTHENTICATED_IDLE_TIMEOUT_SECONDS = int(os.environ.get("INPROFIC_IDLE_TIMEOUT_SECONDS", "28800"))
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
