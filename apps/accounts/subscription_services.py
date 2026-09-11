@@ -17,7 +17,7 @@ from .models import (
     SubscriptionService,
     UserBusiness,
 )
-from .services import ensure_permissions, seed_business_roles
+from .services import ensure_permissions, invalidate_business_access_cache, seed_business_roles
 
 
 PLAN_MATRIX = {
@@ -65,7 +65,19 @@ def ensure_default_plans():
 def business_has_feature(business, feature):
     if not business:
         return False
-    row = BusinessFeatureAccess.objects.filter(business=business, feature=feature).values_list("enabled", flat=True).first()
+    from core.context import get_request_cache
+
+    cache = get_request_cache()
+    key = ("business_feature_access", business.pk)
+    if cache is not None and key in cache:
+        feature_access = cache[key]
+    else:
+        feature_access = dict(
+            BusinessFeatureAccess.objects.filter(business=business).values_list("feature", "enabled")
+        )
+        if cache is not None:
+            cache[key] = feature_access
+    row = feature_access.get(feature)
     # Missing feature rows retain legacy/full behavior until a subscription is explicitly applied.
     return row is not False
 
@@ -98,6 +110,7 @@ def apply_subscription_entitlements(subscription):
             feature="reports_full",
             defaults={"enabled": bool(active and reports and reports.enabled and reports.level == "full"), "source": source},
         )
+        invalidate_business_access_cache(business)
     return subscription
 
 
@@ -226,13 +239,35 @@ def create_payment_request(subscription, plan, *, months=1, billing_cycle="month
 
 @transaction.atomic
 def mark_payment_paid(payment):
+    # Re-read both rows under locks. Payment callbacks can arrive after a
+    # founder has changed the subscription, so the object originally loaded
+    # by the request may no longer represent the current entitlement state.
+    payment = (
+        SubscriptionPayment.objects.select_for_update()
+        .select_related("subscription", "plan")
+        .get(pk=payment.pk)
+    )
     if payment.status == SubscriptionPayment.STATUS_PAID:
         return payment
+    subscription = (
+        BusinessSubscription.objects.select_for_update()
+        .select_related("plan")
+        .get(pk=payment.subscription_id)
+    )
     now = timezone.now()
     payment.status = SubscriptionPayment.STATUS_PAID
     payment.paid_at = now
     payment.save(update_fields=["status", "paid_at"])
-    subscription = payment.subscription
+
+    # A stale payment request must not revoke a newer founder lifetime grant.
+    # A payment created after that grant is still allowed to represent an
+    # intentional, explicitly confirmed switch to another paid plan.
+    if subscription.founder_lifetime and (
+        subscription.founder_granted_at is None
+        or payment.created_at <= subscription.founder_granted_at
+    ):
+        return payment
+
     subscription.plan = payment.plan
     subscription.status = BusinessSubscription.STATUS_ACTIVE
     subscription.founder_lifetime = False

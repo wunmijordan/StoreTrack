@@ -7,7 +7,7 @@ from django.shortcuts import redirect
 from django.urls import reverse
 
 from .models import Business
-from .context import set_current_business
+from .context import begin_request_cache, end_request_cache, get_request_cache, set_current_business
 from accounts.services import user_has_permission
 
 
@@ -18,15 +18,24 @@ class BusinessMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        # Clear any previous request value before running membership queries.
+        # Render probes this endpoint frequently. Keep it completely outside
+        # tenant/session resolution so a health check can still succeed when
+        # the database connection pool is under pressure.
+        if request.path == "/health/":
+            return self.get_response(request)
+
+        # Clear any previous request value and isolate repeated authorization
+        # lookups before resolving this request's membership.
+        cache_token = begin_request_cache()
         set_current_business(None)
-        business = self._resolve_business(request)
-        request.business = business
-        set_current_business(business)
         try:
+            business = self._resolve_business(request)
+            request.business = business
+            set_current_business(business)
             return self.get_response(request)
         finally:
             set_current_business(None)
+            end_request_cache(cache_token)
 
     @staticmethod
     def _resolve_business(request):
@@ -36,16 +45,48 @@ class BusinessMiddleware:
         from accounts.models import UserBusiness
 
         selected_id = request.session.get("active_business_id")
+        request_cache = get_request_cache()
         if request.user.is_superuser:
-            selected = Business.objects.filter(pk=selected_id).first() if selected_id else None
-            business = selected or Business.objects.filter(slug="main").first() or Business.objects.order_by("id").first()
+            businesses = list(Business.objects.order_by("id"))
+            selected = next((business for business in businesses if business.pk == selected_id), None)
+            main = next((business for business in businesses if business.slug == "main"), None)
+            business = selected or main or (businesses[0] if businesses else None)
+            if request_cache is not None:
+                request_cache[("available_businesses", request.user.pk)] = sorted(
+                    businesses,
+                    key=lambda item: (item.name.casefold(), item.pk),
+                )
         else:
-            memberships = UserBusiness.objects.filter(
-                user=request.user, active=True, business__isnull=False
-            ).select_related("business").order_by("business__name", "business_id")
-            selected = memberships.filter(business_id=selected_id).first() if selected_id else None
-            membership = selected or memberships.first()
+            memberships = list(
+                UserBusiness.objects.filter(
+                    user=request.user, active=True, business__isnull=False
+                )
+                .select_related("business", "role")
+                .prefetch_related("module_permissions", "role__module_permissions")
+                .order_by("business__name", "business_id")
+            )
+            selected = next(
+                (membership for membership in memberships if membership.business_id == selected_id),
+                None,
+            )
+            membership = selected or (memberships[0] if memberships else None)
             business = membership.business if membership else None
+            if request_cache is not None:
+                request_cache[("available_businesses", request.user.pk)] = [
+                    item.business for item in memberships
+                ]
+                if membership:
+                    request_cache[("permission_snapshot", request.user.pk, business.pk)] = (
+                        membership,
+                        {
+                            permission.module: permission
+                            for permission in membership.module_permissions.all()
+                        },
+                        {
+                            permission.module: permission
+                            for permission in membership.role.module_permissions.all()
+                        },
+                    )
         if business:
             if selected_id != business.pk:
                 request.session["active_business_id"] = business.pk
@@ -79,6 +120,11 @@ class LoginRequiredMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
+        # Do not force Django's lazy authenticated user/session to resolve for
+        # the database-free health endpoint.
+        if request.path == "/health/":
+            return self.get_response(request)
+
         path_is_public = request.path == "/" or request.path.startswith(EXEMPT_PREFIXES)
         if not request.user.is_authenticated and not path_is_public:
             return redirect(f"{reverse('login')}?next={request.path}")
@@ -87,14 +133,21 @@ class LoginRequiredMiddleware:
             last_activity = request.session.get("storetrack_last_activity")
             idle_limit = max(int(getattr(settings, "AUTHENTICATED_IDLE_TIMEOUT_SECONDS", 28800)), 60)
             try:
-                idle_seconds = now - int(last_activity) if last_activity else 0
+                last_activity_at = int(last_activity) if last_activity else None
+                idle_seconds = now - last_activity_at if last_activity_at else 0
             except (TypeError, ValueError):
+                last_activity_at = None
                 idle_seconds = 0
             if idle_seconds > idle_limit:
                 auth_logout(request)
                 destination = reverse("dashboard") if request.path == "/" else request.get_full_path()
                 return redirect(f"{reverse('login')}?{urlencode({'next': destination})}")
-            request.session["storetrack_last_activity"] = now
+            write_interval = max(
+                int(getattr(settings, "AUTHENTICATED_ACTIVITY_WRITE_INTERVAL_SECONDS", 60)),
+                1,
+            )
+            if last_activity_at is None or now - last_activity_at >= min(write_interval, idle_limit):
+                request.session["storetrack_last_activity"] = now
         if request.user.is_authenticated and not path_is_public:
             if any(request.path.startswith(prefix) for prefix in SUBSCRIPTION_RECOVERY_PREFIXES):
                 return self.get_response(request)

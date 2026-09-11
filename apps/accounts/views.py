@@ -358,7 +358,7 @@ def subscription_payment_callback(request, provider):
         payment.provider_payload = payload or {}
         payment.save(update_fields=["provider_payload"])
         if verified:
-            mark_payment_paid(payment)
+            payment = mark_payment_paid(payment)
             return render(request, "accounts/subscription_payment_result.html", {"success": True, "payment": payment, "message": "Payment verified. Your subscription access has been updated."})
     except Exception as exc:
         return render(request, "accounts/subscription_payment_result.html", {"success": False, "payment": payment, "message": str(exc)}, status=400)
@@ -397,7 +397,7 @@ def subscription_payment_webhook(request, provider):
         payment.provider_payload = {"webhook": payload, "verification": verify_payload}
         payment.save(update_fields=["provider_payload"])
         if verified:
-            mark_payment_paid(payment)
+            payment = mark_payment_paid(payment)
         return HttpResponse(status=200)
     except Exception:
         # Invalid/unverifiable events are not used to grant access. Returning 400 allows provider retry.
@@ -455,7 +455,7 @@ def founder_subscriptions(request):
             return redirect("founder_subscriptions")
         if action == "mark_paid":
             payment = get_object_or_404(SubscriptionPayment, pk=request.POST.get("payment_id"))
-            mark_payment_paid(payment)
+            payment = mark_payment_paid(payment)
             messages.success(request, f"Payment {payment.reference} marked paid and entitlements updated.")
             return redirect("founder_subscriptions")
         if action == "save_plan_pricing":

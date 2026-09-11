@@ -73,6 +73,14 @@ python manage.py runserver
 
 Open http://127.0.0.1:8001 and log in.
 
+The compiled application stylesheet is committed. When changing Tailwind
+utility classes, install Node.js dependencies and refresh it before committing:
+
+```bash
+npm install
+npm run build:css
+```
+
 ### WiFi-only access for staff, right now
 
 ```bash

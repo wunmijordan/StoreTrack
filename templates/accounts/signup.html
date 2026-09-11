@@ -6,8 +6,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Create your INPROFIC workspace</title>
   <link rel="icon" type="image/png" href="{% static 'core/brand/inprofic-mark.png' %}">
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>@import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Inter:wght@400;500;600&display=swap'); body{font-family:Inter,sans-serif;background:#FAF6EF;color:#211D1A}.font-display{font-family:Fraunces,serif}input:focus,select:focus,textarea:focus{border-color:#d14900!important;box-shadow:0 0 0 2px rgba(209,73,0,.3)!important}</style>
+  <link rel="stylesheet" href="{% static 'core/css/inprofic.css' %}">
+  <style>
+    @font-face { font-family:'Inter'; src:url('{% static "core/fonts/Inter-Regular.ttf" %}') format('truetype'); font-weight:400; font-style:normal; font-display:swap; }
+    @font-face { font-family:'Inter'; src:url('{% static "core/fonts/Inter-SemiBold.ttf" %}') format('truetype'); font-weight:500 700; font-style:normal; font-display:swap; }
+    @font-face { font-family:'Fraunces'; src:url('{% static "core/fonts/Fraunces-SemiBold.ttf" %}') format('truetype'); font-weight:500 700; font-style:normal; font-display:swap; }
+    body{font-family:Inter,sans-serif;background:#FAF6EF;color:#211D1A}.font-display{font-family:Fraunces,serif}input:focus,select:focus,textarea:focus{border-color:#d14900!important;box-shadow:0 0 0 2px rgba(209,73,0,.3)!important}
+  </style>
 </head>
 <body>
   <main class="min-h-screen flex items-center justify-center p-4">

@@ -1,6 +1,7 @@
 from accounts.models import RoleModulePermission, UserBusiness
-from accounts.services import is_business_admin, user_has_permission
+from accounts.services import business_subscription_for, is_business_admin, user_has_permission
 from accounts.subscription_services import business_has_feature
+from .context import get_request_cache
 from .models import Business
 from .verticals import vertical_config
 
@@ -16,22 +17,23 @@ def business(request):
     available_businesses = []
     can_manage_business = False
     if getattr(request.user, "is_authenticated", False):
-        if request.user.is_superuser:
-            available_businesses = Business.objects.order_by("name", "id")
+        request_cache = get_request_cache()
+        businesses_key = ("available_businesses", request.user.pk)
+        if request_cache is not None and businesses_key in request_cache:
+            available_businesses = request_cache[businesses_key]
+        elif request.user.is_superuser:
+            available_businesses = list(Business.objects.order_by("name", "id"))
         else:
-            available_businesses = Business.objects.filter(
+            available_businesses = list(Business.objects.filter(
                 user_memberships__user=request.user,
                 user_memberships__active=True,
-            ).distinct().order_by("name", "id")
+            ).distinct().order_by("name", "id"))
+        if request_cache is not None:
+            request_cache[businesses_key] = available_businesses
         can_manage_business = bool(biz and is_business_admin(request.user, biz))
     subscription = None
     if biz and getattr(request.user, "is_authenticated", False):
-        try:
-            from accounts.models import BusinessSubscription
-            service = getattr(biz, "subscription_service", None)
-            subscription = service.subscription if service else BusinessSubscription.objects.filter(primary_business=biz).select_related("plan").first()
-        except Exception:
-            subscription = None
+        subscription = business_subscription_for(biz)
     return {
         "biz": biz,
         "module_permissions": permissions,

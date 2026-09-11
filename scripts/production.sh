@@ -9,7 +9,6 @@ run_build() {
 
 run_release() {
   python manage.py migrate --noinput
-  python manage.py run_scheduled_jobs
 }
 
 run_server() {

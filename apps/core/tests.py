@@ -3,6 +3,8 @@ from unittest.mock import patch
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from accounts.models import CustomUser
+
 from .jobs import SCHEDULED_COMMANDS, run_all_jobs
 
 
@@ -20,6 +22,19 @@ class ScheduledJobRegistryTests(TestCase):
 
 class OperationsEndpointTests(TestCase):
     def test_health_check_is_public_and_does_not_require_a_database_query(self):
+        with self.assertNumQueries(0):
+            response = self.client.get(reverse("health"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "ok")
+
+    def test_health_check_does_not_resolve_an_existing_login_session(self):
+        user = CustomUser.objects.create_user(
+            username="health-session-user",
+            password="safe-password-123",
+        )
+        self.client.force_login(user)
+
         with self.assertNumQueries(0):
             response = self.client.get(reverse("health"))
 

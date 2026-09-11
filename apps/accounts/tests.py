@@ -3,6 +3,9 @@ from decimal import Decimal
 
 from django.test import TestCase
 from django.test import override_settings
+from django.db import connection
+from django.core.management import call_command
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from core.models import Business
@@ -16,6 +19,7 @@ from .subscription_services import (
     create_payment_request,
     ensure_default_plans,
     grant_founder_lifetime,
+    mark_payment_paid,
     payment_amount,
     payment_is_locked,
 )
@@ -155,6 +159,46 @@ class TenantRoutingTests(TestCase):
             "next": "https://example.invalid/phishing",
         })
         self.assertRedirects(response, reverse("dashboard"), fetch_redirect_response=False)
+
+    def test_recent_activity_does_not_rewrite_database_session(self):
+        session = self.client.session
+        session["active_business_id"] = self.alpha.pk
+        session["storetrack_last_activity"] = int(time.time())
+        session.save()
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(reverse("reports"))
+
+        self.assertEqual(response.status_code, 200)
+        session_updates = [
+            query["sql"] for query in queries
+            if "UPDATE" in query["sql"].upper() and "DJANGO_SESSION" in query["sql"].upper()
+        ]
+        self.assertEqual(session_updates, [])
+
+    def test_navigation_permissions_use_a_bounded_number_of_queries(self):
+        session = self.client.session
+        session["active_business_id"] = self.alpha.pk
+        session["storetrack_last_activity"] = int(time.time())
+        session.save()
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(reverse("reports"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertLessEqual(len(queries), 14)
+
+    def test_empty_dashboard_avoids_per_chart_point_queries(self):
+        session = self.client.session
+        session["active_business_id"] = self.alpha.pk
+        session["storetrack_last_activity"] = int(time.time())
+        session.save()
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(reverse("dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertLessEqual(len(queries), 85)
 
 
 class BusinessSettingsAccessTests(TestCase):
@@ -311,6 +355,73 @@ class SubscriptionEntitlementTests(TestCase):
         subscription.refresh_from_db()
         self.assertTrue(payment_is_locked(subscription, self.plans["starter"]))
         self.assertFalse(payment_is_locked(subscription, self.plans["production"]))
+
+    def test_subscription_sync_preserves_founder_lifetime_grant(self):
+        founder = CustomUser.objects.create_superuser(
+            username="sync-founder", password="safe-password-123"
+        )
+        subscription = self._subscribe("business_pro")
+        grant_founder_lifetime(subscription, self.plans["business_pro"], founder)
+
+        call_command("sync_subscriptions", verbosity=0)
+
+        subscription.refresh_from_db()
+        self.assertTrue(subscription.founder_lifetime)
+        self.assertEqual(subscription.status, BusinessSubscription.STATUS_FOUNDER)
+        self.assertTrue(
+            BusinessModuleAccess.objects.get(
+                business=self.business, module="commerce"
+            ).enabled
+        )
+
+    def test_stale_payment_confirmation_cannot_revoke_newer_founder_grant(self):
+        founder = CustomUser.objects.create_superuser(
+            username="payment-founder", password="safe-password-123"
+        )
+        subscription = self._subscribe("starter")
+        payment = SubscriptionPayment.objects.create(
+            subscription=subscription,
+            plan=self.plans["production"],
+            amount=Decimal("1000.00"),
+            months=1,
+            billing_cycle=SubscriptionPayment.CYCLE_MONTHLY,
+            provider="manual",
+            reference="STALE-BEFORE-FOUNDER",
+        )
+
+        grant_founder_lifetime(subscription, self.plans["business_pro"], founder)
+        mark_payment_paid(payment)
+
+        payment.refresh_from_db()
+        subscription.refresh_from_db()
+        self.assertEqual(payment.status, SubscriptionPayment.STATUS_PAID)
+        self.assertTrue(subscription.founder_lifetime)
+        self.assertEqual(subscription.status, BusinessSubscription.STATUS_FOUNDER)
+        self.assertEqual(subscription.plan, self.plans["business_pro"])
+
+    def test_payment_created_after_founder_grant_can_switch_plan(self):
+        founder = CustomUser.objects.create_superuser(
+            username="switch-founder", password="safe-password-123"
+        )
+        subscription = self._subscribe("starter")
+        grant_founder_lifetime(subscription, self.plans["starter"], founder)
+        subscription.refresh_from_db()
+        payment = SubscriptionPayment.objects.create(
+            subscription=subscription,
+            plan=self.plans["production"],
+            amount=Decimal("1000.00"),
+            months=1,
+            billing_cycle=SubscriptionPayment.CYCLE_MONTHLY,
+            provider="manual",
+            reference="POST-FOUNDER-SWITCH",
+        )
+
+        mark_payment_paid(payment)
+
+        subscription.refresh_from_db()
+        self.assertFalse(subscription.founder_lifetime)
+        self.assertEqual(subscription.status, BusinessSubscription.STATUS_ACTIVE)
+        self.assertEqual(subscription.plan, self.plans["production"])
 
 
 class FounderPaymentSettingsTests(TestCase):

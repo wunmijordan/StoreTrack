@@ -141,13 +141,26 @@ else:
 db_url = os.environ.get('DATABASE_URL', '').strip()
 
 if db_url.startswith(('postgres://', 'postgresql://')):
-    DATABASES = {
-        'default': dj_database_url.parse(
-            db_url,
-            conn_max_age=int(os.environ.get("DB_CONN_MAX_AGE", "60")),
-            conn_health_checks=True,
-            ssl_require=env_bool("DB_SSL_REQUIRE", not DEBUG),
+    db_conn_max_age = int(os.environ.get("DB_CONN_MAX_AGE", "0"))
+    db_pool_max_size = int(os.environ.get("DB_POOL_MAX_SIZE", "0"))
+    if db_pool_max_size and db_conn_max_age:
+        raise ImproperlyConfigured(
+            "DB_POOL_MAX_SIZE requires DB_CONN_MAX_AGE=0."
         )
+    database = dj_database_url.parse(
+        db_url,
+        conn_max_age=db_conn_max_age,
+        conn_health_checks=True,
+        ssl_require=env_bool("DB_SSL_REQUIRE", not DEBUG),
+    )
+    if db_pool_max_size:
+        database.setdefault("OPTIONS", {})["pool"] = {
+            "min_size": 0,
+            "max_size": db_pool_max_size,
+            "timeout": int(os.environ.get("DB_POOL_TIMEOUT", "10")),
+        }
+    DATABASES = {
+        'default': database,
     }
 elif db_url.startswith('sqlite:////'):
     # Production absolute path parsing (Handles 4 slashes)
@@ -209,11 +222,16 @@ STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'  # Required for running 'collectstatic' on PythonAnywhere
 MEDIA_URL = os.environ.get("MEDIA_URL", "/media/")
 MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", BASE_DIR / "media"))
+RUNNING_TESTS = "test" in sys.argv
 
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        "BACKEND": (
+            "django.contrib.staticfiles.storage.StaticFilesStorage"
+            if DEBUG or RUNNING_TESTS
+            else "whitenoise.storage.CompressedManifestStaticFilesStorage"
+        ),
     },
 }
 
@@ -272,6 +290,12 @@ LOGIN_REDIRECT_URL = 'dashboard'
 # Authenticated browsers return straight to the workspace while active. After
 # this idle period, re-authentication is required instead of showing marketing.
 AUTHENTICATED_IDLE_TIMEOUT_SECONDS = int(os.environ.get("INPROFIC_IDLE_TIMEOUT_SECONDS", "28800"))
+# Persist the rolling activity timestamp at most once per interval. This keeps
+# the idle timeout accurate without turning every authenticated GET into a
+# database-backed session write.
+AUTHENTICATED_ACTIVITY_WRITE_INTERVAL_SECONDS = int(
+    os.environ.get("INPROFIC_ACTIVITY_WRITE_INTERVAL_SECONDS", "60")
+)
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

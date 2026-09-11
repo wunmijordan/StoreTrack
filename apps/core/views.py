@@ -1,5 +1,6 @@
 import csv
 import json
+from collections import defaultdict
 from datetime import timedelta
 from decimal import Decimal
 
@@ -7,7 +8,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
 from django.core import serializers
-from django.db.models import Q, Sum
+from django.db.models import Prefetch, Q, Sum
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
@@ -139,27 +140,56 @@ def _cash_outflow_breakdown(start, end):
     """Cash outflow categories without counting unpaid inventory as cash."""
     buckets = {"raw_materials": Decimal("0"), "production_materials": Decimal("0"), "operational_materials": Decimal("0"), "products_for_resale": Decimal("0"), "other_procurement": Decimal("0")}
 
+    # Load all referenced purchase orders once. The previous per-transaction
+    # lookup made dashboard query count grow with procurement volume.
+    procurement_txs = list(FinancialTransaction.objects.filter(
+        date__range=(start, end),
+        transaction_type=FinancialTransaction.OUTFLOW,
+        category="Procurement",
+    ))
+    payments = list(SupplierPayment.objects.filter(date__range=(start, end)))
+    transaction_po_ids = {}
+    po_ids = {payment.purchase_order_id for payment in payments if payment.purchase_order_id}
+    for tx in procurement_txs:
+        try:
+            po_id = int((tx.reference or "").split("-")[-1])
+        except (TypeError, ValueError):
+            po_id = None
+        transaction_po_ids[tx.pk] = po_id
+        if po_id:
+            po_ids.add(po_id)
+
+    po_cache = {
+        po.pk: po
+        for po in PurchaseOrder.objects.filter(pk__in=po_ids).prefetch_related(
+            Prefetch(
+                "items",
+                queryset=PurchaseOrderItem.objects.select_related("raw_material", "finished_good"),
+            )
+        )
+    }
+
     # Immediate payments made when a received PO was paid.
-    po_cache = {}
-    for tx in FinancialTransaction.objects.filter(date__range=(start,end), transaction_type=FinancialTransaction.OUTFLOW, category="Procurement"):
-        try: po_id=int((tx.reference or "").split("-")[-1])
-        except (TypeError,ValueError): po_id=None
-        if not po_id: buckets["other_procurement"] += tx.amount; continue
-        po=po_cache.get(po_id)
-        if po is None:
-            po=PurchaseOrder.objects.filter(pk=po_id).prefetch_related("items__raw_material", "items__finished_good").first(); po_cache[po_id]=po
+    for tx in procurement_txs:
+        po_id = transaction_po_ids.get(tx.pk)
+        if not po_id:
+            buckets["other_procurement"] += tx.amount
+            continue
+        po = po_cache.get(po_id)
         if not po or not po.total:
-            buckets["other_procurement"] += tx.amount; continue
+            buckets["other_procurement"] += tx.amount
+            continue
         for line in po.items.all():
-            buckets[_procurement_scope_key(line)] += tx.amount * ((line.line_total or Decimal("0"))/po.total)
+            buckets[_procurement_scope_key(line)] += tx.amount * ((line.line_total or Decimal("0")) / po.total)
 
     # Later payments are tied directly to their PO.
-    for payment in SupplierPayment.objects.filter(date__range=(start,end)).select_related("purchase_order").prefetch_related("purchase_order__items__raw_material", "purchase_order__items__finished_good"):
-        po=payment.purchase_order
+    for payment in payments:
+        po = po_cache.get(payment.purchase_order_id)
         if not po or not po.total:
-            buckets["other_procurement"] += payment.amount; continue
+            buckets["other_procurement"] += payment.amount
+            continue
         for line in po.items.all():
-            buckets[_procurement_scope_key(line)] += payment.amount * ((line.line_total or Decimal("0"))/po.total)
+            buckets[_procurement_scope_key(line)] += payment.amount * ((line.line_total or Decimal("0")) / po.total)
     return buckets
 
 def _spend(start, end):
@@ -283,14 +313,58 @@ def _financial_breakdown_json():
 
 
 def _financial_snapshot():
+    periods = _financial_periods()
+    year_start = min(start for _label, start, _end in periods)
+    period_end = max(end for _label, _start, end in periods)
+
+    sales_by_date = defaultdict(Decimal)
+    cogs_by_date = defaultdict(Decimal)
+    for sale in (
+        Sale.objects.filter(date__range=(year_start, period_end), transaction_type="paid")
+        .prefetch_related("items__finished_good")
+    ):
+        sales_by_date[sale.date] += sale.total
+        for item in sale.items.all():
+            cogs_by_date[sale.date] += (item.unit_cost or Decimal("0")) * item.total_units
+
+    procurement_by_date = defaultdict(Decimal)
+    purchase_orders = PurchaseOrder.objects.filter(status="received").filter(
+        Q(received_date__range=(year_start, period_end))
+        | Q(received_date__isnull=True, date__range=(year_start, period_end))
+    ).prefetch_related("items")
+    for purchase_order in purchase_orders:
+        procurement_date = purchase_order.received_date or purchase_order.date
+        procurement_by_date[procurement_date] += purchase_order.total
+
+    cash_procurement_by_date = {
+        row["date"]: row["total"] or Decimal("0")
+        for row in FinancialTransaction.objects.filter(
+            date__range=(year_start, period_end),
+            transaction_type=FinancialTransaction.OUTFLOW,
+            category__in=("Procurement", "Supplier payment"),
+        ).values("date").annotate(total=Sum("amount"))
+    }
+    expenses_by_date = {
+        row["date"]: row["total"] or Decimal("0")
+        for row in Expense.objects.filter(
+            date__range=(year_start, period_end), payment_status="paid"
+        ).values("date").annotate(total=Sum("amount"))
+    }
+
+    def period_total(values, start, end):
+        return sum(
+            (amount for date, amount in values.items() if start <= date <= end),
+            Decimal("0"),
+        )
+
     rows = []
-    for label, start, end in _financial_periods():
-        sales = _sales_revenue(Sale.objects.filter(date__range=(start, end)))
-        procurement = _procurement_spend(start, end)
-        cash_procurement = _cash_procurement(start, end)
-        misc = _expense_spend(start, end)
+    for label, start, end in periods:
+        sales = period_total(sales_by_date, start, end)
+        procurement = period_total(procurement_by_date, start, end)
+        cash_procurement = period_total(cash_procurement_by_date, start, end)
+        misc = period_total(expenses_by_date, start, end)
         spend = cash_procurement + misc
-        cogs = _sales_cogs(Sale.objects.filter(date__range=(start, end)))
+        cogs = period_total(cogs_by_date, start, end)
         rows.append({
             "label": label,
             "sales": sales,
@@ -318,14 +392,43 @@ def _financial_chart_series():
     month_start = t.replace(day=1)
     quarter_start = _quarter_start(t)
     year_start = t.replace(month=1, day=1)
+    data_start = min(year_start, week_start)
 
-    def bucket(start, end, label):
-        sales = _sales_revenue(
-            Sale.objects.filter(date__gte=start, date__lte=end)
+    # Load the year's three chart ledgers once. The previous implementation
+    # issued separate sales, cash-out and expense queries for every point on
+    # every chart (well over 100 round trips late in the year).
+    sales_by_date = defaultdict(Decimal)
+    for sale in (
+        Sale.objects.filter(date__range=(data_start, t), transaction_type="paid")
+        .prefetch_related("items__finished_good")
+    ):
+        sales_by_date[sale.date] += sale.total
+
+    procurement_by_date = {
+        row["date"]: row["total"] or Decimal("0")
+        for row in FinancialTransaction.objects.filter(
+            date__range=(data_start, t),
+            transaction_type=FinancialTransaction.OUTFLOW,
+            category__in=("Procurement", "Supplier payment"),
+        ).values("date").annotate(total=Sum("amount"))
+    }
+    expenses_by_date = {
+        row["date"]: row["total"] or Decimal("0")
+        for row in Expense.objects.filter(
+            date__range=(data_start, t), payment_status="paid"
+        ).values("date").annotate(total=Sum("amount"))
+    }
+
+    def period_total(values, start, end):
+        return sum(
+            (amount for date, amount in values.items() if start <= date <= end),
+            Decimal("0"),
         )
 
-        procurement = _cash_procurement(start, end)
-        misc = _expense_spend(start, end)
+    def bucket(start, end, label):
+        sales = period_total(sales_by_date, start, end)
+        procurement = period_total(procurement_by_date, start, end)
+        misc = period_total(expenses_by_date, start, end)
 
         spend = procurement + misc
         revenue = sales - spend
@@ -1294,8 +1397,11 @@ def reports_full_required(view_func):
 
 @login_required
 def dashboard(request):
-    raw_materials = RawMaterial.objects.all()
-    finished_goods = FinishedGood.objects.select_related("business")
+    dashboard_date = today()
+    month_start = dashboard_date.replace(day=1)
+    year_start = dashboard_date.replace(month=1, day=1)
+    raw_materials = list(RawMaterial.objects.all())
+    finished_goods = list(FinishedGood.objects.select_related("business"))
     warning_raw = [m for m in raw_materials if m.is_warning]
     warning_goods = [g for g in finished_goods if g.is_warning]
     low_raw = [m for m in raw_materials if m.is_low]
@@ -1304,54 +1410,66 @@ def dashboard(request):
     total_warning_count = len(warning_raw) + len(warning_goods)
     pending_orders = Order.objects.filter(status="pending")
     open_purchase_orders = PurchaseOrder.objects.exclude(status="received")
-    today_sales = Sale.objects.filter(date=today())
-    today_revenue = _sales_revenue(today_sales)
+    today_sales = list(
+        Sale.objects.filter(date=dashboard_date).prefetch_related("items__finished_good")
+    )
+    today_revenue = sum(
+        (sale.total for sale in today_sales if sale.transaction_type == "paid"),
+        Decimal("0"),
+    )
 
-    completed_today = Order.objects.filter(status="completed", completed_date=today())
-    daily_units_made = _production_units(completed_today)
-    daily_units_received = StockMovement.objects.filter(
+    received_products = StockMovement.objects.filter(
         movement_type=StockMovement.FG_PURCHASE,
-        occurred_at__date=today(),
         quantity__gt=0,
         affects_stock=True,
-    ).aggregate(total=Sum("quantity"))["total"] or Decimal("0")
-    month_start = today().replace(day=1)
-    year_start = today().replace(month=1, day=1)
+    )
+    received_totals = received_products.aggregate(
+        daily=Sum("quantity", filter=Q(occurred_at__date=dashboard_date)),
+        monthly=Sum("quantity", filter=Q(occurred_at__date__gte=month_start)),
+        yearly=Sum("quantity", filter=Q(occurred_at__date__gte=year_start)),
+    )
+    daily_units_received = received_totals["daily"] or Decimal("0")
+
     if request.business.uses_production:
-        monthly_units = _production_units(Order.objects.filter(status="completed", completed_date__gte=month_start))
-        yearly_units = _production_units(Order.objects.filter(status="completed", completed_date__gte=year_start))
-    else:
-        received_products = StockMovement.objects.filter(
-            movement_type=StockMovement.FG_PURCHASE,
-            quantity__gt=0,
-            affects_stock=True,
+        completed_orders = list(
+            Order.objects.filter(status="completed", completed_date__gte=year_start)
+            .prefetch_related("items__finished_good")
         )
-        monthly_units = received_products.filter(
-            occurred_at__date__gte=month_start
-        ).aggregate(total=Sum("quantity"))["total"] or Decimal("0")
-        yearly_units = received_products.filter(
-            occurred_at__date__gte=year_start
-        ).aggregate(total=Sum("quantity"))["total"] or Decimal("0")
+        daily_units_made = sum(
+            (order.total_units for order in completed_orders if order.completed_date == dashboard_date),
+            Decimal("0"),
+        )
+        monthly_units = sum(
+            (order.total_units for order in completed_orders if order.completed_date >= month_start),
+            Decimal("0"),
+        )
+        yearly_units = sum((order.total_units for order in completed_orders), Decimal("0"))
+    else:
+        daily_units_made = _production_units(
+            Order.objects.filter(status="completed", completed_date=dashboard_date)
+        )
+        monthly_units = received_totals["monthly"] or Decimal("0")
+        yearly_units = received_totals["yearly"] or Decimal("0")
     financial = _financial_snapshot()
     financial_json = _financial_chart_series()
     financial_breakdown_json = _financial_breakdown_json()
-    channel = _sales_by_channel(month_start, today())
+    channel = _sales_by_channel(month_start, dashboard_date)
     channel_breakdowns = {
         "distribution": _channel_breakdown(
             "distribution",
             month_start,
-            today(),
+            dashboard_date,
         ),
         "online": _channel_breakdown(
             "online",
             month_start,
-            today(),
+            dashboard_date,
         ),
     }
 
     raw_material_categories = []
     for value, label in RawMaterial.CATEGORY_CHOICES:
-        items = raw_materials.filter(category=value)
+        items = [material for material in raw_materials if material.category == value]
         raw_material_categories.append({"value": value, "label": label, "items": items})
 
     selected_key = request.GET.get("stock_item", "")
@@ -1360,19 +1478,19 @@ def dashboard(request):
     stock_periods = None
     stock_unit = ""
     if selected_kind == "raw":
-        selected_item = raw_materials.filter(pk=selected_pk).first()
+        selected_item = next((item for item in raw_materials if str(item.pk) == selected_pk), None)
         if selected_item:
             stock_periods = _stock_periods(selected_item)
             stock_unit = selected_item.usage_unit
     elif selected_kind == "fg":
-        selected_item = finished_goods.filter(pk=selected_pk).first()
+        selected_item = next((item for item in finished_goods if str(item.pk) == selected_pk), None)
         if selected_item:
             stock_periods = _stock_periods(selected_item)
             stock_unit = selected_item.unit
 
     return render(request, "core/dashboard.html", {
-        "raw_count": raw_materials.count(),
-        "goods_count": finished_goods.count(),
+        "raw_count": len(raw_materials),
+        "goods_count": len(finished_goods),
         "warning_raw": warning_raw,
         "warning_goods": warning_goods,
         "low_raw": low_raw,
@@ -1381,7 +1499,7 @@ def dashboard(request):
         "total_warning_count": total_warning_count,
         "pending_orders_count": pending_orders.count(),
         "open_purchase_orders_count": open_purchase_orders.count(),
-        "today_sales_count": today_sales.count(),
+        "today_sales_count": len(today_sales),
         "today_revenue": today_revenue,
         "daily_units_made": daily_units_made,
         "daily_units_received": daily_units_received,
