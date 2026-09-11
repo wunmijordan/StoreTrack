@@ -9,11 +9,15 @@ class BusinessForm(forms.ModelForm):
         model = Business
         fields = [
             "name", "slug", "vertical", "currency_symbol", "background_color", "accent_color", "tagline",
+            "storefront_logo",
             "restaurant_table_service",
         ]
         widgets = {
             "background_color": forms.TextInput(attrs={"type": "color"}),
             "accent_color": forms.TextInput(attrs={"type": "color"}),
+            "storefront_logo": forms.ClearableFileInput(
+                attrs={"accept": "image/jpeg,image/png,image/webp"}
+            ),
         }
 
     def __init__(self, *args, **kwargs):
@@ -28,7 +32,18 @@ class BusinessForm(forms.ModelForm):
         )
         self.fields["background_color"].label = "Navigation / background color"
         self.fields["accent_color"].label = "Button / action color"
+        self.fields["storefront_logo"].label = "Storefront logo"
+        self.fields["storefront_logo"].help_text = (
+            "Shown only beside your business name on the public storefront. "
+            "A square or compact transparent PNG/WebP works best (maximum 4 MB)."
+        )
         self.fields["restaurant_table_service"].widget.attrs["class"] = "h-4 w-4 accent-[#8f172d]"
 
     def clean_slug(self):
         return (self.cleaned_data.get("slug") or "").strip().lower()
+
+    def clean_storefront_logo(self):
+        image = self.cleaned_data.get("storefront_logo")
+        if image and getattr(image, "size", 0) > 4 * 1024 * 1024:
+            raise forms.ValidationError("Upload a storefront logo no larger than 4 MB.")
+        return image

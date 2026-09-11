@@ -11,7 +11,8 @@ from django.urls import reverse
 from core.models import Business
 from .models import (
     BusinessFeatureAccess, BusinessModuleAccess, BusinessSubscription, CustomUser,
-    SubscriptionPayment, SubscriptionPaymentSettings, SubscriptionService, UserBusiness,
+    RoleModulePermission, SubscriptionPayment, SubscriptionPaymentSettings,
+    SubscriptionPlanModule, SubscriptionService, UserBusiness,
 )
 from .services import business_has_module, seed_business_roles
 from .subscription_services import (
@@ -422,6 +423,55 @@ class SubscriptionEntitlementTests(TestCase):
         self.assertFalse(subscription.founder_lifetime)
         self.assertEqual(subscription.status, BusinessSubscription.STATUS_ACTIVE)
         self.assertEqual(subscription.plan, self.plans["production"])
+
+
+class SeedQueryEfficiencyTests(TestCase):
+    def setUp(self):
+        self.business = Business.objects.create(name="Seed Efficiency", slug="seed-efficiency")
+
+    def test_role_seed_steady_state_is_bounded_and_repairs_missing_permissions(self):
+        roles = seed_business_roles(self.business)
+
+        with CaptureQueriesContext(connection) as queries:
+            seeded = seed_business_roles(self.business)
+
+        self.assertEqual(set(seeded), set(roles))
+        self.assertLessEqual(len(queries), 3)
+
+        manager = seeded[CustomUser.ROLE_MANAGER]
+        RoleModulePermission.objects.filter(role=manager, module="sales").delete()
+        with CaptureQueriesContext(connection) as repair_queries:
+            seed_business_roles(self.business)
+
+        self.assertTrue(RoleModulePermission.objects.filter(role=manager, module="sales").exists())
+        self.assertLessEqual(len(repair_queries), 5)
+
+    def test_plan_seed_steady_state_is_bounded_and_repairs_entitlement_drift(self):
+        plans = ensure_default_plans()
+
+        with CaptureQueriesContext(connection) as queries:
+            seeded = ensure_default_plans()
+
+        self.assertEqual(set(seeded), set(plans))
+        self.assertLessEqual(len(queries), 3)
+
+        starter = seeded["starter"]
+        row = SubscriptionPlanModule.objects.get(plan=starter, module="inventory")
+        row.enabled = False
+        row.level = "none"
+        row.save(update_fields=["enabled", "level"])
+        SubscriptionPlanModule.objects.filter(plan=starter, module="sales").delete()
+
+        with CaptureQueriesContext(connection) as repair_queries:
+            ensure_default_plans()
+
+        inventory = SubscriptionPlanModule.objects.get(plan=starter, module="inventory")
+        sales = SubscriptionPlanModule.objects.get(plan=starter, module="sales")
+        self.assertTrue(inventory.enabled)
+        self.assertEqual(inventory.level, "full")
+        self.assertTrue(sales.enabled)
+        self.assertEqual(sales.level, "full")
+        self.assertLessEqual(len(repair_queries), 6)
 
 
 class FounderPaymentSettingsTests(TestCase):

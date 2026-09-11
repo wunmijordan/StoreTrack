@@ -100,3 +100,68 @@ class PerformanceDiagnosticMiddlewareTests(TestCase):
         response = middleware(self.factory.get("/health/"))
 
         self.assertNotIn("Server-Timing", response.headers)
+
+
+class PwaEndpointTests(TestCase):
+    def test_brand_manifest_is_public_and_uses_inprofic_identity(self):
+        response = self.client.get(reverse("pwa_manifest"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"].split(";")[0], "application/manifest+json")
+        payload = response.json()
+        self.assertEqual(payload["name"], "INPROFIC")
+        self.assertEqual(payload["id"], "/pwa/inprofic")
+        self.assertEqual(payload["theme_color"], "#050733")
+        self.assertTrue(any(icon["sizes"] == "512x512" for icon in payload["icons"]))
+
+    def test_tenant_manifest_uses_tenant_name_and_theme_but_inprofic_icons(self):
+        business = Business.objects.create(
+            name="Northwind Foods",
+            slug="northwind-foods",
+            background_color="#173B45",
+            accent_color="#126E82",
+            tagline="Kitchen control",
+        )
+        from accounts.models import UserBusiness
+        from accounts.services import seed_business_roles
+
+        roles = seed_business_roles(business)
+        user = CustomUser.objects.create_user(username="manifest-user", password="safe-password-123")
+        UserBusiness.objects.create(
+            user=user,
+            business=business,
+            role=roles[CustomUser.ROLE_BUSINESS_ADMIN],
+        )
+        self.client.force_login(user)
+        response = self.client.get(reverse("pwa_manifest_tenant", kwargs={"business_slug": business.slug}))
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["name"], "Northwind Foods")
+        self.assertEqual(payload["theme_color"], "#173B45")
+        self.assertEqual(payload["id"], "/pwa/tenant/northwind-foods")
+        self.assertTrue(all("core/pwa/icon-" in icon["src"] for icon in payload["icons"]))
+
+    def test_service_worker_has_root_scope_and_does_not_cache_dynamic_html(self):
+        response = self.client.get(reverse("pwa_service_worker"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Service-Worker-Allowed"], "/")
+        script = response.content.decode()
+        self.assertIn("request.mode === 'navigate'", script)
+        self.assertIn("cache: 'no-store'", script)
+        self.assertIn("url.pathname.startsWith('/static/')", script)
+
+    def test_tenant_launch_selects_only_an_authorized_business(self):
+        from accounts.models import UserBusiness
+        from accounts.services import seed_business_roles
+
+        business = Business.objects.create(name="Launch Bakery", slug="launch-bakery")
+        roles = seed_business_roles(business)
+        user = CustomUser.objects.create_user(username="launch-user", password="safe-password-123")
+        UserBusiness.objects.create(
+            user=user,
+            business=business,
+            role=roles[CustomUser.ROLE_BUSINESS_ADMIN],
+        )
+        self.client.force_login(user)
+        response = self.client.get(reverse("pwa_launch", kwargs={"business_slug": business.slug}))
+        self.assertRedirects(response, reverse("dashboard"), fetch_redirect_response=False)
+        self.assertEqual(self.client.session["active_business_id"], business.pk)

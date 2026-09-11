@@ -1,0 +1,9 @@
+{% load static %}
+{% if user.is_authenticated and biz %}<link rel="manifest" href="{% url 'pwa_manifest_tenant' business_slug=biz.slug %}" crossorigin="use-credentials">{% else %}<link rel="manifest" href="{% url 'pwa_manifest' %}">{% endif %}
+<meta name="theme-color" content="{% if user.is_authenticated and biz %}{{ biz.background_color }}{% else %}#050733{% endif %}">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="{% if user.is_authenticated and biz %}{{ biz.name|truncatechars:30 }}{% else %}INPROFIC{% endif %}">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" sizes="180x180" href="{% static 'core/pwa/icon-180.png' %}">
+<link rel="stylesheet" href="{% static 'core/pwa/install.css' %}">

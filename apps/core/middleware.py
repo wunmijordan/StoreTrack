@@ -21,7 +21,8 @@ class BusinessMiddleware:
         # Render probes this endpoint frequently. Keep it completely outside
         # tenant/session resolution so a health check can still succeed when
         # the database connection pool is under pressure.
-        if request.path == "/health/":
+        if request.path == "/health/" or request.path == "/manifest.webmanifest" or request.path == "/service-worker.js" or request.path.startswith("/pwa/"):
+            request.business = None
             return self.get_response(request)
 
         # Clear any previous request value and isolate repeated authorization
@@ -118,7 +119,7 @@ class BusinessMiddleware:
 EXEMPT_PREFIXES = (
     "/accounts/login", "/accounts/logout", "/accounts/signup",
     "/business/settings", "/business/switch", "/admin", "/static", "/media/", "/shop/",
-    "/health/", "/ops/",
+    "/health/", "/ops/", "/manifest.webmanifest", "/service-worker.js", "/pwa/",
     "/api/v1/storefronts/", "/api/v1/connectors/",
     "/users/plans/payment/callback/", "/users/plans/payment/webhook/",
 )
@@ -140,8 +141,15 @@ class LoginRequiredMiddleware:
 
     def __call__(self, request):
         # Do not force Django's lazy authenticated user/session to resolve for
-        # the database-free health endpoint.
-        if request.path == "/health/":
+        # public infrastructure requests that do not need the application's idle
+        # timeout policy. Protected tenant PWA endpoints continue through this
+        # middleware and enforce tenant access again in their views.
+        if (
+            request.path == "/health/"
+            or request.path == "/manifest.webmanifest"
+            or request.path == "/service-worker.js"
+            or request.path == "/pwa/offline/"
+        ):
             return self.get_response(request)
 
         path_is_public = request.path == "/" or request.path.startswith(EXEMPT_PREFIXES)

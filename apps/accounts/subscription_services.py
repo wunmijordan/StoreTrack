@@ -35,30 +35,80 @@ PLAN_MATRIX = {
 }
 
 
-@transaction.atomic
 def ensure_default_plans():
+    """Ensure built-in plans and entitlement rows exist with bounded queries.
+
+    The previous implementation performed get/update-or-create work for every
+    plan/module pair on every page visit. This version keeps the same
+    self-healing semantics, but reads the complete seed state in two queries
+    and only writes when something is actually missing or has drifted.
+    """
     names = {
         SubscriptionPlan.CODE_STARTER: "STARTER",
         SubscriptionPlan.CODE_PRODUCTION: "PRODUCTION",
         SubscriptionPlan.CODE_BUSINESS_PRO: "BUSINESS PRO",
     }
-    plans = {}
-    for code, name in names.items():
-        plan, _ = SubscriptionPlan.objects.get_or_create(
-            code=code,
-            defaults={"name": name, "trial_days": 30, "monthly_price": Decimal("0.00")},
-        )
+    codes = tuple(names)
+
+    plan_rows = list(SubscriptionPlan.objects.filter(code__in=codes))
+    plans = {plan.code: plan for plan in plan_rows}
+    missing_codes = [code for code in codes if code not in plans]
+    if missing_codes:
+        # Creation is exceptional, so retain get-or-create's strict conflict
+        # behavior without paying its per-plan cost on ordinary page loads.
+        with transaction.atomic():
+            for code in missing_codes:
+                plan, _created = SubscriptionPlan.objects.get_or_create(
+                    code=code,
+                    defaults={
+                        "name": names[code], "trial_days": 30,
+                        "monthly_price": Decimal("0.00"),
+                    },
+                )
+                plans[code] = plan
+
+    # Preserve founder-configured names/pricing. The historical invariant was
+    # only that the built-in trial length remains 30 days.
+    trial_updates = []
+    for plan in plans.values():
         if plan.trial_days != 30:
             plan.trial_days = 30
-            plan.save(update_fields=["trial_days"])
+            trial_updates.append(plan)
+    entitlement_rows = list(
+        SubscriptionPlanModule.objects.filter(plan_id__in=[plan.pk for plan in plans.values()])
+    )
+    entitlements = {(row.plan_id, row.module): row for row in entitlement_rows}
+    missing_entitlements = []
+    entitlement_updates = []
+    for code in codes:
+        plan = plans.get(code)
+        if not plan:
+            continue
         for module, _label in RoleModulePermission.MODULE_CHOICES:
             level = PLAN_MATRIX[code].get(module, "none")
-            SubscriptionPlanModule.objects.update_or_create(
-                plan=plan,
-                module=module,
-                defaults={"enabled": level != "none", "level": level},
-            )
-        plans[code] = plan
+            enabled = level != "none"
+            row = entitlements.get((plan.pk, module))
+            if row is None:
+                missing_entitlements.append(
+                    SubscriptionPlanModule(
+                        plan=plan, module=module, enabled=enabled, level=level,
+                    )
+                )
+                continue
+            if row.enabled != enabled or row.level != level:
+                row.enabled = enabled
+                row.level = level
+                entitlement_updates.append(row)
+
+    if trial_updates or missing_entitlements or entitlement_updates:
+        with transaction.atomic():
+            if trial_updates:
+                SubscriptionPlan.objects.bulk_update(trial_updates, ["trial_days"])
+            if missing_entitlements:
+                SubscriptionPlanModule.objects.bulk_create(missing_entitlements, ignore_conflicts=True)
+            if entitlement_updates:
+                SubscriptionPlanModule.objects.bulk_update(entitlement_updates, ["enabled", "level"])
+
     return plans
 
 

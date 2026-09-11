@@ -1577,7 +1577,7 @@ def business_settings(request):
     seed_business_modules(request.business)
     if request.method == "POST":
         previous_slug = request.business.slug
-        form = BusinessForm(request.POST, instance=request.business)
+        form = BusinessForm(request.POST, request.FILES, instance=request.business)
         if form.is_valid():
             business = form.save()
             audit(
@@ -1589,6 +1589,7 @@ def business_settings(request):
                     "accent_color": business.accent_color,
                     "previous_slug": previous_slug,
                     "slug": business.slug,
+                    "storefront_logo_configured": bool(business.storefront_logo),
                 },
             )
             messages.success(request, "Business preferences updated.")

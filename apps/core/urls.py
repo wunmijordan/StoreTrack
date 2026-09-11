@@ -2,9 +2,15 @@ from django.urls import path
 from . import views
 from . import finance_views as finance
 from . import operations
+from . import pwa
 from expenses import views as expense_views
 
 urlpatterns = [
+    path("manifest.webmanifest", pwa.manifest, name="pwa_manifest"),
+    path("pwa/manifest/<slug:business_slug>.webmanifest", pwa.tenant_manifest, name="pwa_manifest_tenant"),
+    path("service-worker.js", pwa.service_worker, name="pwa_service_worker"),
+    path("pwa/offline/", pwa.offline, name="pwa_offline"),
+    path("pwa/launch/<slug:business_slug>/", pwa.launch, name="pwa_launch"),
     path("health/", operations.health, name="health"),
     path("ops/run-jobs/", operations.run_jobs, name="run_jobs"),
     path("", views.marketing_home, name="marketing_home"),

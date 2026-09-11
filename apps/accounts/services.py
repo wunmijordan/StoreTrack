@@ -109,33 +109,79 @@ def role_key(role):
     return role.key if role else CustomUser.ROLE_STOCK_KEEPER
 
 
-@transaction.atomic
 def seed_business_roles(business):
-    roles = {}
-    for key, name in CustomUser.SYSTEM_ROLE_DEFINITIONS:
-        role, _ = Role.objects.get_or_create(
-            business=business, key=key,
-            defaults={"name": name, "is_system": True, "visible_to_admin": key != CustomUser.ROLE_SUPERUSER},
-        )
+    """Ensure system roles/permissions exist using bounded bulk operations.
+
+    This helper is intentionally safe to call from request-time forms/views: a
+    healthy tenant performs only two reads (roles + permission keys). Missing
+    seed rows are repaired in bulk, while existing business-customized role
+    labels and permission values are left untouched just as before.
+    """
+    definitions = dict(CustomUser.SYSTEM_ROLE_DEFINITIONS)
+    system_keys = tuple(definitions)
+
+    role_rows = list(Role.objects.filter(business=business, key__in=system_keys))
+    roles = {role.key: role for role in role_rows}
+    missing_keys = [key for key in system_keys if key not in roles]
+    if missing_keys:
+        # Missing system roles are exceptional. Use the original get-or-create
+        # semantics here so uniqueness/name conflicts remain visible instead of
+        # being silently ignored; the healthy request path never enters this loop.
+        with transaction.atomic():
+            for key in missing_keys:
+                role, _created = Role.objects.get_or_create(
+                    business=business, key=key,
+                    defaults={
+                        "name": definitions[key],
+                        "is_system": True,
+                        "visible_to_admin": key != CustomUser.ROLE_SUPERUSER,
+                    },
+                )
+                roles[key] = role
+
+    # Preserve business-renamed system-role labels. Only repair the invariant
+    # flags that the old implementation also forced on every call.
+    roles_to_update = []
+    for key, role in roles.items():
+        changed = False
         if not role.is_system:
             role.is_system = True
-            role.save(update_fields=["is_system"])
-        # The Superuser role is reserved for the global superuser. Force it
-        # hidden even if it was seeded before this restriction existed, or if
-        # someone flips it back on directly in the DB.
+            changed = True
         if key == CustomUser.ROLE_SUPERUSER and role.visible_to_admin:
             role.visible_to_admin = False
-            role.save(update_fields=["visible_to_admin"])
-        # Keep system role labels aligned only on first creation; businesses may
-        # rename labels later without losing their fixed system key.
+            changed = True
+        if changed:
+            roles_to_update.append(role)
+    role_ids = [role.pk for role in roles.values()]
+    existing_permissions = set(
+        RoleModulePermission.objects
+        .filter(role_id__in=role_ids)
+        .values_list("role_id", "module")
+    )
+    missing_permissions = []
+    for key in system_keys:
+        role = roles.get(key)
+        if not role:
+            continue
         defaults = ROLE_DEFAULTS.get(key, {})
         for module, _label in RoleModulePermission.MODULE_CHOICES:
-            view, edit = defaults.get(module, (False, False))
-            RoleModulePermission.objects.get_or_create(
-                role=role, module=module,
-                defaults={"can_view": view, "can_edit": edit},
+            marker = (role.pk, module)
+            if marker in existing_permissions:
+                continue
+            can_view, can_edit = defaults.get(module, (False, False))
+            missing_permissions.append(
+                RoleModulePermission(
+                    role=role, module=module,
+                    can_view=can_view, can_edit=can_edit,
+                )
             )
-        roles[key] = role
+    if roles_to_update or missing_permissions:
+        with transaction.atomic():
+            if roles_to_update:
+                Role.objects.bulk_update(roles_to_update, ["is_system", "visible_to_admin"])
+            if missing_permissions:
+                RoleModulePermission.objects.bulk_create(missing_permissions, ignore_conflicts=True)
+
     return roles
 
 

@@ -8,6 +8,7 @@
   <title>INPROFIC · From stock to sale, in one place</title>
   <link rel="icon" type="image/png" href="{% static 'core/brand/inprofic-mark.png' %}">
   <link rel="stylesheet" href="{% static 'core/css/inprofic.css' %}">
+  {% include "pwa/head.html" %}
   <style>
     @font-face { font-family:'Inter'; src:url('{% static "core/fonts/Inter-Regular.ttf" %}') format('truetype'); font-weight:400; font-style:normal; font-display:swap; }
     @font-face { font-family:'Inter'; src:url('{% static "core/fonts/Inter-SemiBold.ttf" %}') format('truetype'); font-weight:500 700; font-style:normal; font-display:swap; }
@@ -162,5 +163,6 @@
   </main>
 
   <footer class="border-t border-stone-200 bg-[#f5efe0] px-5 py-8"><div class="mx-auto flex max-w-7xl flex-col gap-3 text-sm text-stone-500 sm:flex-row sm:items-center sm:justify-between"><img src="{% static 'core/brand/inprofic-logo-on-light.png' %}" alt="INPROFIC" class="h-8 w-auto" width="2097" height="361"><p>Inventory, operations and commerce—working together.</p><div class="flex gap-4"><a href="{% url 'login' %}" class="hover:text-[#d14900]">Sign in</a><a href="{% url 'signup' %}" class="hover:text-[#d14900]">Sign up</a></div></div></footer>
+  {% include "pwa/install_prompt.html" %}
 </body>
 </html>

@@ -1,8 +1,19 @@
 from django.conf import settings
-from django.core.validators import RegexValidator
+from django.core.validators import FileExtensionValidator, RegexValidator
 from django.db import models
 from decimal import Decimal
+from pathlib import Path
+import uuid
 from .context import get_current_business_id
+
+
+def business_storefront_logo_upload_to(instance, filename):
+    """Store tenant storefront logos in tenant-partitioned media paths."""
+    extension = Path(filename or "").suffix.lower()
+    if extension not in {".jpeg", ".jpg", ".png", ".webp"}:
+        extension = ".png"
+    business_id = instance.pk or "unassigned"
+    return f"businesses/business-{business_id}/storefront-logo/{uuid.uuid4().hex}{extension}"
 
 
 class Business(models.Model):
@@ -41,6 +52,12 @@ class Business(models.Model):
         help_text="Used for persistent branded backgrounds such as the navigation area.",
     )
     tagline = models.CharField(max_length=100, blank=True, default="")
+    storefront_logo = models.ImageField(
+        upload_to=business_storefront_logo_upload_to,
+        blank=True,
+        validators=[FileExtensionValidator(["jpeg", "jpg", "png", "webp"])],
+        help_text="Optional logo shown beside the business name on the public storefront only.",
+    )
     restaurant_table_service = models.BooleanField(
         default=True,
         help_text="For restaurant businesses, capture a table/reference for dine-in sales.",

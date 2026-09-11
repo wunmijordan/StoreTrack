@@ -7,6 +7,7 @@
   <title>Sign in — INPROFIC</title>
   <link rel="icon" type="image/png" href="{% static 'core/brand/inprofic-mark.png' %}">
   <link rel="stylesheet" href="{% static 'core/css/inprofic.css' %}">
+  {% include "pwa/head.html" %}
   <style>
     @font-face { font-family:'Inter'; src:url('{% static "core/fonts/Inter-Regular.ttf" %}') format('truetype'); font-weight:400; font-style:normal; font-display:swap; }
     @font-face { font-family:'Inter'; src:url('{% static "core/fonts/Inter-SemiBold.ttf" %}') format('truetype'); font-weight:500 700; font-style:normal; font-display:swap; }
@@ -51,5 +52,6 @@
     <p class="mt-2 text-center text-xs"><a class="text-stone-400 underline underline-offset-2 hover:text-[#d14900]" href="{% url 'marketing_home' %}">Back to the INPROFIC overview</a></p>
   </div>
 </div>
+  {% include "pwa/install_prompt.html" %}
 </body>
 </html>

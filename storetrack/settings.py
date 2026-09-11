@@ -314,7 +314,7 @@ PERF_SLOW_REQUEST_MS = int(os.environ.get("PERF_SLOW_REQUEST_MS", "500"))
 PERF_SERVER_TIMING = env_bool("PERF_SERVER_TIMING", True)
 PERF_EXCLUDED_PREFIXES = tuple(
     env_list("PERF_EXCLUDED_PREFIXES")
-    or ["/health/", "/static/", "/media/", "/ws/"]
+    or ["/health/", "/static/", "/media/", "/ws/", "/manifest.webmanifest", "/service-worker.js", "/pwa/"]
 )
 
 # Render runs this service as one Daphne process. cached_db keeps the durable

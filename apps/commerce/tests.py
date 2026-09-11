@@ -140,3 +140,22 @@ class CommerceApiProductTests(TestCase):
         self.assertIn("image", form.fields)
         self.assertNotIn("image_url", form.fields)
         self.assertNotIn("allow_preorder", form.fields)
+
+
+class StorefrontTenantLogoTests(TestCase):
+    def test_public_storefront_shows_tenant_logo_only_in_storefront_branding(self):
+        logo_bytes = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
+        with tempfile.TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root, MEDIA_URL="/media/"):
+            business = Business.objects.create(name="Logo Bakery", slug="logo-bakery")
+            business.storefront_logo.save("logo.png", ContentFile(logo_bytes), save=True)
+            CommerceSettings.raw_objects.create(
+                business=business,
+                enabled=True,
+                hosted_storefront_enabled=True,
+            )
+            response = self.client.get(f"/shop/{business.slug}/")
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, business.storefront_logo.url)
+            self.assertEqual(response.content.decode().count(business.storefront_logo.url), 1)
+            self.assertContains(response, "INPROFIC")
+            self.assertNotContains(response, f'<footer class="border-t border-stone-200 bg-white px-5 py-8 text-center"><p class="font-display text-lg font-semibold">{business.name}</p>', html=False)

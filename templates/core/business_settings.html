@@ -4,7 +4,7 @@
   <h2 class="text-xl font-semibold font-display text-[#8f172d]">Business Settings</h2>
   <p class="text-sm text-stone-500 mt-1 mb-5">Brand this workspace and choose the vocabulary and service details that match how {{ biz.name }} operates.</p>
 
-  <form method="post" id="business-settings-form" class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-5">
+  <form method="post" enctype="multipart/form-data" id="business-settings-form" class="bg-[#FFFDF8] border border-[#E7DFCC] rounded-lg shadow-sm p-5">
     {% csrf_token %}
     {% if form.non_field_errors %}<div class="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-md p-3 mb-3">{{ form.non_field_errors }}</div>{% endif %}
     <div class="grid sm:grid-cols-2 gap-x-4">
@@ -22,6 +22,10 @@
         </div>
       </div>
       <div class="sm:col-span-2">{% include "_field.html" with field=form.tagline %}</div>
+      <div class="sm:col-span-2 rounded-md border border-[#E7DFCC] bg-white p-3 mb-3">
+        {% include "_field.html" with field=form.storefront_logo %}
+        <p class="-mt-2 text-[11px] text-stone-400">This artwork is used only beside the business name on the customer storefront. The INPROFIC workspace and installed PWA keep the INPROFIC N mark.</p>
+      </div>
       <div id="restaurant-settings" class="sm:col-span-2 rounded-md border border-[#E7DFCC] bg-[#F5EFE0] p-3 mb-3">
         <label class="flex items-start gap-2 text-sm">{{ form.restaurant_table_service }}<span><strong>Table service</strong><span class="block text-xs text-stone-500">Require a table or service reference for dine-in sales.</span></span></label>
         {% if form.restaurant_table_service.errors %}<div class="text-xs text-rose-600 mt-1">{{ form.restaurant_table_service.errors|join:", " }}</div>{% endif %}

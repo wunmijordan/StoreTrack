@@ -7,6 +7,7 @@
   <title>{% if biz %}{{ biz.name }} · {% endif %}INPROFIC</title>
   <link rel="icon" type="image/png" href="{% static 'core/brand/inprofic-mark.png' %}">
   <link rel="stylesheet" href="{% static 'core/css/inprofic.css' %}">
+  {% include "pwa/head.html" %}
   {% block head_scripts %}{% endblock %}
   <style>
     @font-face { font-family:'Inter'; src:url('{% static "core/fonts/Inter-Regular.ttf" %}') format('truetype'); font-weight:400; font-style:normal; font-display:swap; }
@@ -582,5 +583,6 @@
       totalForms.value = formCount + 1;
     }
   </script>
+  {% include "pwa/install_prompt.html" %}
 </body>
 </html>
