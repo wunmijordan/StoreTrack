@@ -1,6 +1,7 @@
 from accounts.models import RoleModulePermission, UserBusiness
 from accounts.services import business_subscription_for, is_business_admin, user_has_permission
 from accounts.subscription_services import business_has_feature
+from django.utils.functional import SimpleLazyObject
 from .context import get_request_cache
 from .models import Business
 from .verticals import vertical_config
@@ -41,5 +42,10 @@ def business(request):
         "can_manage_business": can_manage_business,
         "vertical_ui": vertical_config(biz),
         "subscription": subscription,
-        "reports_full": business_has_feature(biz, "reports_full") if biz else False,
+        # Only the reports page consumes this flag. Keep it lazy so ordinary
+        # navigation doesn't query feature entitlements that won't be rendered.
+        "reports_full": (
+            SimpleLazyObject(lambda: business_has_feature(biz, "reports_full"))
+            if biz else False
+        ),
     }

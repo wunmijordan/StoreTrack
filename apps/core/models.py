@@ -162,6 +162,9 @@ class CashAccount(BusinessOwnedModel):
     def __str__(self): return self.name
     @property
     def balance(self):
+        calculated = getattr(self, "_calculated_balance", None)
+        if calculated is not None:
+            return calculated
         return self.opening_balance + sum((t.signed_amount for t in self.transactions.all()), Decimal("0"))
 
 

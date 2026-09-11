@@ -47,7 +47,12 @@ class BusinessMiddleware:
         selected_id = request.session.get("active_business_id")
         request_cache = get_request_cache()
         if request.user.is_superuser:
-            businesses = list(Business.objects.order_by("id"))
+            businesses = list(
+                Business.objects.select_related(
+                    "subscription__plan",
+                    "subscription_service__subscription__plan",
+                ).order_by("id")
+            )
             selected = next((business for business in businesses if business.pk == selected_id), None)
             main = next((business for business in businesses if business.slug == "main"), None)
             business = selected or main or (businesses[0] if businesses else None)
@@ -61,7 +66,12 @@ class BusinessMiddleware:
                 UserBusiness.objects.filter(
                     user=request.user, active=True, business__isnull=False
                 )
-                .select_related("business", "role")
+                .select_related(
+                    "business",
+                    "role",
+                    "business__subscription__plan",
+                    "business__subscription_service__subscription__plan",
+                )
                 .prefetch_related("module_permissions", "role__module_permissions")
                 .order_by("business__name", "business_id")
             )
@@ -87,6 +97,15 @@ class BusinessMiddleware:
                             for permission in membership.role.module_permissions.all()
                         },
                     )
+        if business and request_cache is not None:
+            # The tenant query above already joins both possible subscription
+            # paths. Prime the request cache from those joined objects so the
+            # permission middleware and the base template don't make a separate
+            # subscription round trip on every authenticated page.
+            service = business._state.fields_cache.get("subscription_service")
+            primary = business._state.fields_cache.get("subscription")
+            subscription = service.subscription if service else primary
+            request_cache[("business_subscription", business.pk)] = subscription
         if business:
             if selected_id != business.pk:
                 request.session["active_business_id"] = business.pk

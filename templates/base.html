@@ -7,7 +7,6 @@
   <title>{% if biz %}{{ biz.name }} · {% endif %}INPROFIC</title>
   <link rel="icon" type="image/png" href="{% static 'core/brand/inprofic-mark.png' %}">
   <link rel="stylesheet" href="{% static 'core/css/inprofic.css' %}">
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   {% block head_scripts %}{% endblock %}
   <style>
     @font-face { font-family:'Inter'; src:url('{% static "core/fonts/Inter-Regular.ttf" %}') format('truetype'); font-weight:400; font-style:normal; font-display:swap; }
@@ -375,8 +374,19 @@
         clearTimeout(reconnectTimer);
         if (socket) socket.close();
       });
-      poll();
-      connectSocket();
+      // Avoid competing with the page's critical render path. The socket's
+      // open handler performs the first feed refresh, so starting both a poll
+      // and a socket here used to create two near-simultaneous authenticated
+      // requests after every full-page navigation.
+      const startNotifications = () => {
+        if ('WebSocket' in window) connectSocket();
+        else poll();
+      };
+      if ('requestIdleCallback' in window) {
+        window.requestIdleCallback(startNotifications, { timeout: 1000 });
+      } else {
+        window.setTimeout(startNotifications, 250);
+      }
     });
   </script>
   {% endif %}

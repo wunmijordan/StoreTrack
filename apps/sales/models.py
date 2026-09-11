@@ -34,8 +34,20 @@ class Customer(BusinessOwnedModel):
     @property
     def outstanding_balance(self):
         total = Decimal("0")
-        for sale in self.sales_records.filter(source__in=("distribution_order", "online_order"), transaction_type__in=("unpaid", "partial")).prefetch_related("items", "payments"):
-            total += max(Decimal("0"), sale.total - sum((p.amount for p in sale.payments.all()), Decimal("0")))
+        # Customer list pages attach only the relevant open sales to this
+        # attribute. Honour that prefetch when present; callers elsewhere keep
+        # the existing scoped-query fallback and therefore unchanged behaviour.
+        sales = getattr(self, "_open_sales_for_balance", None)
+        if sales is None:
+            sales = self.sales_records.filter(
+                source__in=("distribution_order", "online_order"),
+                transaction_type__in=("unpaid", "partial"),
+            ).prefetch_related("items__finished_good", "payments")
+        for sale in sales:
+            total += max(
+                Decimal("0"),
+                sale.total - sum((payment.amount for payment in sale.payments.all()), Decimal("0")),
+            )
         return total
 
 

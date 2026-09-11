@@ -2,11 +2,12 @@ from decimal import Decimal
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
+from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from .forms import PurchaseOrderForm, PurchaseOrderItemFormSet
-from .models import PurchaseOrder, RawMaterialCostSnapshot, SupplierPayment
+from .models import PurchaseOrder, PurchaseOrderItem, RawMaterialCostSnapshot, SupplierPayment
 from inventory.models import RawMaterial
 from inventory.services import record_finished_good_movement, record_raw_material_movement
 from inventory.models import FinishedGood, StockMovement
@@ -48,15 +49,28 @@ def _ensure_po_payment_recorded(po, user):
 
 @login_required
 def procurement_list(request):
-    raw_materials = RawMaterial.objects.all()
-    
-    raw_material_categories = []
-    for value, label in RawMaterial.CATEGORY_CHOICES:
-        items = raw_materials.filter(category=value)
-        raw_material_categories.append({"value": value, "label": label, "items": items})
-        
+    # Material categories are a small fixed set. Load this tenant's materials
+    # once and group them in Python instead of issuing one query per category.
+    raw_materials = list(RawMaterial.objects.all())
+    grouped_materials = {value: [] for value, _ in RawMaterial.CATEGORY_CHOICES}
+    for material in raw_materials:
+        grouped_materials.setdefault(material.category, []).append(material)
+    raw_material_categories = [
+        {"value": value, "label": label, "items": grouped_materials.get(value, [])}
+        for value, label in RawMaterial.CATEGORY_CHOICES
+    ]
+
+    # The list renders creator plus each PO line's material/product repeatedly.
+    # Join the creator and fold line-item foreign keys into the item prefetch so
+    # query count stays constant as the number of purchase orders grows.
+    orders = PurchaseOrder.objects.select_related("created_by").prefetch_related(
+        Prefetch(
+            "items",
+            queryset=PurchaseOrderItem.objects.select_related("raw_material", "finished_good"),
+        )
+    )
     return render(request, "procurement/procurement_list.html", {
-        "orders": PurchaseOrder.objects.prefetch_related("items__raw_material", "items__finished_good"),
+        "orders": orders,
         "raw_material_categories": raw_material_categories,
     })
 

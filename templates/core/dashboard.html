@@ -1,6 +1,9 @@
 {% extends "base.html" %} 
 {% load core_extras %} 
-{% block head_scripts %}<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>{% endblock %}
+{% block head_scripts %}
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.17.1/dist/cdn.min.js"></script>
+{% endblock %}
 {% block content %}
 <style>
   [x-cloak] { display: none !important; }
@@ -950,13 +953,34 @@
 </div>
 
 {{ financial_json|json_script:"financial-data" }}
-{{ financial_breakdown_json|json_script:"financial-breakdown-data" }}
-
-<div x-data="{ scope: null, data: {}, chart: null }"
-     x-init="
-       data = JSON.parse(document.getElementById('financial-breakdown-data').textContent || '{}');
-       window.addEventListener('financial-scope', e => { scope = e.detail; $nextTick(() => renderFinancialBreakdown(scope, data)); });
-     "
+<div x-data="{
+       scope: null,
+       data: {},
+       loading: false,
+       error: '',
+       async openFinancialScope(nextScope) {
+         this.scope = nextScope;
+         this.error = '';
+         if (this.data[nextScope]) {
+           requestAnimationFrame(() => renderFinancialBreakdown(nextScope, this.data));
+           return;
+         }
+         this.loading = true;
+         try {
+           const response = await fetch(`{% url 'dashboard_financial_breakdown' %}?scope=${encodeURIComponent(nextScope)}`, {
+             headers: { 'X-Requested-With': 'XMLHttpRequest' }
+           });
+           if (!response.ok) throw new Error('Unable to load financial summary.');
+           this.data[nextScope] = await response.json();
+           requestAnimationFrame(() => renderFinancialBreakdown(nextScope, this.data));
+         } catch (err) {
+           this.error = err?.message || 'Unable to load financial summary.';
+         } finally {
+           this.loading = false;
+         }
+       }
+     }"
+     x-init="window.addEventListener('financial-scope', e => openFinancialScope(e.detail))"
      x-show="scope"
      x-cloak
      class="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-stone-950/55 backdrop-blur-sm"
@@ -972,14 +996,17 @@
       <button @click="scope = null" class="text-stone-400 hover:text-stone-700 text-xl">&times;</button>
     </div>
     <div class="p-5">
+      <div x-show="loading" class="py-10 text-center text-sm text-stone-500">Loading financial summary…</div>
+      <div x-show="error" class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700" x-text="error"></div>
+      <div x-show="scope && data[scope] && !loading">
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-        <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Sales revenue</div><div class="font-mono font-bold text-[#8f172d] mt-1" x-text="money(scope ? data[scope].sales_total : 0)"></div></div>
-        <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Cash outflow</div><div class="font-mono font-bold text-rose-700 mt-1" x-text="money(scope ? data[scope].total_cash_out : 0)"></div></div>
-        <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Net cash flow</div><div class="font-mono font-bold mt-1" :class="(scope && data[scope].net_cash_flow) >= 0 ? 'text-emerald-700' : 'text-rose-700'" x-text="money(scope ? data[scope].net_cash_flow : 0)"></div></div>
-        <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Gross profit</div><div class="font-mono font-bold text-emerald-700 mt-1" x-text="money(scope ? data[scope].gross_profit : 0)"></div></div>
-        <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Unpaid product value</div><div class="font-mono font-bold text-amber-700 mt-1" x-text="money(scope ? data[scope].unpaid_product_retail_value : 0)"></div></div>
-        <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Goods produced</div><div class="font-mono font-bold text-stone-700 mt-1" x-text="number(scope ? data[scope].produced_units : 0)"></div></div>
-        <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Operational supplies consumed</div><div class="font-mono font-bold text-amber-700 mt-1" x-text="money(scope ? data[scope].operational_dispensed_cost : 0)"></div><div class="text-[9px] text-stone-400">Inventory consumption; not an additional cash outflow</div></div>
+        <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Sales revenue</div><div class="font-mono font-bold text-[#8f172d] mt-1" x-text="money(data[scope]?.sales_total || 0)"></div></div>
+        <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Cash outflow</div><div class="font-mono font-bold text-rose-700 mt-1" x-text="money(data[scope]?.total_cash_out || 0)"></div></div>
+        <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Net cash flow</div><div class="font-mono font-bold mt-1" :class="(data[scope]?.net_cash_flow || 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'" x-text="money(data[scope]?.net_cash_flow || 0)"></div></div>
+        <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Gross profit</div><div class="font-mono font-bold text-emerald-700 mt-1" x-text="money(data[scope]?.gross_profit || 0)"></div></div>
+        <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Unpaid product value</div><div class="font-mono font-bold text-amber-700 mt-1" x-text="money(data[scope]?.unpaid_product_retail_value || 0)"></div></div>
+        <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Goods produced</div><div class="font-mono font-bold text-stone-700 mt-1" x-text="number(data[scope]?.produced_units || 0)"></div></div>
+        <div class="rounded-xl bg-white border border-[#E7DFCC] p-3"><div class="text-[9px] uppercase tracking-wider text-stone-400 font-bold">Operational supplies consumed</div><div class="font-mono font-bold text-amber-700 mt-1" x-text="money(data[scope]?.operational_dispensed_cost || 0)"></div><div class="text-[9px] text-stone-400">Inventory consumption; not an additional cash outflow</div></div>
       </div>
       <div class="grid lg:grid-cols-2 gap-5">
         <div class="rounded-xl bg-white border border-[#E7DFCC] p-4">
@@ -1020,6 +1047,7 @@
           </div>
         </div>
       </div>
+      </div>
     </div>
   </div>
 </div>
@@ -1053,7 +1081,7 @@ function renderFinancialBreakdown(scope, data) {
   });
 }
 
-(function () {
+document.addEventListener('DOMContentLoaded', function () {
   const dataEl = document.getElementById('financial-data');
   const canvas = document.getElementById('financial-outlook-chart');
   const buttons = [...document.querySelectorAll('.financial-period-btn')];
@@ -1228,7 +1256,7 @@ function renderFinancialBreakdown(scope, data) {
   });
 
   render('week');
-})();
+});
 </script>
 
 <script>

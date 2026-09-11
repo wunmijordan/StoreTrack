@@ -1,9 +1,11 @@
+from decimal import Decimal
+
 from django import forms
-from django.db.models import Sum
+from django.db.models import Prefetch, Sum
 from .models import CashAccount
 from inventory.models import StockAdjustment, RawMaterial, FinishedGood, InventoryLocation
 from procurement.models import SupplierPayment, PurchaseOrder
-from sales.models import CustomerPayment, Sale
+from sales.models import CustomerPayment, Sale, SaleItem
 from expenses.models import Expense
 
 CLS = "w-full rounded-md border border-[#D9CFB4] bg-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#8f172d]/30 focus:border-[#8f172d]"
@@ -44,7 +46,18 @@ class CustomerPaymentForm(Base):
     widgets={"date":forms.DateInput(attrs={"type":"date"})}
     def __init__(self,*a,**kw):
         super().__init__(*a,**kw)
-        sales=list(Sale.objects.filter(source__in=("distribution_order","online_order"),transaction_type__in=("unpaid","partial")).prefetch_related("items","payments").order_by("customer","-date","-id"))
+        sales=list(
+            Sale.objects.filter(
+                source__in=("distribution_order", "online_order"),
+                transaction_type__in=("unpaid", "partial"),
+            )
+            .select_related("business")
+            .prefetch_related(
+                Prefetch("items", queryset=SaleItem.objects.select_related("finished_good")),
+                "payments",
+            )
+            .order_by("customer", "-date", "-id")
+        )
         self.fields["sale"].queryset=Sale.objects.filter(pk__in=[s.pk for s in sales])
         customers=sorted({s.customer for s in sales if s.customer})
         self.fields["customer"].choices=[("","Select customer…")]+[(c,c) for c in customers]
@@ -52,7 +65,9 @@ class CustomerPaymentForm(Base):
         self.fields["account"].required=True
         self.sales_payload={}
         for s in sales:
-            paid=s.payments.aggregate(v=Sum("amount"))["v"] or 0
+            # Payments are already prefetched above; aggregating here would
+            # issue one extra SQL query for every open sale on form load.
+            paid = sum((payment.amount for payment in s.payments.all()), Decimal("0"))
             self.sales_payload.setdefault(s.customer,[]).append({"id":s.pk,"label":f"Sale #{s.pk} — {s.display_source} — outstanding {s.total-paid:,.2f}","outstanding":float(s.total-paid)})
         self.fields["customer"].widget.attrs["data-customer-sales"]="1"
     def clean(self):

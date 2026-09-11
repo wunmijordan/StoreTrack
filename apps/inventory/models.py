@@ -258,24 +258,42 @@ class FinishedGood(BusinessOwnedModel):
         per unit) — recipe quantities are per batch, so this divides the
         batch cost back down by units_per_batch."""
         if self.business_id and not self.business.uses_production:
-            latest_purchase = self.stock_movements.filter(
-                movement_type=StockMovement.FG_PURCHASE,
-                quantity__gt=0,
-            ).order_by("-occurred_at", "-id").first()
-            if latest_purchase is not None:
-                return latest_purchase.unit_value
+            if hasattr(self, "prefetched_latest_purchase_unit_value"):
+                latest_value = self.prefetched_latest_purchase_unit_value
+                if latest_value is not None:
+                    return latest_value
+            else:
+                latest_purchase = self.stock_movements.filter(
+                    movement_type=StockMovement.FG_PURCHASE,
+                    quantity__gt=0,
+                ).order_by("-occurred_at", "-id").first()
+                if latest_purchase is not None:
+                    return latest_purchase.unit_value
         batch_cost = Decimal("0")
-        for ri in self.recipe_items.select_related("raw_material"):
+        prefetched = getattr(self, "_prefetched_objects_cache", {})
+        recipe_items = prefetched.get("recipe_items")
+        if recipe_items is None:
+            recipe_items = list(self.recipe_items.select_related("raw_material"))
+        production_materials = prefetched.get("production_materials")
+        if production_materials is None:
+            production_materials = list(self.production_materials.select_related("raw_material"))
+
+        for ri in recipe_items:
             batch_cost += ri.raw_material.cost_per_unit * ri.qty_per_batch
-        for pm in self.production_materials.select_related("raw_material"):
+        for pm in production_materials:
             batch_cost += pm.raw_material.cost_per_unit * pm.qty_per_batch
-        if not self.recipe_items.exists() and not self.production_materials.exists():
-            latest_purchase = self.stock_movements.filter(
-                movement_type=StockMovement.FG_PURCHASE,
-                quantity__gt=0,
-            ).order_by("-occurred_at", "-id").first()
-            if latest_purchase is not None:
-                return latest_purchase.unit_value
+        if not recipe_items and not production_materials:
+            if hasattr(self, "prefetched_latest_purchase_unit_value"):
+                latest_value = self.prefetched_latest_purchase_unit_value
+                if latest_value is not None:
+                    return latest_value
+            else:
+                latest_purchase = self.stock_movements.filter(
+                    movement_type=StockMovement.FG_PURCHASE,
+                    quantity__gt=0,
+                ).order_by("-occurred_at", "-id").first()
+                if latest_purchase is not None:
+                    return latest_purchase.unit_value
         upb = self.units_per_batch or Decimal("1")
         return batch_cost / upb
 

@@ -52,16 +52,46 @@ def _commerce_enabled(business):
 @login_required
 def commerce_dashboard(request):
     settings = _settings_for(request.business)
-    for good in FinishedGood.objects.all():
-        StorefrontProduct.objects.get_or_create(
-            finished_good=good,
-            defaults={"business": request.business, "created_by": request.user, "allow_stock_order": True, "allow_preorder": request.business.uses_production},
+
+    # A storefront row is required for each product, but doing get_or_create()
+    # once per FinishedGood made dashboard query count grow linearly. Discover
+    # missing rows in one query and create only those, tolerating a concurrent
+    # dashboard request racing on the OneToOne constraint.
+    good_ids = list(FinishedGood.objects.values_list("pk", flat=True))
+    existing_ids = set(
+        StorefrontProduct.objects.filter(finished_good_id__in=good_ids).values_list(
+            "finished_good_id", flat=True
         )
-    products = FinishedGood.objects.select_related("storefront_product").order_by("name")
-    intakes = CommerceIntake.objects.prefetch_related("items__finished_good", "payments")[:50]
+    ) if good_ids else set()
+    missing_products = [
+        StorefrontProduct(
+            business=request.business,
+            created_by=request.user,
+            finished_good_id=good_id,
+            allow_stock_order=True,
+            allow_preorder=request.business.uses_production,
+        )
+        for good_id in good_ids
+        if good_id not in existing_ids
+    ]
+    if missing_products:
+        StorefrontProduct.objects.bulk_create(missing_products, ignore_conflicts=True)
+
+    products = FinishedGood.objects.select_related("business", "storefront_product").order_by("name")
+    intakes = CommerceIntake.objects.select_related("business").prefetch_related(
+        "items", "payments"
+    )[:50]
     checkouts = CommerceCheckoutSession.objects.select_related("materialized_intake").prefetch_related("payments")[:50]
-    integrations = CommerceIntegration.objects.all().order_by("name")
-    return render(request, "commerce/dashboard.html", {"commerce_settings": settings, "products": products, "intakes": intakes, "checkouts": checkouts, "integrations": integrations if is_business_admin(request.user, request.business) else [], "can_manage_commerce": is_business_admin(request.user, request.business)})
+    is_admin = is_business_admin(request.user, request.business)
+    integrations = CommerceIntegration.objects.all().order_by("name") if is_admin else []
+    return render(request, "commerce/dashboard.html", {
+        "commerce_settings": settings,
+        "products": products,
+        "intakes": intakes,
+        "checkouts": checkouts,
+        "integrations": integrations,
+        "can_manage_commerce": is_admin,
+    })
 
 
 @login_required

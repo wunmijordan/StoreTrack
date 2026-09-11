@@ -7,13 +7,13 @@ from django.db.models.deletion import ProtectedError
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
-from django.db.models import Sum
+from django.db.models import Prefetch, Q, Sum
 from openpyxl import Workbook
 from .models import CashAccount, FinancialTransaction, AuditLog
 from .finance_forms import CashAccountForm, SupplierPaymentForm, CustomerPaymentForm, StockAdjustmentForm
 from .services import record_cash, audit
 from procurement.models import SupplierPayment, PurchaseOrder
-from sales.models import CustomerPayment, Sale
+from sales.models import CustomerPayment, Sale, SaleItem
 from inventory.models import StockAdjustment, StockMovement
 from expenses.models import Expense, ExpensePayment
 from inventory.services import record_raw_material_movement, record_finished_good_movement
@@ -87,32 +87,83 @@ def _audit_trail_rows(request):
 
 @login_required
 def finance_dashboard(request):
-    accounts=CashAccount.objects.all()
-    tx=_finance_transactions(request)[:100]
-    receivables = Decimal("0")
-    for s in Sale.objects.filter(source__in=("distribution_order","online_order"), transaction_type__in=("unpaid","partial")).prefetch_related("items","payments"):
-        receivables += max(Decimal("0"), s.total - sum((p.amount for p in s.payments.all()), Decimal("0")))
-    payables = Decimal("0")
-    for p in PurchaseOrder.objects.filter(payment_status__in=("unpaid","partial"), status="received").prefetch_related("items","payments"):
-        payables += max(Decimal("0"), p.total - sum((x.amount for x in p.payments.all()), Decimal("0")))
-    payables += Expense.objects.filter(payment_status="unpaid").aggregate(v=Sum("amount"))["v"] or Decimal("0")
+    # Resolve all cash-account balances with one grouped ledger query instead
+    # of one reverse-relation query per account (or loading the full ledger).
+    accounts = list(CashAccount.objects.all())
+    ledger_totals = {
+        row["account_id"]: row
+        for row in (
+            FinancialTransaction.objects.filter(account_id__isnull=False)
+            .values("account_id")
+            .annotate(
+                money_in=Sum("amount", filter=Q(transaction_type=FinancialTransaction.INCOME)),
+                money_out=Sum("amount", filter=Q(transaction_type=FinancialTransaction.OUTFLOW)),
+            )
+        )
+    }
+    for account in accounts:
+        totals = ledger_totals.get(account.pk, {})
+        account._calculated_balance = (
+            account.opening_balance
+            + (totals.get("money_in") or Decimal("0"))
+            - (totals.get("money_out") or Decimal("0"))
+        )
+    tx = _finance_transactions(request)[:100]
+
+    # Receivable/payable rows were previously loaded twice: once for totals and
+    # again for the visible lists. Materialize each prefetched dataset once and
+    # derive both outputs from the same objects.
+    open_sales = list(
+        Sale.objects.filter(
+            source__in=("distribution_order", "online_order"),
+            transaction_type__in=("unpaid", "partial"),
+        ).select_related("business").prefetch_related(
+            Prefetch("items", queryset=SaleItem.objects.select_related("finished_good")),
+            "payments",
+        )
+    )
     outstanding_sales = []
-    for sale in Sale.objects.filter(source__in=("distribution_order","online_order"), transaction_type__in=("unpaid","partial")).prefetch_related("items","payments"):
-        paid = sum((p.amount for p in sale.payments.all()), Decimal("0"))
+    receivables = Decimal("0")
+    for sale in open_sales:
+        paid = sum((payment.amount for payment in sale.payments.all()), Decimal("0"))
         balance = max(Decimal("0"), sale.total - paid)
-        if balance: outstanding_sales.append({"sale": sale, "balance": balance})
+        receivables += balance
+        if balance:
+            outstanding_sales.append({"sale": sale, "balance": balance})
+
+    open_pos = list(
+        PurchaseOrder.objects.filter(
+            payment_status__in=("unpaid", "partial"), status="received"
+        ).prefetch_related("items", "payments")
+    )
     outstanding_pos = []
-    for po in PurchaseOrder.objects.filter(status="received", payment_status__in=("unpaid","partial")).prefetch_related("items","payments"):
-        paid = sum((p.amount for p in po.payments.all()), Decimal("0"))
+    purchase_payables = Decimal("0")
+    for po in open_pos:
+        paid = sum((payment.amount for payment in po.payments.all()), Decimal("0"))
         balance = max(Decimal("0"), po.total - paid)
-        if balance: outstanding_pos.append({"po": po, "balance": balance})
+        purchase_payables += balance
+        if balance:
+            outstanding_pos.append({"po": po, "balance": balance})
+
+    expense_payables = (
+        Expense.objects.filter(payment_status="unpaid").aggregate(v=Sum("amount"))["v"]
+        or Decimal("0")
+    )
+    payables = purchase_payables + expense_payables
     outstanding_expenses = [
         {"expense": e, "balance": e.amount}
-        for e in Expense.objects.filter(payment_status="unpaid").order_by("-date","-id")[:30]
+        for e in Expense.objects.filter(payment_status="unpaid").order_by("-date", "-id")[:30]
     ]
-    return render(request,"core/finance.html",{"accounts":accounts,"transactions":tx,"audit_logs":_finance_audit_logs(request)[:80],
-        "receivables":receivables,"payables":payables,"outstanding_sales":outstanding_sales[:30],
-        "outstanding_pos":outstanding_pos[:30],"outstanding_expenses":outstanding_expenses})
+    return render(request, "core/finance.html", {
+        "accounts": accounts,
+        "transactions": tx,
+        "audit_logs": _finance_audit_logs(request)[:80],
+        "receivables": receivables,
+        "payables": payables,
+        "outstanding_sales": outstanding_sales[:30],
+        "outstanding_pos": outstanding_pos[:30],
+        "outstanding_expenses": outstanding_expenses,
+    })
 @login_required
 def cash_account_form(request,pk=None):
     obj=get_object_or_404(CashAccount,pk=pk) if pk else None

@@ -302,25 +302,17 @@ def _financial_breakdown(start, end):
     }
 
 
-def _financial_breakdown_json():
-    t = today()
-    month_start = t.replace(day=1)
-    year_start = t.replace(month=1, day=1)
-    return {
-        "month": _financial_breakdown(month_start, t),
-        "year": _financial_breakdown(year_start, t),
-    }
+def _financial_daily_ledgers(start, end):
+    """Load the dashboard's year-to-date finance ledgers once per request.
 
-
-def _financial_snapshot():
-    periods = _financial_periods()
-    year_start = min(start for _label, start, _end in periods)
-    period_end = max(end for _label, _start, end in periods)
-
+    Both the financial cards and the chart consume the same sales, cash-out and
+    expense rows. Keeping that shared data in one in-memory snapshot avoids
+    repeating the same PostgreSQL round trips during a dashboard render.
+    """
     sales_by_date = defaultdict(Decimal)
     cogs_by_date = defaultdict(Decimal)
     for sale in (
-        Sale.objects.filter(date__range=(year_start, period_end), transaction_type="paid")
+        Sale.objects.filter(date__range=(start, end), transaction_type="paid")
         .prefetch_related("items__finished_good")
     ):
         sales_by_date[sale.date] += sale.total
@@ -329,8 +321,8 @@ def _financial_snapshot():
 
     procurement_by_date = defaultdict(Decimal)
     purchase_orders = PurchaseOrder.objects.filter(status="received").filter(
-        Q(received_date__range=(year_start, period_end))
-        | Q(received_date__isnull=True, date__range=(year_start, period_end))
+        Q(received_date__range=(start, end))
+        | Q(received_date__isnull=True, date__range=(start, end))
     ).prefetch_related("items")
     for purchase_order in purchase_orders:
         procurement_date = purchase_order.received_date or purchase_order.date
@@ -339,7 +331,7 @@ def _financial_snapshot():
     cash_procurement_by_date = {
         row["date"]: row["total"] or Decimal("0")
         for row in FinancialTransaction.objects.filter(
-            date__range=(year_start, period_end),
+            date__range=(start, end),
             transaction_type=FinancialTransaction.OUTFLOW,
             category__in=("Procurement", "Supplier payment"),
         ).values("date").annotate(total=Sum("amount"))
@@ -347,9 +339,31 @@ def _financial_snapshot():
     expenses_by_date = {
         row["date"]: row["total"] or Decimal("0")
         for row in Expense.objects.filter(
-            date__range=(year_start, period_end), payment_status="paid"
+            date__range=(start, end), payment_status="paid"
         ).values("date").annotate(total=Sum("amount"))
     }
+    return {
+        "start": start,
+        "end": end,
+        "sales_by_date": sales_by_date,
+        "cogs_by_date": cogs_by_date,
+        "procurement_by_date": procurement_by_date,
+        "cash_procurement_by_date": cash_procurement_by_date,
+        "expenses_by_date": expenses_by_date,
+    }
+
+
+def _financial_snapshot(ledger=None):
+    periods = _financial_periods()
+    year_start = min(start for _label, start, _end in periods)
+    period_end = max(end for _label, _start, end in periods)
+    ledger = ledger or _financial_daily_ledgers(year_start, period_end)
+
+    sales_by_date = ledger["sales_by_date"]
+    cogs_by_date = ledger["cogs_by_date"]
+    procurement_by_date = ledger["procurement_by_date"]
+    cash_procurement_by_date = ledger["cash_procurement_by_date"]
+    expenses_by_date = ledger["expenses_by_date"]
 
     def period_total(values, start, end):
         return sum(
@@ -380,7 +394,7 @@ def _financial_snapshot():
     return rows
 
 
-def _financial_chart_series():
+def _financial_chart_series(ledger=None):
     """Return dashboard chart data at useful resolutions for each period tab.
 
     Week/month use daily points; quarter uses weekly points; year uses monthly
@@ -394,30 +408,12 @@ def _financial_chart_series():
     year_start = t.replace(month=1, day=1)
     data_start = min(year_start, week_start)
 
-    # Load the year's three chart ledgers once. The previous implementation
-    # issued separate sales, cash-out and expense queries for every point on
-    # every chart (well over 100 round trips late in the year).
-    sales_by_date = defaultdict(Decimal)
-    for sale in (
-        Sale.objects.filter(date__range=(data_start, t), transaction_type="paid")
-        .prefetch_related("items__finished_good")
-    ):
-        sales_by_date[sale.date] += sale.total
-
-    procurement_by_date = {
-        row["date"]: row["total"] or Decimal("0")
-        for row in FinancialTransaction.objects.filter(
-            date__range=(data_start, t),
-            transaction_type=FinancialTransaction.OUTFLOW,
-            category__in=("Procurement", "Supplier payment"),
-        ).values("date").annotate(total=Sum("amount"))
-    }
-    expenses_by_date = {
-        row["date"]: row["total"] or Decimal("0")
-        for row in Expense.objects.filter(
-            date__range=(data_start, t), payment_status="paid"
-        ).values("date").annotate(total=Sum("amount"))
-    }
+    # The dashboard passes the same year-to-date ledger used by the financial
+    # cards. Standalone callers still load it here for backward compatibility.
+    ledger = ledger or _financial_daily_ledgers(data_start, t)
+    sales_by_date = ledger["sales_by_date"]
+    procurement_by_date = ledger["cash_procurement_by_date"]
+    expenses_by_date = ledger["expenses_by_date"]
 
     def period_total(values, start, end):
         return sum(
@@ -475,23 +471,36 @@ def _financial_chart_json():
     return _financial_chart_series()
 
 
-def _sales_by_channel(start=None, end=None):
-    qs = Sale.objects.all()
-    if start and end:
-        qs = qs.filter(date__range=(start, end))
+def _sales_by_channel(start=None, end=None, sales=None):
+    if sales is None:
+        qs = Sale.objects.all()
+        if start and end:
+            qs = qs.filter(date__range=(start, end))
+        sales = qs.prefetch_related("items__finished_good")
     result = {"walkin": Decimal("0"), "distribution_order": Decimal("0"), "online_order": Decimal("0")}
-    for sale in qs.prefetch_related("items__finished_good"):
+    for sale in sales:
+        if start and end and not (start <= sale.date <= end):
+            continue
         result[sale.source] = result.get(sale.source, Decimal("0")) + sale.total
     return result
 
-def _channel_breakdown(channel, start, end):
+def _channel_breakdown(channel, start, end, sales=None):
     """Sales breakdown for a customer channel by region and customer group."""
     source = {"distribution": "distribution_order", "online": "online_order"}.get(channel)
     if not source:
         return []
-    sales = Sale.objects.filter(source=source, date__range=(start, end), transaction_type="paid").select_related("linked_order").prefetch_related("items__finished_good")
+    if sales is None:
+        sales = (
+            Sale.objects.filter(
+                source=source, date__range=(start, end), transaction_type="paid"
+            )
+            .select_related("linked_order")
+            .prefetch_related("items__finished_good")
+        )
     buckets = {}
     for sale in sales:
+        if sale.source != source or sale.transaction_type != "paid" or not (start <= sale.date <= end):
+            continue
         order = sale.linked_order
         region = (order.customer_region if order and order.customer_region else "Unassigned region").strip()
         group = (order.customer_group if order and order.customer_group else "Unassigned group").strip()
@@ -1408,11 +1417,22 @@ def dashboard(request):
     low_goods = [g for g in finished_goods if g.is_low]
     total_low_count = len(low_raw) + len(low_goods)
     total_warning_count = len(warning_raw) + len(warning_goods)
-    pending_orders = Order.objects.filter(status="pending")
-    open_purchase_orders = PurchaseOrder.objects.exclude(status="received")
-    today_sales = list(
-        Sale.objects.filter(date=dashboard_date).prefetch_related("items__finished_good")
+    if request.business.uses_production:
+        pending_orders_count = Order.objects.filter(status="pending").count()
+        open_purchase_orders_count = 0
+    else:
+        pending_orders_count = 0
+        open_purchase_orders_count = PurchaseOrder.objects.exclude(status="received").count()
+
+    # The dashboard uses current-month sales for today's KPIs and both channel
+    # summaries. Load that relation graph once instead of repeating it for each
+    # card/modal.
+    month_sales = list(
+        Sale.objects.filter(date__range=(month_start, dashboard_date))
+        .select_related("linked_order")
+        .prefetch_related("items__finished_good")
     )
+    today_sales = [sale for sale in month_sales if sale.date == dashboard_date]
     today_revenue = sum(
         (sale.total for sale in today_sales if sale.transaction_type == "paid"),
         Decimal("0"),
@@ -1450,20 +1470,25 @@ def dashboard(request):
         )
         monthly_units = received_totals["monthly"] or Decimal("0")
         yearly_units = received_totals["yearly"] or Decimal("0")
-    financial = _financial_snapshot()
-    financial_json = _financial_chart_series()
-    financial_breakdown_json = _financial_breakdown_json()
-    channel = _sales_by_channel(month_start, dashboard_date)
+    financial_ledger_start = min(
+        year_start, dashboard_date - timedelta(days=dashboard_date.weekday())
+    )
+    financial_ledger = _financial_daily_ledgers(financial_ledger_start, dashboard_date)
+    financial = _financial_snapshot(financial_ledger)
+    financial_json = _financial_chart_series(financial_ledger)
+    channel = _sales_by_channel(month_start, dashboard_date, sales=month_sales)
     channel_breakdowns = {
         "distribution": _channel_breakdown(
             "distribution",
             month_start,
             dashboard_date,
+            sales=month_sales,
         ),
         "online": _channel_breakdown(
             "online",
             month_start,
             dashboard_date,
+            sales=month_sales,
         ),
     }
 
@@ -1497,8 +1522,8 @@ def dashboard(request):
         "low_goods": low_goods,
         "total_low_count": total_low_count,
         "total_warning_count": total_warning_count,
-        "pending_orders_count": pending_orders.count(),
-        "open_purchase_orders_count": open_purchase_orders.count(),
+        "pending_orders_count": pending_orders_count,
+        "open_purchase_orders_count": open_purchase_orders_count,
         "today_sales_count": len(today_sales),
         "today_revenue": today_revenue,
         "daily_units_made": daily_units_made,
@@ -1507,7 +1532,6 @@ def dashboard(request):
         "yearly_units": yearly_units,
         "financial": financial,
         "financial_json": financial_json,
-        "financial_breakdown_json": financial_breakdown_json,
         "channel_sales": channel,
         "channel_breakdowns": channel_breakdowns,
         "all_raw_materials": raw_materials,
@@ -1519,6 +1543,26 @@ def dashboard(request):
         "stock_periods": stock_periods,
         "stock_unit": stock_unit,
     })
+
+
+@login_required
+def dashboard_financial_breakdown(request):
+    """Load the dashboard's detailed finance modal only when it is opened.
+
+    The month/year breakdown touches several ledgers. Keeping it out of the
+    initial dashboard render materially reduces warm-navigation database work,
+    while preserving exactly the same figures when a user requests the modal.
+    """
+    scope = request.GET.get("scope", "month")
+    dashboard_date = today()
+    if scope == "month":
+        start = dashboard_date.replace(day=1)
+    elif scope == "year":
+        start = dashboard_date.replace(month=1, day=1)
+    else:
+        return JsonResponse({"error": "Invalid financial scope."}, status=400)
+
+    return JsonResponse(_financial_breakdown(start, dashboard_date))
 
 
 @login_required

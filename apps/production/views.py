@@ -3,7 +3,7 @@ from decimal import Decimal
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.crypto import get_random_string
@@ -37,7 +37,9 @@ def _can_reset_order_numbering(request):
 
 @login_required
 def orders_list(request):
-    orders = Order.objects.prefetch_related("items__finished_good")
+    orders = Order.objects.select_related("business").prefetch_related(
+        Prefetch("items", queryset=OrderItem.objects.select_related("finished_good"))
+    )
     current_business_empty = not Order.raw_objects.filter(business=request.business).exists()
     can_reset_current_business_numbering = (
         _can_reset_order_numbering(request) and current_business_empty
@@ -361,8 +363,11 @@ def _shared_run_release_plan(production_run, post_data=None):
 
 @login_required
 def production_runs(request):
+    run_orders = Order.objects.select_related("business", "customer").prefetch_related(
+        Prefetch("items", queryset=OrderItem.objects.select_related("finished_good"))
+    )
     runs = ProductionRun.objects.prefetch_related(
-        "orders__customer", "orders__items__finished_good"
+        Prefetch("orders", queryset=run_orders)
     )
     return render(request, "production/runs_list.html", {"runs": runs})
 
@@ -996,14 +1001,13 @@ def order_complete(request, pk):
 def production_batches(request):
     # One row per production order. Products/batches are nested under the
     # order so multi-product orders are not fragmented into separate rows.
-    from django.db.models import Prefetch
     batches_qs = ProductionBatch.objects.filter(is_reversed=False).select_related(
         "finished_good", "quality_check"
     ).prefetch_related("sale_items__sale")
     orders = Order.objects.filter(
         production_batches__isnull=False, production_batches__is_reversed=False
-    ).distinct().select_related("customer").prefetch_related(
-        "items__finished_good",
+    ).distinct().select_related("business", "customer").prefetch_related(
+        Prefetch("items", queryset=OrderItem.objects.select_related("finished_good")),
         Prefetch("production_batches", queryset=batches_qs),
     )
     return render(request, "production/batches_list.html", {"orders": orders})

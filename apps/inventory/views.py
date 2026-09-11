@@ -8,7 +8,7 @@ from django.utils import timezone
 from django.shortcuts import get_object_or_404, redirect, render
 from django.http import HttpResponse
 from django.http import JsonResponse
-from django.db.models import Q, Sum
+from django.db.models import OuterRef, Prefetch, Q, Subquery, Sum
 from django.db.models.functions import TruncDate
 
 from django.views.decorators.http import require_POST
@@ -30,7 +30,9 @@ from .models import (
     MarketStockLot,
     MarketStockMovement,
     OperationalSupplyDispense,
+    ProductionMaterial,
     RawMaterial,
+    RecipeItem,
     StockMovement,
 )
 from core.services import audit
@@ -125,12 +127,35 @@ def operational_supply_dispense(request):
 
 @login_required
 def inventory(request):
-    return render(request, "inventory/inventory.html", {
-        "raw_materials": RawMaterial.objects.all(),
-        "finished_goods": FinishedGood.objects.select_related("business").prefetch_related(
+    finished_goods = FinishedGood.objects.select_related("business")
+    if request.business.uses_production:
+        finished_goods = finished_goods.prefetch_related(
             "production_batches__reconciliation_out",
             "recipe_items", "production_materials", "market_stock_lots",
-        ),
+        )
+    else:
+        # Stock-first businesses display the latest purchase cost per product.
+        # Resolve that value with one correlated subquery instead of one stock
+        # movement lookup for every FinishedGood rendered in the table.
+        latest_purchase_cost = (
+            StockMovement.objects.filter(
+                finished_good_id=OuterRef("pk"),
+                movement_type=StockMovement.FG_PURCHASE,
+                quantity__gt=0,
+            )
+            .order_by("-occurred_at", "-id")
+            .values("unit_value")[:1]
+        )
+        finished_goods = finished_goods.annotate(
+            prefetched_latest_purchase_unit_value=Subquery(latest_purchase_cost)
+        ).prefetch_related(
+            Prefetch("recipe_items", queryset=RecipeItem.objects.select_related("raw_material")),
+            Prefetch("production_materials", queryset=ProductionMaterial.objects.select_related("raw_material")),
+        )
+
+    return render(request, "inventory/inventory.html", {
+        "raw_materials": RawMaterial.objects.all(),
+        "finished_goods": finished_goods,
     })
 
 

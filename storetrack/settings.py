@@ -87,6 +87,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
+    'core.performance.PerformanceDiagnosticMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -147,15 +148,23 @@ if db_url.startswith(('postgres://', 'postgresql://')):
         raise ImproperlyConfigured(
             "DB_POOL_MAX_SIZE requires DB_CONN_MAX_AGE=0."
         )
+    # A psycopg pool already reuses connections. A Django health check adds an
+    # extra request-time database round trip, so keep it opt-in when pooling
+    # instead of paying that cost on every warm navigation.
     database = dj_database_url.parse(
         db_url,
         conn_max_age=db_conn_max_age,
-        conn_health_checks=True,
+        conn_health_checks=env_bool("DB_CONN_HEALTH_CHECKS", not bool(db_pool_max_size)),
         ssl_require=env_bool("DB_SSL_REQUIRE", not DEBUG),
     )
     if db_pool_max_size:
+        db_pool_min_size = int(os.environ.get("DB_POOL_MIN_SIZE", "0"))
+        if db_pool_min_size < 0 or db_pool_min_size > db_pool_max_size:
+            raise ImproperlyConfigured(
+                "DB_POOL_MIN_SIZE must be between 0 and DB_POOL_MAX_SIZE."
+            )
         database.setdefault("OPTIONS", {})["pool"] = {
-            "min_size": 0,
+            "min_size": db_pool_min_size,
             "max_size": db_pool_max_size,
             "timeout": int(os.environ.get("DB_POOL_TIMEOUT", "10")),
         }
@@ -296,6 +305,49 @@ AUTHENTICATED_IDLE_TIMEOUT_SECONDS = int(os.environ.get("INPROFIC_IDLE_TIMEOUT_S
 AUTHENTICATED_ACTIVITY_WRITE_INTERVAL_SECONDS = int(
     os.environ.get("INPROFIC_ACTIVITY_WRITE_INTERVAL_SECONDS", "60")
 )
+
+# Production-safe warm-request diagnostics. This is intentionally opt-in and
+# does not enable DEBUG or Django's query capture. It records only aggregate
+# request/database timings and logs requests that cross the configured limit.
+PERF_DIAGNOSTICS = env_bool("PERF_DIAGNOSTICS", False)
+PERF_SLOW_REQUEST_MS = int(os.environ.get("PERF_SLOW_REQUEST_MS", "500"))
+PERF_SERVER_TIMING = env_bool("PERF_SERVER_TIMING", True)
+PERF_EXCLUDED_PREFIXES = tuple(
+    env_list("PERF_EXCLUDED_PREFIXES")
+    or ["/health/", "/static/", "/media/", "/ws/"]
+)
+
+# Render runs this service as one Daphne process. cached_db keeps the durable
+# django_session row as the source of truth while avoiding a PostgreSQL session
+# read on every warm page navigation. It is opt-in so PythonAnywhere/local
+# behavior is unchanged unless explicitly enabled.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": os.environ.get("DJANGO_CACHE_LOCATION", "inprofic-runtime"),
+        "OPTIONS": {"MAX_ENTRIES": int(os.environ.get("DJANGO_CACHE_MAX_ENTRIES", "5000"))},
+    }
+}
+SESSION_ENGINE = (
+    "django.contrib.sessions.backends.cached_db"
+    if env_bool("USE_CACHED_DB_SESSIONS", False)
+    else "django.contrib.sessions.backends.db"
+)
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "performance_console": {"class": "logging.StreamHandler"},
+    },
+    "loggers": {
+        "inprofic.performance": {
+            "handlers": ["performance_console"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+    },
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
