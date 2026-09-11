@@ -534,3 +534,59 @@ class FounderPaymentSettingsTests(TestCase):
         })
         self.assertRedirects(response, url, fetch_redirect_response=False)
         self.assertFalse(SubscriptionPayment.objects.exists())
+
+
+class LegacyTenantImportTests(TestCase):
+    def _backup(self, businesses):
+        import os
+        import sqlite3
+        import tempfile
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        handle = tempfile.NamedTemporaryFile(suffix=".sqlite3", delete=False)
+        path = handle.name
+        handle.close()
+        try:
+            connection = sqlite3.connect(path)
+            connection.execute(
+                "CREATE TABLE core_business (id INTEGER PRIMARY KEY, name varchar(120), currency_symbol varchar(5), slug varchar(60), vertical varchar(20), accent_color varchar(7), background_color varchar(7), tagline varchar(100), restaurant_table_service bool)"
+            )
+            for row in businesses:
+                connection.execute(
+                    "INSERT INTO core_business (id,name,currency_symbol,slug,vertical,accent_color,background_color,tagline,restaurant_table_service) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (
+                        row["id"], row["name"], "₦", row["slug"], row.get("vertical", "general"),
+                        "#D14900", "#050733", row.get("tagline", "Legacy tenant"), 1,
+                    ),
+                )
+            connection.commit()
+            connection.close()
+            data = open(path, "rb").read()
+        finally:
+            os.unlink(path)
+        return SimpleUploadedFile("legacy.sqlite3", data, content_type="application/octet-stream")
+
+    def test_dry_run_requires_source_id_when_backup_has_multiple_tenants(self):
+        from .legacy_import import analyze_legacy_sqlite
+        target = Business.objects.create(name="Destination", slug="destination")
+        upload = self._backup([
+            {"id": 1, "name": "Legacy One", "slug": "legacy-one"},
+            {"id": 2, "name": "Legacy Two", "slug": "legacy-two"},
+        ])
+        report = analyze_legacy_sqlite(upload, target)
+        self.assertFalse(report["ready"])
+        self.assertEqual(len(report["source_businesses"]), 2)
+        self.assertIn("multiple tenants", " ".join(report["blockers"]).lower())
+
+    def test_import_is_tenant_scoped_and_copies_business_profile_without_slug(self):
+        from .legacy_import import import_legacy_sqlite
+        target = Business.objects.create(name="Fresh Destination", slug="keep-this-slug")
+        upload = self._backup([
+            {"id": 7, "name": "Legacy Company", "slug": "old-slug", "vertical": "retail", "tagline": "Imported history"},
+        ])
+        result = import_legacy_sqlite(upload, target, 7)
+        target.refresh_from_db()
+        self.assertEqual(target.name, "Legacy Company")
+        self.assertEqual(target.slug, "keep-this-slug")
+        self.assertEqual(target.vertical, "retail")
+        self.assertEqual(result["total_rows"], 0)

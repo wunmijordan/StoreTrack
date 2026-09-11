@@ -190,3 +190,40 @@ class FounderGrantForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.fields["business"].queryset = Business.objects.order_by("name")
         self.fields["plan"].queryset = SubscriptionPlan.objects.filter(active=True).order_by("monthly_price", "id")
+
+
+class LegacyTenantImportForm(forms.Form):
+    target_business = forms.ModelChoiceField(
+        queryset=Business.objects.none(),
+        label="Destination tenant",
+        help_text="Choose the existing Render/Supabase tenant that should receive this legacy data.",
+        widget=forms.Select(attrs={"class": CLS}),
+    )
+    database = forms.FileField(
+        label="Legacy SQLite backup",
+        help_text="Upload the PythonAnywhere .sqlite3/.db backup. The first pass is read-only.",
+        widget=forms.ClearableFileInput(attrs={"accept": ".sqlite,.sqlite3,.db,application/vnd.sqlite3,application/octet-stream", "class": CLS}),
+    )
+    source_business_id = forms.IntegerField(
+        required=False,
+        min_value=1,
+        label="Legacy tenant ID",
+        help_text="Leave blank if the backup contains one tenant. If it contains several, Dry run will list their IDs.",
+        widget=forms.NumberInput(attrs={"class": CLS, "placeholder": "Auto-detect when possible"}),
+    )
+    confirmation = forms.CharField(
+        required=False,
+        label="Import confirmation",
+        help_text="Required only for the real import. Type IMPORT followed by the destination tenant slug, e.g. IMPORT my-business.",
+        widget=forms.TextInput(attrs={"class": CLS, "autocomplete": "off"}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["target_business"].queryset = Business.objects.order_by("name", "id")
+
+    def clean_database(self):
+        uploaded = self.cleaned_data["database"]
+        if getattr(uploaded, "size", 0) > 200 * 1024 * 1024:
+            raise forms.ValidationError("Use a SQLite backup no larger than 200 MB in the Founder Console importer.")
+        return uploaded

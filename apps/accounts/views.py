@@ -434,16 +434,49 @@ def subscription_add_service(request):
 
 @login_required
 def founder_subscriptions(request):
-    from .forms import FounderGrantForm
+    from .forms import FounderGrantForm, LegacyTenantImportForm
     from .models import BusinessSubscription, SubscriptionPlan, SubscriptionPayment, SubscriptionPaymentSettings
     from .subscription_services import ensure_default_plans, grant_founder_lifetime, mark_payment_paid, start_trial_for_business
+    from .legacy_import import LegacyImportError, analyze_legacy_sqlite, import_legacy_sqlite
     if not request.user.is_superuser:
         return render(request, "403.html", status=403)
     ensure_default_plans()
     payment_settings = SubscriptionPaymentSettings.load()
-    form = FounderGrantForm(request.POST or None)
+    action = request.POST.get("action") if request.method == "POST" else ""
+    form = FounderGrantForm(request.POST if action == "grant" else None)
+    legacy_form = LegacyTenantImportForm(
+        request.POST if action in {"legacy_dry_run", "legacy_import"} else None,
+        request.FILES if action in {"legacy_dry_run", "legacy_import"} else None,
+    )
+    legacy_import_report = None
     if request.method == "POST":
-        action = request.POST.get("action")
+        if action in {"legacy_dry_run", "legacy_import"} and legacy_form.is_valid():
+            target_business = legacy_form.cleaned_data["target_business"]
+            source_business_id = legacy_form.cleaned_data.get("source_business_id")
+            uploaded = legacy_form.cleaned_data["database"]
+            try:
+                if action == "legacy_dry_run":
+                    legacy_import_report = analyze_legacy_sqlite(
+                        uploaded, target_business, source_business_id
+                    )
+                else:
+                    if not source_business_id:
+                        legacy_form.add_error("source_business_id", "Run Dry run first and provide the legacy tenant ID before importing.")
+                    expected = f"IMPORT {target_business.slug}"
+                    if legacy_form.cleaned_data.get("confirmation", "").strip() != expected:
+                        legacy_form.add_error("confirmation", f"Type {expected} exactly to authorize this tenant import.")
+                    if not legacy_form.errors:
+                        result = import_legacy_sqlite(uploaded, target_business, source_business_id, actor=request.user)
+                        messages.success(
+                            request,
+                            f"Legacy tenant import completed for {target_business.name}: "
+                            f"{result['total_rows']} operational rows, "
+                            f"{result['identity']['users_created']} new user(s), and "
+                            f"{result['identity']['users_matched']} existing user match(es).",
+                        )
+                        return redirect("founder_subscriptions")
+            except LegacyImportError as exc:
+                legacy_form.add_error(None, str(exc))
         if action == "grant" and form.is_valid():
             business = form.cleaned_data["business"]
             service = getattr(business, "subscription_service", None)
@@ -502,4 +535,6 @@ def founder_subscriptions(request):
         "pending_payments": pending_payments,
         "plans": SubscriptionPlan.objects.all().order_by("monthly_price", "id"),
         "payment_settings": payment_settings,
+        "legacy_form": legacy_form,
+        "legacy_import_report": legacy_import_report,
     })

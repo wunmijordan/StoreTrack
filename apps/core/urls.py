@@ -13,6 +13,7 @@ urlpatterns = [
     path("pwa/launch/<slug:business_slug>/", pwa.launch, name="pwa_launch"),
     path("health/", operations.health, name="health"),
     path("ops/run-jobs/", operations.run_jobs, name="run_jobs"),
+    path("ops/dispatch-web-push/", operations.dispatch_web_push, name="dispatch_web_push"),
     path("", views.marketing_home, name="marketing_home"),
     path("dashboard/", views.dashboard, name="dashboard"),
     path("dashboard/financial-breakdown/", views.dashboard_financial_breakdown, name="dashboard_financial_breakdown"),

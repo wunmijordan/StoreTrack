@@ -290,8 +290,15 @@ SECURE_HSTS_SECONDS = int(os.environ.get("SECURE_HSTS_SECONDS", "0"))
 SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", False)
 SECURE_HSTS_PRELOAD = env_bool("SECURE_HSTS_PRELOAD", False)
 
-# Used only by the authenticated external maintenance endpoint.
+# Used only by authenticated external maintenance endpoints.
 CRON_SECRET = os.environ.get("CRON_SECRET", "")
+
+# Web Push uses one deployment-wide VAPID key pair. The public key is safe to
+# expose to browsers; the private key must remain an environment secret.
+WEB_PUSH_VAPID_PUBLIC_KEY = os.environ.get("WEB_PUSH_VAPID_PUBLIC_KEY", "").strip()
+WEB_PUSH_VAPID_PRIVATE_KEY = os.environ.get("WEB_PUSH_VAPID_PRIVATE_KEY", "").strip()
+WEB_PUSH_VAPID_SUBJECT = os.environ.get("WEB_PUSH_VAPID_SUBJECT", "").strip()
+WEB_PUSH_TIMEOUT_SECONDS = float(os.environ.get("WEB_PUSH_TIMEOUT_SECONDS", "5"))
 
 # Auth
 LOGIN_URL = 'login'
@@ -314,7 +321,7 @@ PERF_SLOW_REQUEST_MS = int(os.environ.get("PERF_SLOW_REQUEST_MS", "500"))
 PERF_SERVER_TIMING = env_bool("PERF_SERVER_TIMING", True)
 PERF_EXCLUDED_PREFIXES = tuple(
     env_list("PERF_EXCLUDED_PREFIXES")
-    or ["/health/", "/static/", "/media/", "/ws/", "/manifest.webmanifest", "/service-worker.js", "/pwa/"]
+    or ["/health/", "/ops/", "/static/", "/media/", "/ws/", "/manifest.webmanifest", "/service-worker.js", "/pwa/"]
 )
 
 # Render runs this service as one Daphne process. cached_db keeps the durable

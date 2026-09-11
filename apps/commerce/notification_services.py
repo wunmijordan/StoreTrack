@@ -4,6 +4,7 @@ from django.db import IntegrityError, transaction
 
 from .models import CommerceNotification, CommerceSettings
 from .realtime import publish_business_notifications_changed
+from .webpush import schedule_push_dispatch
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +39,13 @@ def notify_commerce(*, business, event_type, title, message="", target_url="/com
                 transaction.on_commit(
                     lambda: publish_business_notifications_changed(business.pk)
                 )
+                schedule_push_dispatch()
             return notice
         notice = CommerceNotification.raw_objects.create(**values)
         transaction.on_commit(
             lambda: publish_business_notifications_changed(business.pk)
         )
+        schedule_push_dispatch()
         return notice
     except IntegrityError:
         # A concurrent callback may win the unique dedupe race.

@@ -63,6 +63,25 @@ class OperationsEndpointTests(TestCase):
         self.assertEqual(response.json()["completed"], ["sync_subscriptions"])
         run_all_jobs.assert_called_once_with()
 
+    @override_settings(CRON_SECRET="test-cron-secret")
+    def test_web_push_retry_requires_bearer_secret(self):
+        response = self.client.post(reverse("dispatch_web_push"))
+        self.assertEqual(response.status_code, 403)
+
+    @override_settings(CRON_SECRET="test-cron-secret")
+    @patch("commerce.webpush.dispatch_pending_pushes", return_value={
+        "configured": True, "queued": 1, "sent": 1, "failed": 0, "expired": 0,
+    })
+    def test_web_push_retry_uses_bounded_dispatcher(self, dispatch):
+        response = self.client.post(
+            reverse("dispatch_web_push"),
+            HTTP_AUTHORIZATION="Bearer test-cron-secret",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["sent"], 1)
+        dispatch.assert_called_once_with(notice_limit=40, delivery_limit=20)
+
+
 
 class PerformanceDiagnosticMiddlewareTests(TestCase):
     def setUp(self):
@@ -148,6 +167,9 @@ class PwaEndpointTests(TestCase):
         self.assertIn("request.mode === 'navigate'", script)
         self.assertIn("cache: 'no-store'", script)
         self.assertIn("url.pathname.startsWith('/static/')", script)
+        self.assertIn("self.addEventListener('push'", script)
+        self.assertIn("showNotification", script)
+        self.assertIn("self.addEventListener('notificationclick'", script)
 
     def test_tenant_launch_selects_only_an_authorized_business(self):
         from accounts.models import UserBusiness

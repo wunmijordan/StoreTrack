@@ -45,7 +45,7 @@ class CommerceSettingsForm(forms.ModelForm):
             "notify_order_activity": "New checkout and order alerts",
             "notify_payment_activity": "Payment activity alerts",
             "notification_sound_enabled": "Notification sound",
-            "notification_desktop_enabled": "Browser desktop alerts",
+            "notification_desktop_enabled": "Browser & PWA alerts",
         }
         self.fields["public_note"].label = "Storefront supporting message"
         self.fields["storefront_hero_image"].help_text = (

@@ -70,10 +70,16 @@
     <button class="mt-3 rounded-md bg-[#8f172d] px-4 py-2 text-sm text-white">Save commerce settings</button>
   </form>
 
-  <div class="mt-5 rounded-xl border border-[#E7DFCC] bg-[#FFFDF8] p-5">
+  <div id="commerce-push-panel" class="mt-5 rounded-xl border border-[#E7DFCC] bg-[#FFFDF8] p-5"
+       data-config-url="{% url 'commerce_push_config' %}"
+       data-subscribe-url="{% url 'commerce_push_subscribe' %}"
+       data-unsubscribe-url="{% url 'commerce_push_unsubscribe' %}">
     <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div><h2 class="text-sm font-semibold text-stone-900">Browser alerts on this device</h2><p class="mt-1 text-xs leading-5 text-stone-500">Desktop alerts require one browser permission per device. The unread activity list works without it.</p></div>
-      <button type="button" id="enable-commerce-browser-alerts" class="shrink-0 rounded-lg border border-[#8f172d] bg-white px-3.5 py-2 text-xs font-semibold text-[#8f172d] hover:bg-rose-50">Enable browser alerts</button>
+      <div>
+        <h2 class="text-sm font-semibold text-stone-900">Browser & PWA alerts on this device</h2>
+        <p class="mt-1 text-xs leading-5 text-stone-500">When enabled, commerce alerts can reach this installed PWA or browser even while INPROFIC is in the background. The in-app unread list and WebSocket alerts continue to work independently.</p>
+      </div>
+      <button type="button" id="enable-commerce-browser-alerts" class="shrink-0 rounded-lg border border-[#8f172d] bg-white px-3.5 py-2 text-xs font-semibold text-[#8f172d] hover:bg-rose-50">Enable alerts</button>
     </div>
     <p id="commerce-browser-alert-status" class="mt-3 text-xs text-stone-500" aria-live="polite"></p>
   </div>
@@ -101,21 +107,124 @@
 
   const permissionButton = document.getElementById('enable-commerce-browser-alerts');
   const permissionStatus = document.getElementById('commerce-browser-alert-status');
-  if (!permissionButton || !permissionStatus) return;
-  function permissionCopy() {
+  const pushPanel = document.getElementById('commerce-push-panel');
+  let pushConfig = null;
+
+  function csrfToken() {
+    return document.querySelector('input[name="csrfmiddlewaretoken"]')?.value || '';
+  }
+  function base64UrlToBytes(value) {
+    const padding = '='.repeat((4 - value.length % 4) % 4);
+    const raw = atob((value + padding).replace(/-/g, '+').replace(/_/g, '/'));
+    return Uint8Array.from(raw, char => char.charCodeAt(0));
+  }
+  async function currentPushSubscription() {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+    const registration = await navigator.serviceWorker.ready;
+    return registration.pushManager.getSubscription();
+  }
+  async function refreshPushStatus() {
+    if (!permissionButton || !permissionStatus || !pushPanel) return;
     if (!('Notification' in window)) {
       permissionButton.disabled = true;
-      permissionStatus.textContent = 'This browser does not support desktop notifications. The unread activity list will still work.';
+      permissionStatus.textContent = 'This browser does not support notifications. The in-app unread activity list will still work.';
       return;
     }
-    const state = Notification.permission;
-    permissionStatus.textContent = state === 'granted' ? 'Enabled on this device.' : state === 'denied' ? 'Blocked by this browser. Use the site permissions control in the address bar to enable it.' : 'Permission has not been requested on this device.';
-    permissionButton.textContent = state === 'granted' ? 'Browser alerts enabled' : 'Enable browser alerts';
-    permissionButton.disabled = state === 'granted' || state === 'denied';
-    permissionButton.classList.toggle('opacity-50', permissionButton.disabled);
+    try {
+      const response = await fetch(pushPanel.dataset.configUrl, { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+      pushConfig = response.ok ? await response.json() : null;
+    } catch (_) { pushConfig = null; }
+
+    const pushSupported = 'serviceWorker' in navigator && 'PushManager' in window;
+    const localSubscription = pushSupported ? await currentPushSubscription().catch(() => null) : null;
+    const granted = Notification.permission === 'granted';
+    // A PushSubscription survives logout in the browser while the server-side
+    // binding is deliberately deactivated for privacy. Once the same user is
+    // authenticated again and visits Commerce settings, quietly re-bind an
+    // already-consented browser subscription without showing another prompt.
+    if (pushConfig?.configured && granted && localSubscription) {
+      const syncKey = `inprofic:webpush-synced:${localSubscription.endpoint}`;
+      if (!sessionStorage.getItem(syncKey)) {
+        try {
+          const syncResponse = await fetch(pushPanel.dataset.subscribeUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken(), 'Accept': 'application/json' },
+            body: JSON.stringify(localSubscription.toJSON()),
+          });
+          if (syncResponse.ok) sessionStorage.setItem(syncKey, '1');
+        } catch (_) {}
+      }
+    }
+    const denied = Notification.permission === 'denied';
+
+    if (!pushConfig?.configured || !pushSupported) {
+      permissionButton.textContent = granted ? 'Browser alerts enabled' : 'Enable browser alerts';
+      permissionButton.disabled = granted || denied;
+      permissionStatus.textContent = !pushConfig?.configured
+        ? (granted ? 'Foreground browser alerts are enabled. Background Web Push will become available after VAPID keys are configured on the server.' : 'Background Web Push is not configured on this deployment yet.')
+        : 'This browser does not support Web Push. Foreground browser alerts can still be used.';
+      return;
+    }
+    if (denied) {
+      permissionButton.disabled = true;
+      permissionButton.textContent = 'Notifications blocked';
+      permissionStatus.textContent = 'Blocked by this browser. Use the site permissions control to allow notifications.';
+      return;
+    }
+    permissionButton.disabled = false;
+    permissionButton.textContent = localSubscription ? 'Disable on this device' : 'Enable background alerts';
+    permissionStatus.textContent = localSubscription
+      ? 'Background Web Push is active on this device. Visible pages continue using the faster in-app/WebSocket alert path.'
+      : 'Background alerts are not enabled on this device.';
   }
-  permissionButton.addEventListener('click', async function () { try { await Notification.requestPermission(); } finally { permissionCopy(); } });
-  permissionCopy();
+  async function enablePush() {
+    if (Notification.permission !== 'granted') {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') return;
+    }
+    if (!pushConfig?.configured || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    const registration = await navigator.serviceWorker.ready;
+    let subscription = await registration.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: base64UrlToBytes(pushConfig.public_key),
+      });
+    }
+    const response = await fetch(pushPanel.dataset.subscribeUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken(), 'Accept': 'application/json' },
+      body: JSON.stringify(subscription.toJSON()),
+    });
+    if (!response.ok) throw new Error('Could not save this Web Push subscription.');
+  }
+  async function disablePush() {
+    const subscription = await currentPushSubscription();
+    if (!subscription) return;
+    await fetch(pushPanel.dataset.unsubscribeUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken(), 'Accept': 'application/json' },
+      body: JSON.stringify({ endpoint: subscription.endpoint }),
+    });
+    await subscription.unsubscribe();
+  }
+  if (permissionButton && permissionStatus && pushPanel) {
+    permissionButton.addEventListener('click', async function () {
+      permissionButton.disabled = true;
+      permissionStatus.textContent = 'Updating notification settings…';
+      try {
+        const existing = await currentPushSubscription().catch(() => null);
+        if (existing && pushConfig?.configured) await disablePush();
+        else if (pushConfig?.configured) await enablePush();
+        else if ('Notification' in window) await Notification.requestPermission();
+      } catch (error) {
+        permissionStatus.textContent = error?.message || 'Could not update notifications on this device.';
+      } finally {
+        await refreshPushStatus();
+      }
+    });
+    refreshPushStatus();
+  }
 
   const heroInput = document.getElementById('id_storefront_hero_image');
   const heroPosition = document.getElementById('id_storefront_hero_image_position');

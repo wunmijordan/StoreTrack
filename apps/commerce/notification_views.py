@@ -88,3 +88,91 @@ def notification_read(request):
     )
     publish_user_notifications_changed(request.business.pk, request.user.pk)
     return JsonResponse({"read": len(notices), "unread_count": _unread(request).count()})
+
+@never_cache
+@require_GET
+def push_config(request):
+    if not _authorized(request):
+        return JsonResponse({"detail": "Commerce notification access is unavailable."}, status=403)
+    from django.conf import settings as django_settings
+    from .models import CommercePushSubscription
+    from .webpush import configured
+
+    return JsonResponse({
+        "configured": configured(),
+        "public_key": django_settings.WEB_PUSH_VAPID_PUBLIC_KEY if configured() else "",
+        "active_devices": CommercePushSubscription.objects.filter(
+            business=request.business, user=request.user, active=True
+        ).count(),
+    })
+
+
+@never_cache
+@require_POST
+def push_subscribe(request):
+    if not _authorized(request):
+        return JsonResponse({"detail": "Commerce notification access is unavailable."}, status=403)
+    from .models import CommercePushSubscription
+    from .webpush import configured, endpoint_hash, kick_push_dispatcher
+
+    if not configured():
+        return JsonResponse({"detail": "Web Push is not configured on this deployment."}, status=503)
+    try:
+        payload = json.loads(request.body or b"{}")
+        endpoint = str(payload.get("endpoint") or "").strip()
+        keys = payload.get("keys") or {}
+        p256dh = str(keys.get("p256dh") or "").strip()
+        auth = str(keys.get("auth") or "").strip()
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return JsonResponse({"detail": "Submit a valid PushSubscription."}, status=400)
+    if not endpoint.startswith("https://") or len(endpoint) > 3000 or not p256dh or not auth:
+        return JsonResponse({"detail": "The PushSubscription is incomplete."}, status=400)
+    if len(p256dh) > 255 or len(auth) > 255:
+        return JsonResponse({"detail": "The PushSubscription keys are invalid."}, status=400)
+
+    digest = endpoint_hash(endpoint)
+    # A browser PushSubscription belongs to one origin/device. If another user
+    # signs into the same browser and explicitly enables alerts, transfer that
+    # endpoint to the current account instead of leaking the previous user's
+    # tenant notifications to the shared device.
+    CommercePushSubscription.objects.filter(endpoint_hash=digest).exclude(user=request.user).update(active=False)
+    subscription, _created = CommercePushSubscription.objects.update_or_create(
+        business=request.business,
+        user=request.user,
+        endpoint_hash=digest,
+        defaults={
+            "endpoint": endpoint,
+            "p256dh": p256dh,
+            "auth": auth,
+            "user_agent": request.headers.get("User-Agent", "")[:300],
+            "active": True,
+            "failure_count": 0,
+            "last_failure_at": None,
+        },
+    )
+    # If notifications were created moments before this device subscribed,
+    # let the durable dispatcher reconcile pending work without blocking here.
+    kick_push_dispatcher()
+    return JsonResponse({"subscribed": True, "subscription_id": subscription.pk})
+
+
+@never_cache
+@require_POST
+def push_unsubscribe(request):
+    if not _authorized(request):
+        return JsonResponse({"detail": "Commerce notification access is unavailable."}, status=403)
+    from .models import CommercePushSubscription
+    from .webpush import endpoint_hash
+
+    try:
+        payload = json.loads(request.body or b"{}")
+        endpoint = str(payload.get("endpoint") or "").strip()
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return JsonResponse({"detail": "Submit valid JSON."}, status=400)
+    if not endpoint:
+        return JsonResponse({"detail": "endpoint is required."}, status=400)
+    updated = CommercePushSubscription.objects.filter(
+        user=request.user,
+        endpoint_hash=endpoint_hash(endpoint),
+    ).update(active=False)
+    return JsonResponse({"subscribed": False, "updated": updated})

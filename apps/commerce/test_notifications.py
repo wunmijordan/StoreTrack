@@ -1,8 +1,8 @@
 from decimal import Decimal
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import async_to_sync
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 
 from accounts.models import BusinessModuleAccess, CustomUser, UserBusiness
@@ -17,6 +17,8 @@ from .models import (
     CommerceIntake,
     CommerceNotification,
     CommerceNotificationRead,
+    CommercePushDelivery,
+    CommercePushSubscription,
     CommercePayment,
     CommercePaymentConfiguration,
     CommerceSettings,
@@ -181,6 +183,68 @@ class CommerceNotificationTests(TestCase):
         response = self.client.get(reverse("commerce_notification_feed"))
         self.assertEqual(response.json()["unread_count"], 2)
         self.assertFalse(CommerceNotificationRead.objects.filter(notification=own_payment, user=self.user).exists())
+
+
+    @override_settings(
+        WEB_PUSH_VAPID_PUBLIC_KEY="BNmV-test-public-key",
+        WEB_PUSH_VAPID_PRIVATE_KEY="test-private-key",
+        WEB_PUSH_VAPID_SUBJECT="mailto:founder@example.com",
+    )
+    def test_web_push_subscription_is_scoped_to_current_user_and_tenant(self):
+        payload = {
+            "endpoint": "https://push.example.test/device-one",
+            "keys": {"p256dh": "p256dh-value", "auth": "auth-value"},
+        }
+        response = self.client.post(
+            reverse("commerce_push_subscribe"),
+            data=__import__("json").dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(CommercePushSubscription.objects.filter(
+            business=self.business, user=self.user, active=True
+        ).exists())
+        config = self.client.get(reverse("commerce_push_config"))
+        self.assertEqual(config.status_code, 200)
+        self.assertTrue(config.json()["configured"])
+        self.assertEqual(config.json()["active_devices"], 1)
+
+        response = self.client.post(
+            reverse("commerce_push_unsubscribe"),
+            data=__import__("json").dumps({"endpoint": payload["endpoint"]}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(CommercePushSubscription.objects.get(
+            business=self.business, user=self.user
+        ).active)
+
+    @override_settings(
+        WEB_PUSH_VAPID_PUBLIC_KEY="BNmV-test-public-key",
+        WEB_PUSH_VAPID_PRIVATE_KEY="test-private-key",
+        WEB_PUSH_VAPID_SUBJECT="mailto:founder@example.com",
+        WEB_PUSH_TIMEOUT_SECONDS=1,
+    )
+    def test_web_push_outbox_is_durable_and_marks_success(self):
+        from .webpush import dispatch_pending_pushes, endpoint_hash
+        subscription = CommercePushSubscription.objects.create(
+            business=self.business, user=self.user,
+            endpoint="https://push.example.test/device-two",
+            endpoint_hash=endpoint_hash("https://push.example.test/device-two"),
+            p256dh="p256dh-value", auth="auth-value", active=True,
+        )
+        notice = CommerceNotification.raw_objects.create(
+            business=self.business, event_type=CommerceNotification.EVENT_INTAKE_RECEIVED,
+            title="Background order", message="A new order arrived.",
+        )
+        with patch("pywebpush.webpush") as send:
+            result = dispatch_pending_pushes()
+        self.assertEqual(result["sent"], 1)
+        send.assert_called_once()
+        notice.refresh_from_db()
+        self.assertIsNotNone(notice.push_processed_at)
+        delivery = CommercePushDelivery.objects.get(notification=notice, subscription=subscription)
+        self.assertEqual(delivery.status, CommercePushDelivery.STATUS_SENT)
 
     def test_catalogue_hides_stock_count_and_has_search_and_multi_product_basket(self):
         response = self.client.get(reverse("storefront", args=[self.business.slug]))

@@ -13,7 +13,7 @@ from accounts.models import UserBusiness
 from .models import Business
 
 
-PWA_CACHE_NAME = "inprofic-static-v20260911-1"
+PWA_CACHE_NAME = "inprofic-static-v20260911-3"
 
 
 def _icons():
@@ -143,6 +143,42 @@ self.addEventListener('activate', (event) => {{
           .map((key) => caches.delete(key))
     )).then(() => self.clients.claim())
   );
+}});
+
+self.addEventListener('push', (event) => {{
+  let data = {{}};
+  try {{ data = event.data ? event.data.json() : {{}}; }} catch (_) {{ data = {{}}; }}
+  if (data.type !== 'commerce.notification') return;
+  event.waitUntil((async () => {{
+    const windows = await self.clients.matchAll({{ type: 'window', includeUncontrolled: true }});
+    // A visible INPROFIC page already receives the same durable notice over
+    // the Commerce WebSocket, so don't create a duplicate operating-system alert.
+    if (windows.some((client) => client.visibilityState === 'visible')) return;
+    const target = new URL(data.url || '/commerce/', self.location.origin).href;
+    await self.registration.showNotification(data.title || 'INPROFIC', {{
+      body: data.body || '',
+      icon: data.icon || '/static/core/pwa/icon-192.png',
+      badge: data.badge || '/static/core/pwa/icon-192.png',
+      tag: data.id ? `commerce-${{data.id}}` : 'commerce-notification',
+      renotify: true,
+      data: {{ url: target, notificationId: data.id || '' }},
+    }});
+  }})());
+}});
+
+self.addEventListener('notificationclick', (event) => {{
+  event.notification.close();
+  const target = new URL(event.notification.data?.url || '/commerce/', self.location.origin).href;
+  event.waitUntil((async () => {{
+    const windows = await self.clients.matchAll({{ type: 'window', includeUncontrolled: true }});
+    for (const client of windows) {{
+      if ('focus' in client) {{
+        try {{ if ('navigate' in client) await client.navigate(target); }} catch (_) {{}}
+        return client.focus();
+      }}
+    }}
+    return self.clients.openWindow ? self.clients.openWindow(target) : undefined;
+  }})());
 }});
 
 self.addEventListener('fetch', (event) => {{

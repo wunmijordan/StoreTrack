@@ -8,7 +8,7 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.utils import timezone
 
-from core.models import BusinessOwnedModel
+from core.models import BusinessOwnedModel, TimestampedModel
 
 
 def storefront_product_image_upload_to(instance, filename):
@@ -718,6 +718,7 @@ class CommerceNotification(BusinessOwnedModel):
     message = models.CharField(max_length=500, blank=True, default="")
     target_url = models.CharField(max_length=500, blank=True, default="/commerce/")
     dedupe_key = models.CharField(max_length=180, blank=True, default="")
+    push_processed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at", "-id"]
@@ -748,4 +749,80 @@ class CommerceNotificationRead(models.Model):
             models.UniqueConstraint(
                 fields=["notification", "user"], name="unique_commerce_notification_read"
             ),
+        ]
+
+
+class CommercePushSubscription(TimestampedModel):
+    """One browser/PWA Web Push subscription for one user in one tenant.
+
+    Push endpoints are browser-generated secrets. They are never exposed in
+    templates or logs; only the owning authenticated user can register/remove
+    their current device subscription.
+    """
+
+    business = models.ForeignKey(
+        "core.Business", on_delete=models.CASCADE, related_name="commerce_push_subscriptions"
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="commerce_push_subscriptions"
+    )
+    endpoint = models.TextField()
+    endpoint_hash = models.CharField(max_length=64)
+    p256dh = models.CharField(max_length=255)
+    auth = models.CharField(max_length=255)
+    user_agent = models.CharField(max_length=300, blank=True, default="")
+    active = models.BooleanField(default=True)
+    failure_count = models.PositiveSmallIntegerField(default=0)
+    last_success_at = models.DateTimeField(null=True, blank=True)
+    last_failure_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-updated_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["business", "user", "endpoint_hash"],
+                name="unique_commerce_push_device",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["business", "active"], name="commerce_push_active_idx"),
+        ]
+
+
+class CommercePushDelivery(models.Model):
+    STATUS_PENDING = "pending"
+    STATUS_SENT = "sent"
+    STATUS_FAILED = "failed"
+    STATUS_EXPIRED = "expired"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_SENT, "Sent"),
+        (STATUS_FAILED, "Failed"),
+        (STATUS_EXPIRED, "Subscription expired"),
+    ]
+
+    notification = models.ForeignKey(
+        CommerceNotification, on_delete=models.CASCADE, related_name="push_deliveries"
+    )
+    subscription = models.ForeignKey(
+        CommercePushSubscription, on_delete=models.CASCADE, related_name="deliveries"
+    )
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(default=timezone.now)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.CharField(max_length=500, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["next_attempt_at", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["notification", "subscription"],
+                name="unique_commerce_push_delivery",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["status", "next_attempt_at"], name="commerce_push_pending_idx"),
         ]
