@@ -74,7 +74,6 @@ services:
       - key: MONNIFY_BASE_URL
         value: https://api.monnify.com
 
-services:
   - type: web
     name: inprofic-frankfurt
     runtime: python
