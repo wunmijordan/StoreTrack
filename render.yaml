@@ -73,3 +73,79 @@ services:
         sync: false
       - key: MONNIFY_BASE_URL
         value: https://api.monnify.com
+
+services:
+  - type: web
+    name: inprofic-frankfurt
+    runtime: python
+    plan: free
+    region: frankfurt
+    buildCommand: ./scripts/production.sh build
+    startCommand: ./scripts/production.sh serve
+    healthCheckPath: /health/
+    autoDeploy: true
+    envVars:
+      - key: DEBUG
+        value: "False"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: DB_SSL_REQUIRE
+        value: "True"
+      - key: DB_CONN_MAX_AGE
+        value: "0"
+      - key: DB_POOL_MIN_SIZE
+        value: "1"
+      - key: DB_POOL_MAX_SIZE
+        value: "4"
+      - key: DB_POOL_TIMEOUT
+        value: "10"
+      - key: DB_CONN_HEALTH_CHECKS
+        value: "False"
+      - key: USE_CACHED_DB_SESSIONS
+        value: "True"
+      - key: PERF_DIAGNOSTICS
+        value: "True"
+      - key: PERF_SLOW_REQUEST_MS
+        value: "500"
+      - key: PERF_SERVER_TIMING
+        value: "True"
+      - key: TRUST_PROXY_SSL_HEADER
+        value: "True"
+      - key: SECURE_SSL_REDIRECT
+        value: "True"
+      - key: SESSION_COOKIE_SECURE
+        value: "True"
+      - key: CSRF_COOKIE_SECURE
+        value: "True"
+      - key: SECURE_HSTS_SECONDS
+        value: "3600"
+      - key: CRON_SECRET
+        generateValue: true
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET_NAME
+        sync: false
+      - key: R2_ENDPOINT_URL
+        sync: false
+      - key: R2_CUSTOM_DOMAIN
+        sync: false
+      - key: R2_REGION_NAME
+        value: auto
+      - key: R2_MEDIA_LOCATION
+        value: media
+      - key: PAYSTACK_PUBLIC_KEY
+        sync: false
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: MONNIFY_API_KEY
+        sync: false
+      - key: MONNIFY_SECRET_KEY
+        sync: false
+      - key: MONNIFY_CONTRACT_CODE
+        sync: false
+      - key: MONNIFY_BASE_URL
+        value: https://api.monnify.com
