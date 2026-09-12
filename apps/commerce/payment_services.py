@@ -34,6 +34,7 @@ PAYMENT_METHOD_TO_SALE_METHOD = {
     CommercePayment.METHOD_MONNIFY: "Card",
     CommercePayment.METHOD_BANK_TRANSFER: "Transfer",
     CommercePayment.METHOD_CASH: "Cash",
+    CommercePayment.METHOD_POS_CARD: "Card / POS",
 }
 
 
@@ -60,6 +61,7 @@ def _method_enabled(config, method):
         CommercePayment.METHOD_MONNIFY: config.monnify_enabled,
         CommercePayment.METHOD_BANK_TRANSFER: config.bank_transfer_enabled,
         CommercePayment.METHOD_CASH: config.cash_enabled,
+        CommercePayment.METHOD_POS_CARD: config.paystack_terminal_enabled,
     }
     return bool(checks.get(method))
 
@@ -68,41 +70,68 @@ def _configured_active_account(account, business):
     return bool(account and account.active and account.business_id == business.pk)
 
 
-def eligible_payment_methods(business):
-    """Return only enabled methods with enough tenant configuration to settle safely."""
+def eligible_payment_methods(business, *, surface="public"):
+    """Return configured methods for the requested trust surface.
+
+    Public/headless commerce is gateway-confirmed only. Cash and physical POS
+    are intentionally available only on the authenticated in-premise staff UI.
+    """
     config = payment_configuration(business)
     methods = []
+    if surface == "pos":
+        if config.cash_enabled and _configured_active_account(config.cash_account, business):
+            methods.append({"code": CommercePayment.METHOD_CASH, "label": "Cash"})
+        if (
+            config.paystack_terminal_enabled
+            and config.paystack_enabled
+            and bool(config.paystack_secret_key and config.paystack_terminal_id and config.paystack_terminal_customer_email)
+            and _configured_active_account(config.paystack_terminal_account, business)
+        ):
+            methods.append({"code": CommercePayment.METHOD_POS_CARD, "label": "Card on POS terminal"})
+        return methods
+
     if (
         config.paystack_enabled
         and bool(config.paystack_secret_key)
         and _configured_active_account(config.paystack_account, business)
     ):
-        methods.append({"code": CommercePayment.METHOD_PAYSTACK, "label": "Paystack"})
+        methods.append({"code": CommercePayment.METHOD_PAYSTACK, "label": "Card / secure checkout (Paystack)"})
     if (
         config.monnify_enabled
         and bool(config.monnify_api_key and config.monnify_secret_key and config.monnify_contract_code and config.monnify_base_url)
         and _configured_active_account(config.monnify_account, business)
     ):
-        methods.append({"code": CommercePayment.METHOD_MONNIFY, "label": "Monnify"})
-    if (
-        config.bank_transfer_enabled
-        and bool(config.bank_name and config.bank_account_name and config.bank_account_number)
-        and _configured_active_account(config.bank_cash_account, business)
-    ):
-        methods.append({"code": CommercePayment.METHOD_BANK_TRANSFER, "label": "Bank transfer"})
-    if config.cash_enabled and _configured_active_account(config.cash_account, business):
-        methods.append({"code": CommercePayment.METHOD_CASH, "label": "Cash"})
+        methods.append({"code": CommercePayment.METHOD_MONNIFY, "label": "Secure checkout (Monnify)"})
+    if config.bank_transfer_enabled and _configured_active_account(config.bank_cash_account, business):
+        provider = config.bank_transfer_provider
+        provider_ready = False
+        if provider == CommercePaymentConfiguration.BANK_TRANSFER_PROVIDER_PAYSTACK:
+            provider_ready = bool(config.paystack_enabled and config.paystack_secret_key)
+        elif provider == CommercePaymentConfiguration.BANK_TRANSFER_PROVIDER_MONNIFY:
+            provider_ready = bool(
+                config.monnify_enabled
+                and config.monnify_api_key
+                and config.monnify_secret_key
+                and config.monnify_contract_code
+                and config.monnify_base_url
+                and config.monnify_transfer_bank_code
+            )
+        if provider_ready:
+            methods.append({
+                "code": CommercePayment.METHOD_BANK_TRANSFER,
+                "label": f"Instant bank transfer ({provider.title()})",
+            })
     return methods
 
 
-def _assert_method_eligible(business, method):
-    if method not in {row["code"] for row in eligible_payment_methods(business)}:
+def _assert_method_eligible(business, method, *, surface="public"):
+    if method not in {row["code"] for row in eligible_payment_methods(business, surface=surface)}:
         raise ValidationError("This payment method is not enabled and fully configured for this storefront.")
 
 
 def _manual_instructions(config, method):
     if method == CommercePayment.METHOD_BANK_TRANSFER:
-        return config.bank_instructions or "Use the checkout/payment reference when transferring, then submit your transfer reference for staff verification."
+        return "Transfer the exact amount to the temporary account shown. INPROFIC will confirm it automatically through the payment provider."
     if method == CommercePayment.METHOD_CASH:
         return config.cash_instructions or "Pay an authorized staff member. Cash remains pending until the receipt is confirmed in INPROFIC."
     return ""
@@ -124,7 +153,7 @@ def current_checkout_payment(checkout):
 def capture_checkout_gateway_email(checkout, method, email):
     """Save provider-required email only when the selected gateway needs it."""
     method = (method or "").strip().lower()
-    if method not in {CommercePayment.METHOD_PAYSTACK, CommercePayment.METHOD_MONNIFY}:
+    if method not in {CommercePayment.METHOD_PAYSTACK, CommercePayment.METHOD_MONNIFY, CommercePayment.METHOD_BANK_TRANSFER}:
         return
     if checkout.customer_email:
         return
@@ -142,12 +171,19 @@ def serialize_payment(payment, config=None):
     config = config or payment_configuration(payment.business)
     bank_account = None
     if payment.method == CommercePayment.METHOD_BANK_TRANSFER:
-        bank_account = {
-            "bank_name": config.bank_name,
-            "account_name": config.bank_account_name,
-            "account_number": config.bank_account_number,
-        }
-    latest_claim = payment.claims.order_by("-created_at", "-id").first()
+        meta = payment.gateway_metadata or {}
+        if meta.get("account_number"):
+            bank_account = {
+                "bank_name": meta.get("bank_name", ""),
+                "account_name": meta.get("account_name", ""),
+                "account_number": meta.get("account_number", ""),
+                "account_expires_at": meta.get("account_expires_at"),
+                "display_text": meta.get("display_text", ""),
+            }
+    latest_claim = None
+    if payment.method == CommercePayment.METHOD_BANK_TRANSFER and not payment.gateway_provider:
+        latest_claim = payment.claims.order_by("-created_at", "-id").first()
+    latest_receipt = payment.receipts.filter(reversed_at__isnull=True).order_by("-verified_at", "-id").first()
     return {
         "payment_id": str(payment.public_id),
         "method": payment.method,
@@ -156,6 +192,7 @@ def serialize_payment(payment, config=None):
         "currency": payment.currency,
         "reference": payment.reference,
         "gateway_reference": payment.gateway_reference or "",
+        "gateway_provider": payment.gateway_provider or "",
         "authorization_url": payment.authorization_url or "",
         "instructions": payment.instructions or "",
         "bank_account": bank_account,
@@ -166,6 +203,8 @@ def serialize_payment(payment, config=None):
         "settled_at": payment.settled_at.isoformat() if payment.settled_at else None,
         "checkout_id": str(payment.checkout.public_id) if payment.checkout_id else None,
         "order_id": str(payment.intake.public_id) if payment.intake_id else None,
+        "receipt_id": str(latest_receipt.public_id) if latest_receipt else None,
+        "receipt_path": (f"/shop/{payment.business.slug}/receipts/{latest_receipt.public_id}/" if latest_receipt else None),
         "claim": ({
             "payer_name": latest_claim.payer_name,
             "transfer_reference": latest_claim.transfer_reference,
@@ -183,6 +222,7 @@ def _account_for(config, method, business, actor):
         CommercePayment.METHOD_MONNIFY: config.monnify_account,
         CommercePayment.METHOD_BANK_TRANSFER: config.bank_cash_account,
         CommercePayment.METHOD_CASH: config.cash_account,
+        CommercePayment.METHOD_POS_CARD: config.paystack_terminal_account,
     }.get(method)
     if configured and configured.active:
         if configured.business_id != business.pk:
@@ -191,7 +231,7 @@ def _account_for(config, method, business, actor):
     # Legacy intake payments historically allowed a fallback account. Keep that
     # behavior for old records/endpoints; new checkout initiation requires an
     # explicitly configured account through _assert_method_eligible().
-    preferred_type = "cash" if method == CommercePayment.METHOD_CASH else "bank"
+    preferred_type = "cash" if method == CommercePayment.METHOD_CASH else "card" if method == CommercePayment.METHOD_POS_CARD else "bank"
     account = CashAccount.raw_objects.filter(
         business=business, active=True, account_type=preferred_type
     ).order_by("id").first()
@@ -227,7 +267,7 @@ def _target_amount(target):
     return Decimal(target.total).quantize(Decimal("0.01"))
 
 
-def initiate_payment(*, intake=None, checkout=None, method, idempotency_key, return_url=""):
+def initiate_payment(*, intake=None, checkout=None, method, idempotency_key, return_url="", surface="public"):
     """Initialize payment for either a legacy intake or a pre-intake checkout."""
     if (intake is None) == (checkout is None):
         raise ValidationError("Choose exactly one payment target.")
@@ -243,11 +283,19 @@ def initiate_payment(*, intake=None, checkout=None, method, idempotency_key, ret
     return_url = _validate_return_url(return_url)
     config = payment_configuration(target.business)
     if checkout is not None:
-        _assert_method_eligible(target.business, method)
+        _assert_method_eligible(target.business, method, surface=surface)
+    elif surface == "public":
+        _assert_method_eligible(target.business, method, surface="public")
     elif not _method_enabled(config, method):
         raise ValidationError("This payment method is not enabled for this storefront.")
     if method in {CommercePayment.METHOD_PAYSTACK, CommercePayment.METHOD_MONNIFY} and not return_url:
         raise ValidationError("return_url is required for online gateway payments.")
+    gateway_provider = {
+        CommercePayment.METHOD_PAYSTACK: CommercePayment.GATEWAY_PAYSTACK,
+        CommercePayment.METHOD_MONNIFY: CommercePayment.GATEWAY_MONNIFY,
+        CommercePayment.METHOD_BANK_TRANSFER: config.bank_transfer_provider,
+        CommercePayment.METHOD_POS_CARD: CommercePayment.GATEWAY_PAYSTACK,
+    }.get(method, CommercePayment.GATEWAY_NONE)
 
     payment_created = False
     with transaction.atomic():
@@ -303,6 +351,7 @@ def initiate_payment(*, intake=None, checkout=None, method, idempotency_key, ret
                     intake=locked if checkout is None else None,
                     checkout=locked if checkout is not None else None,
                     method=method,
+                    gateway_provider=gateway_provider,
                     amount=amount,
                     currency=config.currency.upper(),
                     reference=f"STP-{uuid4().hex[:20].upper()}",
@@ -310,13 +359,11 @@ def initiate_payment(*, intake=None, checkout=None, method, idempotency_key, ret
                     return_url=return_url,
                     expires_at=(locked.reservation_expires_at if checkout is not None else None),
                     instructions=_manual_instructions(config, method),
-                    status=(CommercePayment.STATUS_PENDING if method in {
-                        CommercePayment.METHOD_BANK_TRANSFER, CommercePayment.METHOD_CASH
-                    } else CommercePayment.STATUS_AWAITING_CUSTOMER),
+                    status=(CommercePayment.STATUS_PENDING if method == CommercePayment.METHOD_CASH else CommercePayment.STATUS_AWAITING_CUSTOMER),
                 )
                 payment_created = True
 
-    if method in {CommercePayment.METHOD_PAYSTACK, CommercePayment.METHOD_MONNIFY} and not payment.authorization_url:
+    if gateway_provider and not payment.authorization_url and not payment.gateway_metadata:
         try:
             initialized = initialize_gateway(payment, config)
         except Exception as exc:
@@ -353,6 +400,8 @@ def submit_bank_claim(*, payment, payer_name, transfer_reference):
     payment = CommercePayment.raw_objects.select_for_update().get(pk=payment.pk, business=payment.business)
     if payment.method != CommercePayment.METHOD_BANK_TRANSFER:
         raise ValidationError("Transfer evidence can only be submitted for a bank-transfer payment.")
+    if payment.gateway_provider:
+        raise ValidationError("This bank transfer is verified automatically by the payment provider; no manual claim is required.")
     if payment.status in {CommercePayment.STATUS_PAID, CommercePayment.STATUS_CANCELLED, CommercePayment.STATUS_REFUNDED}:
         raise ValidationError("This payment no longer accepts transfer claims.")
     payer_name = (payer_name or "").strip()
@@ -473,7 +522,7 @@ def _refresh_payment(payment):
     elif paid > 0:
         payment.status = CommercePayment.STATUS_PARTIALLY_PAID
         payment.settled_at = None
-    elif payment.method in {CommercePayment.METHOD_PAYSTACK, CommercePayment.METHOD_MONNIFY}:
+    elif payment.gateway_provider or payment.method in {CommercePayment.METHOD_PAYSTACK, CommercePayment.METHOD_MONNIFY}:
         payment.status = CommercePayment.STATUS_AWAITING_CUSTOMER
         payment.settled_at = None
     elif payment.method == CommercePayment.METHOD_BANK_TRANSFER and payment.claims.filter(status=CommercePaymentClaim.STATUS_SUBMITTED).exists():
@@ -517,7 +566,7 @@ def record_verified_payment(
         and payment.method in {CommercePayment.METHOD_BANK_TRANSFER, CommercePayment.METHOD_CASH}
     ):
         raise ValidationError("This payment cannot receive funds in its current state.")
-    if payment.method == CommercePayment.METHOD_BANK_TRANSFER and claim is None:
+    if payment.method == CommercePayment.METHOD_BANK_TRANSFER and not payment.gateway_provider and claim is None:
         claim = payment.claims.filter(status=CommercePaymentClaim.STATUS_SUBMITTED).order_by("created_at", "id").first()
         if claim is None:
             raise ValidationError("A submitted bank transfer claim is required before verification.")

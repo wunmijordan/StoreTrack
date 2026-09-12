@@ -12,9 +12,9 @@ from core.models import Business
 from .models import (
     BusinessFeatureAccess, BusinessModuleAccess, BusinessSubscription, CustomUser,
     RoleModulePermission, SubscriptionPayment, SubscriptionPaymentSettings,
-    SubscriptionPlanModule, SubscriptionService, UserBusiness,
+    SubscriptionPlanModule, SubscriptionPromotion, SubscriptionService, UserBusiness,
 )
-from .services import business_has_module, seed_business_roles
+from .services import business_has_module, can_use_commerce_storefront, seed_business_roles, user_has_permission
 from .subscription_services import (
     apply_subscription_entitlements,
     create_payment_request,
@@ -42,6 +42,30 @@ class TenantSignupTests(TestCase):
         response = self.client.get(reverse("marketing_home"))
 
         self.assertContains(response, "₦12,345.67")
+
+    def test_marketing_page_shows_active_promotion_without_replacing_base_price(self):
+        from django.utils import timezone
+
+        plans = ensure_default_plans()
+        plan = plans["starter"]
+        plan.monthly_price = Decimal("10000.00")
+        plan.save(update_fields=["monthly_price"])
+        SubscriptionPromotion.objects.create(
+            plan=plan,
+            reason="Launch Promo",
+            discount_type=SubscriptionPromotion.DISCOUNT_PERCENT,
+            discount_value=Decimal("25.00"),
+            starts_at=timezone.now() - timezone.timedelta(minutes=1),
+            ends_at=timezone.now() + timezone.timedelta(days=7),
+        )
+
+        response = self.client.get(reverse("marketing_home"))
+
+        self.assertContains(response, "Launch Promo")
+        self.assertContains(response, "₦10,000.00")
+        self.assertContains(response, "₦7,500.00")
+        plan.refresh_from_db()
+        self.assertEqual(plan.monthly_price, Decimal("10000.00"))
 
     def test_signup_provisions_business_admin_and_starter_trial(self):
         response = self.client.post(reverse("signup"), {
@@ -536,6 +560,54 @@ class FounderPaymentSettingsTests(TestCase):
         self.assertFalse(SubscriptionPayment.objects.exists())
 
 
+    def test_subscription_payment_snapshots_promotion_and_base_amount(self):
+        from django.utils import timezone
+        from .subscription_services import start_trial_for_business
+
+        current = self.plans["starter"]
+        target = self.plans["production"]
+        target.monthly_price = Decimal("20000.00")
+        target.save(update_fields=["monthly_price"])
+        subscription = start_trial_for_business(self.business, current)
+        promo = SubscriptionPromotion.objects.create(
+            plan=target, reason="Launch Promo",
+            discount_type=SubscriptionPromotion.DISCOUNT_AMOUNT,
+            discount_value=Decimal("5000.00"),
+            starts_at=timezone.now() - timezone.timedelta(minutes=1),
+            ends_at=timezone.now() + timezone.timedelta(days=2),
+            created_by=self.user,
+        )
+
+        payment = create_payment_request(
+            subscription, target, provider=SubscriptionPayment.PROVIDER_PAYSTACK
+        )
+
+        self.assertEqual(payment.base_amount, Decimal("20000.00"))
+        self.assertEqual(payment.amount, Decimal("15000.00"))
+        self.assertEqual(payment.promotion_id, promo.pk)
+        self.assertEqual(payment.promotion_reason, "Launch Promo")
+        self.assertEqual(payment.promotion_discount_amount, Decimal("5000.00"))
+
+    def test_storefront_pos_access_is_supplemental_not_general_commerce_edit(self):
+        roles = seed_business_roles(self.business)
+        staff = CustomUser.objects.create_user(
+            username="walkin.cashier", password="safe-password-123", fullname="Walk-in Cashier"
+        )
+        membership = UserBusiness.objects.create(
+            user=staff, business=self.business, role=roles[CustomUser.ROLE_STOCK_KEEPER],
+            commerce_storefront_access=True, active=True,
+        )
+        BusinessModuleAccess.objects.update_or_create(
+            business=self.business, module="commerce", defaults={"enabled": True}
+        )
+
+        self.assertTrue(can_use_commerce_storefront(staff, self.business))
+        self.assertFalse(user_has_permission(staff, self.business, "commerce", "view"))
+        self.assertFalse(user_has_permission(staff, self.business, "commerce", "edit"))
+        self.assertFalse(membership.role.key == CustomUser.ROLE_BUSINESS_ADMIN)
+
+
+
 class LegacyTenantImportTests(TestCase):
     def _backup(self, businesses):
         import os
@@ -590,3 +662,129 @@ class LegacyTenantImportTests(TestCase):
         self.assertEqual(target.slug, "keep-this-slug")
         self.assertEqual(target.vertical, "retail")
         self.assertEqual(result["total_rows"], 0)
+
+class LegacyJSONTenantImportTests(TestCase):
+    def _json_backup(self):
+        import json
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        payload = [
+            {"model": "core.business", "pk": 1, "fields": {
+                "name": "Legacy One", "currency_symbol": "₦", "slug": "legacy-one",
+                "vertical": "general", "accent_color": "#D14900", "background_color": "#050733",
+                "tagline": "Legacy data", "storefront_logo": "", "restaurant_table_service": True,
+            }},
+            {"model": "core.business", "pk": 2, "fields": {
+                "name": "Other Tenant", "currency_symbol": "₦", "slug": "other-tenant",
+                "vertical": "retail", "accent_color": "#D14900", "background_color": "#050733",
+                "tagline": "Must not leak", "storefront_logo": "", "restaurant_table_service": True,
+            }},
+            {"model": "core.cashaccount", "pk": 10, "fields": {
+                "business": 1, "created_by": None, "name": "Legacy Cash", "account_type": "cash",
+                "opening_balance": "100.00", "active": True,
+            }},
+            {"model": "core.cashaccount", "pk": 20, "fields": {
+                "business": 2, "created_by": None, "name": "Other Cash", "account_type": "cash",
+                "opening_balance": "999.00", "active": True,
+            }},
+        ]
+        return SimpleUploadedFile(
+            "legacy.json", json.dumps(payload).encode("utf-8"), content_type="application/json"
+        )
+
+    def test_json_dry_run_requires_source_tenant_for_old_unscoped_backup(self):
+        from .legacy_import import analyze_legacy_backup
+        target = Business.objects.create(name="Destination", slug="json-destination")
+        report = analyze_legacy_backup(self._json_backup(), target)
+        self.assertFalse(report["ready"])
+        self.assertEqual(len(report["source_businesses"]), 2)
+        self.assertIn("multiple tenants", " ".join(report["blockers"]).lower())
+
+    def test_json_import_filters_other_tenant_rows(self):
+        from core.models import CashAccount
+        from .legacy_import import import_legacy_backup
+        target = Business.objects.create(name="Destination", slug="json-import-destination")
+        result = import_legacy_backup(self._json_backup(), target, 1)
+        target.refresh_from_db()
+
+        self.assertEqual(target.name, "Legacy One")
+        self.assertEqual(target.slug, "json-import-destination")
+        self.assertEqual(result["models"]["core.cashaccount"], 1)
+        self.assertEqual(
+            list(CashAccount.raw_objects.filter(business=target).values_list("name", flat=True)),
+            ["Legacy Cash"],
+        )
+
+    def test_json_import_reconstructs_omitted_customer_and_location_dependencies(self):
+        import json
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from sales.models import Customer, Sale
+        from production.models import Order
+        from inventory.models import InventoryLocation, StockMovement
+        from .legacy_import import import_legacy_backup
+
+        payload = [
+            {"model": "core.business", "pk": 1, "fields": {
+                "name": "Legacy Bakery", "currency_symbol": "₦", "slug": "legacy-bakery",
+                "vertical": "bakery", "accent_color": "#D14900", "background_color": "#050733",
+                "tagline": "", "storefront_logo": "", "restaurant_table_service": True,
+            }},
+            {"model": "core.cashaccount", "pk": 4, "fields": {
+                "business": 1, "created_by": None, "name": "Legacy Bank", "account_type": "bank",
+                "opening_balance": "0.00", "active": True,
+            }},
+            {"model": "inventory.rawmaterial", "pk": 1, "fields": {
+                "business": 1, "created_by": None, "name": "Flour", "category": "ingredient",
+                "purchase_unit": "bag", "package_qty": "50.00", "package_unit": "kg",
+                "usage_unit": "kg", "usage_conversion_factor": "1.000000", "stock": "10.000",
+                "reorder_level": "1.00", "cost_per_unit": "100.000000",
+            }},
+            {"model": "inventory.finishedgood", "pk": 1, "fields": {
+                "business": 1, "created_by": None, "name": "Bread", "unit": "loaf",
+                "units_per_batch": "10.00", "stock": "2.00", "total_produced": "20.00",
+                "total_delivered_to_customers": "10.00", "reorder_level": "1.00",
+                "selling_price": "500.00", "transferred_market_stock": "0.00",
+            }},
+            {"model": "production.order", "pk": 5, "fields": {
+                "business": 1, "created_by": None, "date": "2026-09-01", "order_number": 1,
+                "order_type": "distribution", "is_market_stock": False, "production_destination": "store",
+                "non_stock_purpose": "", "customer": 8, "customer_name": "Legacy Customer",
+                "customer_region": "Mainland", "customer_group": "Wholesale", "transaction_type": "paid",
+                "customer_payment_status": "paid", "customer_payment_method": "Transfer",
+                "customer_payment_account": 4, "unpaid_description": "", "payment_method": "Transfer",
+                "account": 4, "status": "completed", "notes": "", "approved_date": "2026-09-01",
+                "completed_date": "2026-09-01", "reversed_at": None, "reversed_reason": "", "reversed_by": None,
+            }},
+            {"model": "production.orderitem", "pk": 1, "fields": {
+                "order": 5, "finished_good": 1, "batch_qty": "1.00", "piece_qty": "0.00",
+                "production_batch_qty": "1.00", "production_piece_qty": "0.00",
+                "discount": "0.00", "price": "500.00",
+            }},
+            {"model": "sales.sale", "pk": 6, "fields": {
+                "business": 1, "created_by": None, "date": "2026-09-01", "customer": "Legacy Customer",
+                "customer_master": 8, "transaction_type": "paid", "unpaid_description": "",
+                "account": 4, "payment_method": "Transfer", "source": "distribution_order",
+                "linked_order": 5, "service_mode": "", "table_reference": "",
+            }},
+            {"model": "sales.saleitem", "pk": 1, "fields": {
+                "sale": 6, "finished_good": 1, "batch_qty": "1.00", "piece_qty": "0.00",
+                "discount": "0.00", "price": "500.00", "unit_cost": "100.000000", "production_batch": 77,
+            }},
+            {"model": "inventory.stockmovement", "pk": 1, "fields": {
+                "business": 1, "created_by": None, "raw_material": 1, "finished_good": None,
+                "movement_type": "raw_consumption", "quantity": "-1.000", "affects_stock": True,
+                "balance_after": "9.000", "note": "Legacy use", "reference": "PROD-5",
+                "unit_value": "100.000000", "location": 1,
+            }},
+        ]
+        upload = SimpleUploadedFile("legacy.json", json.dumps(payload).encode(), content_type="application/json")
+        target = Business.objects.create(name="Destination", slug="legacy-reconstruct-target")
+        result = import_legacy_backup(upload, target, 1)
+
+        customer = Customer.raw_objects.get(business=target)
+        self.assertEqual(customer.name, "Legacy Customer")
+        self.assertEqual(Order.raw_objects.get(business=target).customer_id, customer.pk)
+        self.assertEqual(Sale.raw_objects.get(business=target).customer_master_id, customer.pk)
+        self.assertIsNone(Sale.raw_objects.get(business=target).items.get().production_batch_id)
+        self.assertEqual(StockMovement.raw_objects.get(business=target).location.name, "Main Store")
+        self.assertEqual(result["reconstructed_customers"], 1)
+        self.assertEqual(InventoryLocation.raw_objects.filter(business=target, name="Main Store").count(), 1)

@@ -373,3 +373,6 @@ MONNIFY_API_KEY = os.environ.get("MONNIFY_API_KEY", "")
 MONNIFY_SECRET_KEY = os.environ.get("MONNIFY_SECRET_KEY", "")
 MONNIFY_CONTRACT_CODE = os.environ.get("MONNIFY_CONTRACT_CODE", "")
 MONNIFY_BASE_URL = os.environ.get("MONNIFY_BASE_URL", "https://api.monnify.com")
+
+# PWA service-worker build identity. Render exposes the deployed git commit; a manual override is also supported.
+PWA_BUILD_VERSION = os.getenv("PWA_BUILD_VERSION") or os.getenv("RENDER_GIT_COMMIT") or "dev"

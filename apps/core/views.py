@@ -44,7 +44,8 @@ def marketing_home(request):
     if request.user.is_authenticated and request.GET.get("view") != "marketing":
         return redirect("dashboard")
     from accounts.models import SubscriptionPlan
-    plans = (
+    from accounts.subscription_services import attach_active_promotions
+    plans = attach_active_promotions(
         SubscriptionPlan.objects.filter(active=True)
         .prefetch_related("module_entitlements")
         .order_by("monthly_price", "id")
@@ -1872,15 +1873,16 @@ def export_financial_xlsx(request):
 @login_required
 @reports_full_required
 def backup_json(request):
-    from .models import CashAccount, AuditLog
-    from procurement.models import SupplierPayment
-    from sales.models import CustomerPayment
-    models_to_dump = [Business, CashAccount, FinancialTransaction, AuditLog, RawMaterial, FinishedGood, RecipeItem, ProductionMaterial, StockMovement, OperationalSupplyDispense, MarketStockLot, MarketStockMovement, DistributionReturn,
-                      PurchaseOrder, PurchaseOrderItem, SupplierPayment, Order, OrderItem, Sale, SaleItem, CustomerPayment, Expense]
-    objects = []
-    for model in models_to_dump:
-        objects.extend(model.objects.all())
-    data = serializers.serialize("json", objects, indent=2)
+    # Backups are an explicit tenant boundary. Never rely on the ambient scoped
+    # manager here: Business itself is unscoped and several child tables (recipe
+    # items, order items, sale items, etc.) do not carry a business_id column.
+    from .tenant_backup import tenant_backup_objects
+
+    business = getattr(request, "business", None)
+    if business is None:
+        return JsonResponse({"error": "No active tenant is selected."}, status=400)
+    data = serializers.serialize("json", tenant_backup_objects(business), indent=2)
     response = HttpResponse(data, content_type="application/json")
-    response["Content-Disposition"] = f'attachment; filename="inprofic-backup-{today()}.json"'
+    response["Content-Disposition"] = f'attachment; filename="inprofic-{business.slug}-backup-{today()}.json"'
+    response["X-Content-Type-Options"] = "nosniff"
     return response

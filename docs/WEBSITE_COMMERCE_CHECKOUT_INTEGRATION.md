@@ -13,7 +13,7 @@ website basket
   -> operational acceptance, fulfilment, Sales/Production and Finance
 ```
 
-Do not use the legacy `/orders` endpoint for a new website. It exists only so older integrations keep working and it creates intake before payment.
+Do not use the legacy `/orders` create endpoint. It is retired for writes and returns HTTP `410 checkout_first_required`. All new and migrated integrations must create `/checkouts`; no operational intake exists until verified payment succeeds.
 
 ## 1. Responsibilities and security
 
@@ -83,8 +83,8 @@ Create active settlement accounts in **Finance**, then open **Commerce → Payme
 | --- | --- |
 | Paystack | Enabled, secret key, active tenant settlement account |
 | Monnify | Enabled, API key, secret key, contract code, base URL, active tenant settlement account |
-| Bank transfer | Enabled, bank details, active tenant bank/cash account |
-| Cash | Enabled, active tenant cash account |
+| Instant bank transfer | Enabled, Paystack or Monnify selected as transfer provider, that provider fully configured, active tenant transfer settlement account; Monnify also needs the configured transfer bank code |
+| Cash / physical POS | **Not exposed to headless/public checkout.** These are authenticated in-premise staff methods only. |
 
 Only fully configured methods are exposed. Credentials remain server-side.
 
@@ -206,14 +206,14 @@ X-INPROFIC-Key: <tenant API key>
 {
   "currency": "NGN",
   "methods": [
-    {"code": "paystack", "label": "Paystack"},
-    {"code": "bank_transfer", "label": "Bank transfer"},
-    {"code": "cash", "label": "Cash"}
+    {"code": "paystack", "label": "Card / secure checkout (Paystack)"},
+    {"code": "monnify", "label": "Secure checkout (Monnify)"},
+    {"code": "bank_transfer", "label": "Instant bank transfer (Monnify)"}
   ]
 }
 ```
 
-Possible codes are `paystack`, `monnify`, `bank_transfer` and `cash`. Render only what is returned. INPROFIC revalidates eligibility when payment starts.
+Public/headless codes are `paystack`, `monnify` and `bank_transfer`. **Cash and `pos_card` are never returned on this surface.** Render only what is returned. INPROFIC revalidates eligibility when payment starts.
 
 ## 6. Create checkout
 
@@ -384,31 +384,21 @@ If checkout already has email, omit `customer_email`. `return_url` must be absol
 
 The real `checkout` is the complete checkout serialization. Redirect to `authorization_url`. On return, display “Confirming payment” and poll. Never trust redirect query parameters.
 
-### Bank transfer
+### Instant bank transfer
 
 ```json
-{"method": "bank_transfer"}
+{"method": "bank_transfer", "customer_email": "ada@example.com"}
 ```
 
-The response has `status: "pending"`, the INPROFIC `reference`, exact amount, `bank_account` and `instructions`.
+INPROFIC uses the tenant's configured transfer provider (`paystack` or `monnify`) to issue a temporary account for the exact checkout amount. The response contains `gateway_provider`, `bank_account`, expiry/instructions and the normal payment reference. Show those details exactly; do **not** ask the customer to submit a transfer reference.
 
-After transfer:
+The provider webhook is signature-checked and INPROFIC independently queries the provider before settlement. The intake/order is materialized only after the verified amount, currency, tenant/payment metadata and provider status match. Poll the current-payment endpoint while the transfer is pending.
 
-```http
-POST /api/v1/storefronts/{business_slug}/checkouts/{checkout_id}/payments/current/claim
-X-INPROFIC-Key: <tenant API key>
-Content-Type: application/json
-```
+The historical `/payments/current/claim` endpoint remains only for pre-migration manual-transfer records; gateway-backed new transfers reject manual claims.
 
-```json
-{"payer_name": "Ada Customer", "transfer_reference": "BANK-TRX-992288"}
-```
+### Cash and physical POS
 
-A new claim returns `201`; an idempotent repeat returns `200`. Status becomes `awaiting_verification`. No intake exists until authorized staff verify actual credit.
-
-### Cash
-
-Initialize with `{"method":"cash"}`. Cash remains `pending`; there is no public confirmation endpoint. Authorized staff confirm physical receipt in INPROFIC.
+Cash and `pos_card` are deliberately unavailable to public/headless clients. Cash is accepted only by authenticated staff with the supplemental **Commerce storefront access** capability on the in-premise POS screen. Physical card-terminal automation currently uses a configured Paystack Terminal and settles only after provider verification.
 
 ## 9. Poll before an order exists
 
@@ -585,27 +575,21 @@ The browser calls the website’s own API routes; the website server attaches th
 - [ ] `paid_review` prevents repeat charging.
 - [ ] Order UUID and display number are stored separately.
 - [ ] Duplicate requests and cross-tenant UUID/key attempts are tested.
-- [ ] Bank claims and cash wait for authorized INPROFIC verification.
+- [ ] Public/headless methods contain no cash/POS option.
+- [ ] Instant bank transfer displays the provider-issued temporary account and settles only after webhook + provider verification.
+- [ ] Cash and physical terminal payments are tested only from the authenticated in-premise Storefront POS.
 
 ## 15. Legacy compatibility only
 
-These remain for existing intake-before-payment integrations:
+`POST /api/v1/storefronts/{business_slug}/orders` is now **retired for writes**. It returns HTTP `410` with `code: "checkout_first_required"` and points the caller to `/checkouts`. This prevents any new integration from materializing an intake before payment.
+
+Read/status and payment routes for already-existing historical intake UUIDs remain available during migration:
 
 ```text
-POST /api/v1/storefronts/{business_slug}/orders
 GET  /api/v1/storefronts/{business_slug}/orders/{order_id}
 POST /api/v1/storefronts/{business_slug}/orders/{order_id}/payments/initiate
 GET  /api/v1/storefronts/{business_slug}/orders/{order_id}/payments/current
-POST /api/v1/storefronts/{business_slug}/orders/{order_id}/payments/current/claim
+POST /api/v1/storefronts/{business_slug}/orders/{order_id}/payments/current/claim   # historical manual transfers only
 ```
 
-Legacy create reports:
-
-```json
-{
-  "compatibility_mode": "legacy_intake_before_payment",
-  "migration_endpoint": "/api/v1/storefronts/{business_slug}/checkouts"
-}
-```
-
-For a new or migrated website: create `/checkouts`, pay using checkout UUID, poll until `order_id` appears, then begin order tracking.
+For every new or migrated website: create `/checkouts`, pay using the checkout UUID, poll until verified settlement returns an `order_id`, then begin order tracking.

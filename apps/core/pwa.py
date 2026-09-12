@@ -1,4 +1,7 @@
 import json
+import re
+
+from django.conf import settings
 
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, JsonResponse
@@ -13,7 +16,9 @@ from accounts.models import UserBusiness
 from .models import Business
 
 
-PWA_CACHE_NAME = "inprofic-static-v20260911-3"
+def _pwa_build_version():
+    raw = str(getattr(settings, "PWA_BUILD_VERSION", "dev") or "dev")
+    return re.sub(r"[^A-Za-z0-9._-]", "-", raw)[:40] or "dev"
 
 
 def _icons():
@@ -126,14 +131,23 @@ def service_worker(request):
         static("core/pwa/icon-maskable-512.png"),
     ]
     offline_url = reverse("pwa_offline")
+    build_version = _pwa_build_version()
+    cache_name = f"inprofic-static-{build_version}"
     js = f"""
-const CACHE_NAME = {json.dumps(PWA_CACHE_NAME)};
+const APP_VERSION = {json.dumps(build_version)};
+const CACHE_NAME = {json.dumps(cache_name)};
 const OFFLINE_URL = {json.dumps(offline_url)};
 const PRECACHE_URLS = {json.dumps([offline_url, *static_assets])};
 
 self.addEventListener('install', (event) => {{
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS)));
-  self.skipWaiting();
+}});
+
+self.addEventListener('message', (event) => {{
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+  if (event.data && event.data.type === 'GET_VERSION' && event.source) {{
+    event.source.postMessage({{ type: 'INPROFIC_SW_VERSION', version: APP_VERSION }});
+  }}
 }});
 
 self.addEventListener('activate', (event) => {{

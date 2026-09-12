@@ -183,3 +183,130 @@ To use PythonAnywhere as a live failover for Render rather than as a separate co
 ## Moving existing SQLite data to Supabase
 
 Changing `DATABASE_URL` starts against a different database; it does not copy the existing SQLite records. Before accepting live traffic on Render, export the current database with `dumpdata` (excluding Django content types and permissions if appropriate), run migrations against Supabase, load the reviewed fixture, and compare tenant, stock, sales, finance, and order counts. Keep the old database as a rollback backup until the new deployment is verified.
+
+### Web Push (Commerce background notifications)
+
+INPROFIC keeps the existing WebSocket/in-app commerce notification path for
+open pages and adds Web Push for installed/background PWAs. Push delivery is
+stored in a durable outbox so checkout/payment requests never wait for the
+browser push provider.
+
+Generate the VAPID pair **once** from a trusted local/project shell after
+installing the current requirements:
+
+```bash
+python manage.py generate_vapid_keys
+```
+
+Copy the three printed values into the Render service Environment:
+
+```text
+WEB_PUSH_VAPID_PUBLIC_KEY=...
+WEB_PUSH_VAPID_PRIVATE_KEY=...
+WEB_PUSH_VAPID_SUBJECT=mailto:your-admin-email@example.com
+```
+
+Keep the private key stable and secret. Rotating the pair invalidates existing
+browser subscriptions and users must enable background alerts again.
+
+Immediate delivery is best-effort in a short daemon thread after the commerce
+transaction commits. For durable retries, create an additional cron-job.org
+job every 5 minutes:
+
+```text
+POST https://<production-domain>/ops/dispatch-web-push/
+Authorization: Bearer <CRON_SECRET>
+```
+
+The endpoint processes a bounded batch so it cannot monopolize the free Render
+instance. The existing daily `/ops/run-jobs/` maintenance schedule remains
+unchanged and does not run push delivery work.
+
+Users enable/disable Web Push per device from **Commerce settings → Browser &
+PWA alerts on this device**. Signing out deactivates that account's server-side
+push subscriptions for privacy; the user can explicitly enable the device again
+on a later session.
+
+### Tenant backups and Founder Console legacy import
+
+Reports → Backup is explicitly tenant-scoped. The exporter includes only the
+active `Business` and operational rows proven to belong to it; child models
+without their own `business_id` (for example recipe, order and sale items) are
+scoped through their owning parent. Future backups also include the customer,
+inventory-location and production dependency rows needed for a self-contained
+operational restore.
+
+The Founder Console recovery tool accepts either an INPROFIC Django JSON backup
+or a raw PythonAnywhere SQLite database and never replaces the destination
+Supabase/PostgreSQL database. Use **Dry run / compare only** first.
+
+For JSON backups, the dry run re-establishes tenant ownership from the selected
+Business and parent relations. This safely handles historical backups produced
+before tenant-scoping was fixed: other tenant roots/rows in the same file are
+ignored. Historical JSON exports that omitted customer masters or inventory
+locations are repaired conservatively from customer-name snapshots and the
+destination tenant's Main Store; nullable production-batch traceability links
+that cannot be reconstructed are left empty and reported rather than guessed.
+
+For SQLite backups, the dry run opens the database in query-only mode and runs
+an integrity check. Both formats:
+
+- list source tenants and require a source tenant ID when the backup has more than one;
+- compare source values/fields with the current Django model schema;
+- block when a current required field cannot be satisfied;
+- block imports into a destination tenant that already contains operational data;
+- preflight globally unique scalar values against the live database without displaying sensitive values;
+- preserve the destination tenant's subscription/entitlement boundary.
+
+The real import requires re-uploading the same backup and typing
+`IMPORT <destination-slug>`. The importer repeats the dry run, maps legacy IDs
+to new PostgreSQL IDs, and performs all writes plus a Founder audit entry inside
+one database transaction. SQLite identity rows can be merged by username/email;
+historical JSON backups that did not include user records clear nullable creator
+attribution rather than guessing identities. Any import error rolls the whole
+tenant merge back. Uploaded backup files are temporary and are not retained by
+INPROFIC.
+
+### Commerce gateway settlement, instant transfer, and in-premise POS
+
+Public/headless commerce is payment-first. New checkouts expose only fully
+configured gateway-confirmed methods: Paystack hosted checkout, Monnify hosted
+checkout, and Instant bank transfer. Cash and physical POS are never returned
+to public/headless clients.
+
+Each tenant configures its own credentials and Finance settlement accounts under
+**Commerce → Payment settings**. When Instant bank transfer is enabled, choose
+Paystack or Monnify as the transfer provider. Monnify custom account display
+also requires the bank code supported by that merchant account. The customer is
+shown the provider-issued temporary account; there is no manual transfer-claim
+step for new payments.
+
+Configure each tenant merchant account to send gateway webhooks directly to:
+
+```text
+https://<production-domain>/api/v1/storefronts/<business-slug>/payments/paystack/webhook
+https://<production-domain>/api/v1/storefronts/<business-slug>/payments/monnify/webhook
+```
+
+A signed webhook is only a trigger. INPROFIC independently verifies the tenant,
+reference, expected amount/currency and payment metadata with the provider
+before it posts Finance, generates the customer receipt, or materializes the
+checkout into an operational commerce intake/order. Browser redirects never
+settle a payment.
+
+For walk-in sales, grant the staff member the supplemental **Commerce storefront
+access** capability from User Management. This does not replace their primary
+role or grant normal Commerce administration permissions. The in-premise POS
+surface can accept configured cash after the staff member explicitly confirms
+physical receipt. Card-on-terminal requires Paystack to be enabled plus a
+Paystack Terminal ID, fallback walk-in email, and a tenant Finance settlement
+account. Terminal settlement still waits for provider verification.
+
+### PWA deployment updates
+
+`PWA_BUILD_VERSION` defaults to Render's `RENDER_GIT_COMMIT`. A new deployment
+therefore changes the service-worker script automatically. Installed clients
+detect the waiting worker and show the controlled **Update app / Later** prompt;
+the app is not force-refreshed while a user is working. If deploying somewhere
+without `RENDER_GIT_COMMIT`, set `PWA_BUILD_VERSION` to a new release/build ID
+for every PWA deployment so installed clients can detect it.

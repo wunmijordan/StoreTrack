@@ -8,10 +8,11 @@ from django.test import TestCase
 
 from accounts.models import BusinessModuleAccess, CustomUser, UserBusiness
 from accounts.services import seed_business_roles
-from core.models import Business, FinancialTransaction
+from core.models import Business, CashAccount, FinancialTransaction
 from inventory.models import FinishedGood, FinishedGoodChannelPrice
 
 from .models import (
+    CommerceCheckoutSession,
     CommerceGatewayEvent,
     CommerceIntegration,
     CommerceIntake,
@@ -22,7 +23,7 @@ from .models import (
     CommerceSettings,
     StorefrontProduct,
 )
-from .payment_gateways import monnify_signature_valid, verify_monnify, verify_paystack
+from .payment_gateways import GatewayError, monnify_signature_valid, verify_monnify, verify_paystack
 from .payment_services import record_verified_payment, reverse_payment_receipt
 from .services import accept_intake, create_intake
 
@@ -39,6 +40,12 @@ class CommercePaymentTestBase(TestCase):
         self.integration = CommerceIntegration.raw_objects.create(
             business=self.business, name="Storefront", integration_type=CommerceIntegration.TYPE_API
         )
+        self.settlement_account = CashAccount.raw_objects.create(
+            business=self.business, name="Commerce Settlement", account_type="bank", active=True
+        )
+        self.cash_account = CashAccount.raw_objects.create(
+            business=self.business, name="Storefront Till", account_type="cash", active=True
+        )
         self.config = CommercePaymentConfiguration.raw_objects.create(
             business=self.business,
             currency="NGN",
@@ -48,11 +55,16 @@ class CommercePaymentTestBase(TestCase):
             monnify_api_key="monnify-api",
             monnify_secret_key="monnify-test-secret",
             monnify_contract_code="contract-1",
+            paystack_account=self.settlement_account,
+            monnify_account=self.settlement_account,
             bank_transfer_enabled=True,
+            bank_transfer_provider=CommercePaymentConfiguration.BANK_TRANSFER_PROVIDER_PAYSTACK,
+            bank_cash_account=self.settlement_account,
             bank_name="Example Bank",
             bank_account_name="Sample Store",
             bank_account_number="0000000000",
             cash_enabled=True,
+            cash_account=self.cash_account,
         )
         self.good = FinishedGood.raw_objects.create(
             business=self.business,
@@ -102,56 +114,59 @@ class CommercePaymentTestBase(TestCase):
 
 
 class HeadlessPaymentApiTests(CommercePaymentTestBase):
-    def test_storefront_amount_is_ignored_and_initialization_is_idempotent(self):
-        path = f"/api/v1/storefronts/{self.business.slug}/orders/{self.intake.public_id}/payments/initiate"
-        first = self.api_post(path, {"method": "cash", "amount": "0.01"}, idem="cash-selection")
-        second = self.api_post(path, {"method": "cash", "amount": "900000"}, idem="cash-selection")
-        self.assertEqual(first.status_code, 200)
-        self.assertEqual(second.status_code, 200)
-        self.assertEqual(first.json()["amount"], "5000.00")
-        self.assertEqual(first.json()["payment_id"], second.json()["payment_id"])
-        self.assertEqual(CommercePayment.raw_objects.count(), 1)
-        self.assertEqual(FinancialTransaction.raw_objects.count(), 0)
+    def test_public_payment_methods_never_expose_cash(self):
+        path = f"/api/v1/storefronts/{self.business.slug}/payment-methods"
+        response = self.client.get(path, HTTP_X_INPROFIC_KEY=self.integration.api_key)
+        self.assertEqual(response.status_code, 200)
+        methods = {row["code"] for row in response.json()["methods"]}
+        self.assertNotIn(CommercePayment.METHOD_CASH, methods)
+        self.assertNotIn(CommercePayment.METHOD_POS_CARD, methods)
+        self.assertIn(CommercePayment.METHOD_BANK_TRANSFER, methods)
 
-    def test_distribution_minimum_returns_other_channel_suggestions(self):
-        self.product.distribution_min_quantity = Decimal("10")
-        self.product.save(update_fields=["distribution_min_quantity"])
+    def test_legacy_order_creation_endpoint_requires_checkout_first(self):
         path = f"/api/v1/storefronts/{self.business.slug}/orders"
+        response = self.api_post(path, {"customer": {"name": "Sample Customer"}}, idem="legacy-order")
+        self.assertEqual(response.status_code, 410)
+        self.assertEqual(response.json()["code"], "checkout_first_required")
+
+    def test_checkout_validates_channel_minimum_without_creating_intake(self):
+        self.product.distribution_min_quantity = Decimal("10")
+        self.product.allow_distribution_order = True
+        self.product.save(update_fields=["distribution_min_quantity", "allow_distribution_order"])
+        path = f"/api/v1/storefronts/{self.business.slug}/checkouts"
         response = self.api_post(
             path,
             {
                 "order_mode": "distribution",
-                "customer": {"name": "Sample Customer"},
+                "customer": {"name": "Sample Customer", "phone": "08000000000"},
                 "items": [{"product_id": str(self.product.public_id), "quantity": "2"}],
             },
             idem="below-trade-minimum",
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "minimum_not_met")
-        self.assertEqual(
-            [item["code"] for item in response.json()["suggested_order_modes"]],
-            ["physical_store", "online"],
-        )
+        self.assertEqual(CommerceCheckoutSession.raw_objects.count(), 0)
 
-    def test_non_production_channels_use_channel_price_without_creating_production(self):
+    def test_checkout_uses_channel_price_and_stays_pre_intake(self):
         FinishedGoodChannelPrice.objects.create(
             finished_good=self.good, channel="online", price=Decimal("2250.00")
         )
-        path = f"/api/v1/storefronts/{self.business.slug}/orders"
+        self.product.allow_online_order = True
+        self.product.save(update_fields=["allow_online_order"])
+        path = f"/api/v1/storefronts/{self.business.slug}/checkouts"
         response = self.api_post(
             path,
             {
                 "order_mode": "online",
-                "customer": {"name": "Sample Customer"},
+                "customer": {"name": "Sample Customer", "phone": "08000000000"},
                 "items": [{"product_id": str(self.product.public_id), "quantity": "2"}],
             },
             idem="retail-online-channel",
         )
         self.assertEqual(response.status_code, 201)
-        intake = CommerceIntake.raw_objects.get(public_id=response.json()["id"])
-        self.assertEqual(intake.sales_channel, CommerceIntake.CHANNEL_ONLINE)
-        self.assertEqual(intake.ordering_mode, CommerceIntake.MODE_STOCK)
-        self.assertEqual(intake.total, Decimal("4500.00"))
+        checkout = CommerceCheckoutSession.raw_objects.get(public_id=response.json()["checkout_id"])
+        self.assertEqual(checkout.amount, Decimal("4500.00"))
+        self.assertEqual(CommerceIntake.raw_objects.filter(business=self.business).count(), 1)  # setup legacy intake only
 
     def test_payment_initialization_is_tenant_scoped(self):
         other = Business.objects.create(name="Other Store", slug="other-store", vertical=Business.VERTICAL_RETAIL)
@@ -353,6 +368,63 @@ class ManualVerificationTests(CommercePaymentTestBase):
         self.assertTrue(FinancialTransaction.raw_objects.get(pk=receipt.financial_transaction_id).reversed)
 
 
+class StorefrontPosGuardTests(CommercePaymentTestBase):
+    def setUp(self):
+        super().setUp()
+        roles = seed_business_roles(self.business)
+        self.staff = CustomUser.objects.create_user(
+            username="pos.staff", password="safe-password-123", fullname="POS Staff"
+        )
+        UserBusiness.objects.create(
+            user=self.staff, business=self.business, role=roles[CustomUser.ROLE_INVENTORY_MANAGER],
+            active=True, commerce_storefront_access=True,
+        )
+        self.client.force_login(self.staff)
+        session = self.client.session
+        session["active_business_id"] = self.business.pk
+        session.save()
+
+    def test_cash_must_be_confirmed_before_checkout_reserves_stock(self):
+        response = self.client.post("/commerce/storefront-pos/", {
+            "method": CommercePayment.METHOD_CASH,
+            f"qty_{self.product.public_id}": "1",
+            "customer_name": "Walk-in Customer",
+            "pos_key": "cash-not-received",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Confirm that the cash has physically been received")
+        self.assertFalse(CommerceCheckoutSession.raw_objects.filter(
+            business=self.business, source=CommerceIntake.SOURCE_STAFF_POS
+        ).exists())
+
+    @patch("commerce.views.initiate_payment")
+    def test_terminal_initialization_failure_releases_new_pos_reservation(self, initiate_payment):
+        self.config.paystack_terminal_enabled = True
+        self.config.paystack_terminal_id = "TERM_test"
+        self.config.paystack_terminal_customer_email = "walkin@example.test"
+        self.config.paystack_terminal_account = self.settlement_account
+        self.config.save(update_fields=[
+            "paystack_terminal_enabled", "paystack_terminal_id",
+            "paystack_terminal_customer_email", "paystack_terminal_account",
+        ])
+        initiate_payment.side_effect = GatewayError("Terminal unavailable")
+
+        response = self.client.post("/commerce/storefront-pos/", {
+            "method": CommercePayment.METHOD_POS_CARD,
+            f"qty_{self.product.public_id}": "1",
+            "customer_name": "Walk-in Customer",
+            "pos_key": "terminal-failure",
+        })
+
+        self.assertEqual(response.status_code, 200)
+        checkout = CommerceCheckoutSession.raw_objects.get(
+            business=self.business, source=CommerceIntake.SOURCE_STAFF_POS
+        )
+        self.assertEqual(checkout.status, CommerceCheckoutSession.STATUS_CANCELLED)
+        self.assertIsNotNone(checkout.reservation_released_at)
+
+
+
 class GatewayWebhookTests(CommercePaymentTestBase):
     def _gateway_payment(self, method, reference, gateway_reference):
         return self.make_payment(
@@ -383,6 +455,37 @@ class GatewayWebhookTests(CommercePaymentTestBase):
         self.assertEqual(CommerceGatewayEvent.raw_objects.count(), 2)
 
     @patch("commerce.payment_services.verify_gateway")
+    def test_signed_pending_paystack_event_is_acknowledged_without_settlement(self, verify_gateway):
+        payment = self._gateway_payment("paystack", "STP-PAYSTACK-PENDING", "gateway-pending-1")
+        payload = {"event": "paymentrequest.pending", "data": {"reference": payment.reference}}
+        raw = json.dumps(payload).encode()
+        signature = hmac.new(self.config.paystack_secret_key.encode(), raw, hashlib.sha512).hexdigest()
+        url = f"/api/v1/storefronts/{self.business.slug}/payments/paystack/webhook"
+
+        response = self.client.post(url, raw, content_type="application/json", HTTP_X_PAYSTACK_SIGNATURE=signature)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["settlement_attempted"])
+        verify_gateway.assert_not_called()
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, CommercePayment.STATUS_AWAITING_CUSTOMER)
+        self.assertEqual(CommercePaymentReceipt.raw_objects.count(), 0)
+
+    @patch("commerce.payment_services.verify_gateway")
+    def test_signed_unmatched_gateway_event_is_acknowledged_without_settlement(self, verify_gateway):
+        payload = {"event": "charge.success", "data": {"reference": "pos-provider-reference-not-known-to-commerce"}}
+        raw = json.dumps(payload).encode()
+        signature = hmac.new(self.config.paystack_secret_key.encode(), raw, hashlib.sha512).hexdigest()
+        url = f"/api/v1/storefronts/{self.business.slug}/payments/paystack/webhook"
+
+        response = self.client.post(url, raw, content_type="application/json", HTTP_X_PAYSTACK_SIGNATURE=signature)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ignored"])
+        verify_gateway.assert_not_called()
+        self.assertEqual(CommercePaymentReceipt.raw_objects.count(), 0)
+
+    @patch("commerce.payment_services.verify_gateway")
     def test_monnify_signature_and_replay_safety(self, verify_gateway):
         payment = self._gateway_payment("monnify", "STP-MONNIFY-WEBHOOK", "gateway-monnify-1")
         verify_gateway.return_value = (True, {"reference": payment.reference, "amount": "5000.00", "currency": "NGN"})
@@ -398,6 +501,26 @@ class GatewayWebhookTests(CommercePaymentTestBase):
         self.assertEqual(payment.status, CommercePayment.STATUS_PAID)
         self.assertEqual(CommercePaymentReceipt.raw_objects.count(), 1)
         self.assertEqual(FinancialTransaction.raw_objects.count(), 1)
+
+
+    @patch("commerce.payment_services.verify_gateway")
+    def test_gateway_webhook_matches_automated_bank_transfer_by_gateway_provider(self, verify_gateway):
+        payment = self._gateway_payment(
+            CommercePayment.METHOD_BANK_TRANSFER,
+            "STP-TRANSFER-WEBHOOK",
+            "STP-TRANSFER-WEBHOOK",
+        )
+        payment.gateway_provider = CommercePayment.GATEWAY_PAYSTACK
+        payment.save(update_fields=["gateway_provider"])
+        verify_gateway.return_value = (True, {"reference": payment.reference, "amount": "5000.00", "currency": "NGN"})
+        payload = {"event": "charge.success", "data": {"reference": payment.reference, "metadata": {"storetrack_payment_id": str(payment.public_id)}}}
+        raw = json.dumps(payload).encode()
+        signature = hmac.new(self.config.paystack_secret_key.encode(), raw, hashlib.sha512).hexdigest()
+        url = f"/api/v1/storefronts/{self.business.slug}/payments/paystack/webhook"
+        response = self.client.post(url, raw, content_type="application/json", HTTP_X_PAYSTACK_SIGNATURE=signature)
+        self.assertEqual(response.status_code, 200)
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, CommercePayment.STATUS_PAID)
 
     def test_monnify_allows_missing_signature_only_for_sandbox_verification(self):
         self.config.monnify_base_url = "https://sandbox.monnify.com"

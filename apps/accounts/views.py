@@ -125,7 +125,8 @@ def user_form(request, pk=None):
                 membership, _ = UserBusiness.objects.get_or_create(user=user, business=request.business, defaults={"role": role, "active": user.is_active})
                 membership.role = role
                 membership.active = user.is_active
-                membership.save(update_fields=["role", "active"])
+                membership.commerce_storefront_access = bool(form.cleaned_data.get("commerce_storefront_access"))
+                membership.save(update_fields=["role", "active", "commerce_storefront_access"])
                 ensure_permissions(membership)
             messages.success(request, "User updated." if obj else "User created.")
             return redirect("users_list")
@@ -221,14 +222,16 @@ def subscription_plans(request):
     if not is_business_admin(request.user, request.business):
         return render(request, "403.html", status=403)
     from .models import BusinessSubscription, SubscriptionPlan
-    from .subscription_services import ensure_default_plans, payment_is_locked
+    from .subscription_services import attach_active_promotions, ensure_default_plans, payment_is_locked
     ensure_default_plans()
     service = getattr(request.business, "subscription_service", None)
     subscription = service.subscription if service else BusinessSubscription.objects.filter(primary_business=request.business).select_related("plan").first()
     if not subscription:
         # Legacy live businesses are not silently downgraded; they may opt into a plan from this page.
         subscription = None
-    plans = SubscriptionPlan.objects.filter(active=True).prefetch_related("module_entitlements").order_by("monthly_price", "id")
+    plans = attach_active_promotions(
+        SubscriptionPlan.objects.filter(active=True).prefetch_related("module_entitlements").order_by("monthly_price", "id")
+    )
     plan_cards = [
         {
             "plan": plan,
@@ -251,6 +254,7 @@ def subscription_payment(request, plan_code=None):
     from .models import BusinessSubscription, SubscriptionPayment, SubscriptionPaymentSettings, SubscriptionPlan
     from .payment_gateways import GatewayError, initialize_gateway
     from .subscription_services import (
+        active_promotion_for_plan,
         create_payment_request,
         ensure_default_plans,
         payment_amount,
@@ -266,6 +270,7 @@ def subscription_payment(request, plan_code=None):
     if not subscription:
         subscription = start_trial_for_business(request.business, selected or plans[SubscriptionPlan.CODE_STARTER])
     selected = selected or subscription.plan
+    selected.current_promotion = active_promotion_for_plan(selected)
     payment_locked = payment_is_locked(subscription, selected)
     requires_change_warning = bool(
         subscription.is_effectively_active and subscription.plan_id != selected.pk
@@ -337,6 +342,8 @@ def subscription_payment(request, plan_code=None):
         "service_profiles": service_profiles,
         "selected_monthly_total": payment_amount(selected, len(service_profiles), 1),
         "selected_yearly_total": payment_amount(selected, len(service_profiles), 12, billing_cycle=SubscriptionPayment.CYCLE_YEARLY),
+        "selected_base_monthly_total": payment_amount(selected, len(service_profiles), 1, promotion=False),
+        "selected_base_yearly_total": payment_amount(selected, len(service_profiles), 12, billing_cycle=SubscriptionPayment.CYCLE_YEARLY, promotion=False),
         "available_payment_providers": available_payment_providers,
         "payment_locked": payment_locked,
         "requires_change_warning": requires_change_warning,
@@ -434,10 +441,10 @@ def subscription_add_service(request):
 
 @login_required
 def founder_subscriptions(request):
-    from .forms import FounderGrantForm, LegacyTenantImportForm
-    from .models import BusinessSubscription, SubscriptionPlan, SubscriptionPayment, SubscriptionPaymentSettings
+    from .forms import FounderGrantForm, LegacyTenantImportForm, SubscriptionPromotionForm
+    from .models import BusinessSubscription, SubscriptionPlan, SubscriptionPayment, SubscriptionPaymentSettings, SubscriptionPromotion
     from .subscription_services import ensure_default_plans, grant_founder_lifetime, mark_payment_paid, start_trial_for_business
-    from .legacy_import import LegacyImportError, analyze_legacy_sqlite, import_legacy_sqlite
+    from .legacy_import import LegacyImportError, analyze_legacy_backup, import_legacy_backup
     if not request.user.is_superuser:
         return render(request, "403.html", status=403)
     ensure_default_plans()
@@ -448,6 +455,7 @@ def founder_subscriptions(request):
         request.POST if action in {"legacy_dry_run", "legacy_import"} else None,
         request.FILES if action in {"legacy_dry_run", "legacy_import"} else None,
     )
+    promotion_form = SubscriptionPromotionForm(request.POST if action == "create_promotion" else None)
     legacy_import_report = None
     if request.method == "POST":
         if action in {"legacy_dry_run", "legacy_import"} and legacy_form.is_valid():
@@ -456,17 +464,22 @@ def founder_subscriptions(request):
             uploaded = legacy_form.cleaned_data["database"]
             try:
                 if action == "legacy_dry_run":
-                    legacy_import_report = analyze_legacy_sqlite(
+                    legacy_import_report = analyze_legacy_backup(
                         uploaded, target_business, source_business_id
                     )
                 else:
                     if not source_business_id:
-                        legacy_form.add_error("source_business_id", "Run Dry run first and provide the legacy tenant ID before importing.")
+                        uploaded.seek(0)
+                        auto_report = analyze_legacy_backup(uploaded, target_business, None)
+                        source_business_id = auto_report.get("source_business_id")
+                        if not source_business_id:
+                            legacy_form.add_error("source_business_id", "This backup contains more than one legacy tenant. Run Dry run and enter the tenant ID you want to import.")
+                        uploaded.seek(0)
                     expected = f"IMPORT {target_business.slug}"
                     if legacy_form.cleaned_data.get("confirmation", "").strip() != expected:
                         legacy_form.add_error("confirmation", f"Type {expected} exactly to authorize this tenant import.")
                     if not legacy_form.errors:
-                        result = import_legacy_sqlite(uploaded, target_business, source_business_id, actor=request.user)
+                        result = import_legacy_backup(uploaded, target_business, source_business_id, actor=request.user)
                         messages.success(
                             request,
                             f"Legacy tenant import completed for {target_business.name}: "
@@ -491,6 +504,19 @@ def founder_subscriptions(request):
             payment = mark_payment_paid(payment)
             messages.success(request, f"Payment {payment.reference} marked paid and entitlements updated.")
             return redirect("founder_subscriptions")
+        if action == "create_promotion" and promotion_form.is_valid():
+            promotion = promotion_form.save(commit=False)
+            promotion.created_by = request.user
+            promotion.active = True
+            promotion.save()
+            messages.success(request, f"Promotion scheduled for {promotion.plan.name}: {promotion.reason}.")
+            return redirect("founder_subscriptions")
+        if action == "deactivate_promotion":
+            promotion = get_object_or_404(SubscriptionPromotion, pk=request.POST.get("promotion_id"))
+            promotion.active = False
+            promotion.save(update_fields=["active", "updated_at"])
+            messages.success(request, f"Promotion ended for {promotion.plan.name}. Base pricing remains unchanged.")
+            return redirect("founder_subscriptions")
         if action == "save_plan_pricing":
             from decimal import Decimal, InvalidOperation
             plans_to_update = list(SubscriptionPlan.objects.all().order_by("id"))
@@ -503,6 +529,31 @@ def founder_subscriptions(request):
                     parsed.append((plan, monthly, yearly_discount, addon_discount))
             except (InvalidOperation, TypeError, ValueError):
                 messages.error(request, "Enter valid numeric pricing and discount values for every plan.")
+                return redirect("founder_subscriptions")
+            # Keep configurable base pricing from making an already scheduled
+            # fixed-amount promotion impossible to pay. One bounded query checks
+            # all still-relevant promotions before the atomic price update.
+            from django.utils import timezone
+            fixed_promos = {}
+            for promo in SubscriptionPromotion.objects.filter(
+                plan_id__in=[plan.pk for plan, *_ in parsed],
+                active=True,
+                discount_type=SubscriptionPromotion.DISCOUNT_AMOUNT,
+                ends_at__gt=timezone.now(),
+            ).order_by("plan_id", "starts_at", "id"):
+                current = fixed_promos.get(promo.plan_id)
+                if current is None or promo.discount_value > current.discount_value:
+                    fixed_promos[promo.plan_id] = promo
+            invalid = []
+            for plan, monthly, _yearly_discount, _addon_discount in parsed:
+                promo = fixed_promos.get(plan.pk)
+                if promo and monthly <= promo.discount_value:
+                    invalid.append(f"{plan.name} ({promo.reason})")
+            if invalid:
+                messages.error(
+                    request,
+                    "End or reduce the fixed promotion before lowering its base price: " + ", ".join(invalid),
+                )
                 return redirect("founder_subscriptions")
             with transaction.atomic():
                 for plan, monthly, yearly_discount, addon_discount in parsed:
@@ -537,4 +588,7 @@ def founder_subscriptions(request):
         "payment_settings": payment_settings,
         "legacy_form": legacy_form,
         "legacy_import_report": legacy_import_report,
+        "promotion_form": promotion_form,
+        "promotions": SubscriptionPromotion.objects.select_related("plan", "created_by").order_by("-active", "-starts_at", "-id")[:50],
+        "now": timezone.now(),
     })

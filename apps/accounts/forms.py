@@ -1,7 +1,7 @@
 from django import forms
 from django.contrib.auth import password_validation
 from core.models import Business
-from .models import CustomUser, Role, RoleModulePermission, UserBusiness, UserModulePermission, SubscriptionPlan
+from .models import CustomUser, Role, RoleModulePermission, UserBusiness, UserModulePermission, SubscriptionPlan, SubscriptionPromotion
 from .services import ensure_permissions, is_business_admin, seed_business_roles
 
 CLS = "w-full rounded-md border border-[#D9CFB4] bg-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#8f172d]/30 focus:border-[#8f172d]"
@@ -52,6 +52,11 @@ class BusinessSignupForm(forms.Form):
 class UserForm(forms.ModelForm):
     password = forms.CharField(widget=forms.PasswordInput, required=False, help_text="Required for a new user; leave blank when editing to keep the current password.")
     role = forms.ModelChoiceField(queryset=Role.objects.none(), empty_label=None)
+    commerce_storefront_access = forms.BooleanField(
+        required=False,
+        label="Commerce storefront access",
+        help_text="Allow this staff member to operate the in-premise storefront/POS without granting full Commerce administration rights.",
+    )
 
     class Meta:
         model = CustomUser
@@ -76,8 +81,10 @@ class UserForm(forms.ModelForm):
         self.fields["role"].queryset = qs
         for f in self.fields.values():
             f.widget.attrs["class"] = CLS
+        self.fields["commerce_storefront_access"].widget.attrs["class"] = "h-4 w-4 accent-[#8f172d]"
         if membership:
             self.fields["role"].initial = membership.role_id
+            self.fields["commerce_storefront_access"].initial = membership.commerce_storefront_access
 
     def clean_password(self):
         value = self.cleaned_data.get("password")
@@ -175,6 +182,48 @@ class RolePermissionForm(forms.Form):
             )
 
 
+class SubscriptionPromotionForm(forms.ModelForm):
+    class Meta:
+        model = SubscriptionPromotion
+        fields = ["plan", "reason", "discount_type", "discount_value", "starts_at", "ends_at"]
+        widgets = {
+            "starts_at": forms.DateTimeInput(attrs={"type": "datetime-local"}),
+            "ends_at": forms.DateTimeInput(attrs={"type": "datetime-local"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["plan"].queryset = SubscriptionPlan.objects.filter(active=True).order_by("monthly_price", "id")
+        for field in self.fields.values():
+            field.widget.attrs["class"] = CLS
+
+    def clean(self):
+        from decimal import Decimal
+        cleaned = super().clean()
+        plan = cleaned.get("plan")
+        kind = cleaned.get("discount_type")
+        value = cleaned.get("discount_value")
+        starts = cleaned.get("starts_at")
+        ends = cleaned.get("ends_at")
+        if starts and ends and ends <= starts:
+            self.add_error("ends_at", "Promotion expiry must be after its start time.")
+        if value is not None and value <= 0:
+            self.add_error("discount_value", "Enter a discount greater than zero.")
+        if kind == SubscriptionPromotion.DISCOUNT_PERCENT and value is not None and value >= Decimal("100"):
+            self.add_error("discount_value", "Percentage discounts must leave a payable amount (use less than 100%).")
+        if kind == SubscriptionPromotion.DISCOUNT_AMOUNT and plan and value is not None and value >= plan.monthly_price:
+            self.add_error("discount_value", "A fixed discount must leave a payable amount below the plan's monthly base price.")
+        if plan and starts and ends:
+            overlap = SubscriptionPromotion.objects.filter(
+                plan=plan, active=True, starts_at__lt=ends, ends_at__gt=starts
+            )
+            if self.instance.pk:
+                overlap = overlap.exclude(pk=self.instance.pk)
+            if overlap.exists():
+                self.add_error(None, "This plan already has an active/scheduled promotion overlapping that period.")
+        return cleaned
+
+
 class AddSubscriptionServiceForm(forms.Form):
     business_name = forms.CharField(max_length=120, widget=forms.TextInput(attrs={"class": CLS}))
     service_type = forms.ChoiceField(choices=Business.VERTICAL_CHOICES, widget=forms.Select(attrs={"class": CLS}))
@@ -200,9 +249,9 @@ class LegacyTenantImportForm(forms.Form):
         widget=forms.Select(attrs={"class": CLS}),
     )
     database = forms.FileField(
-        label="Legacy SQLite backup",
-        help_text="Upload the PythonAnywhere .sqlite3/.db backup. The first pass is read-only.",
-        widget=forms.ClearableFileInput(attrs={"accept": ".sqlite,.sqlite3,.db,application/vnd.sqlite3,application/octet-stream", "class": CLS}),
+        label="Legacy tenant backup",
+        help_text="Upload an INPROFIC JSON backup or the original PythonAnywhere .sqlite3/.db file. The first pass is read-only.",
+        widget=forms.ClearableFileInput(attrs={"accept": ".json,.sqlite,.sqlite3,.db,application/json,application/vnd.sqlite3,application/octet-stream", "class": CLS}),
     )
     source_business_id = forms.IntegerField(
         required=False,
@@ -225,5 +274,5 @@ class LegacyTenantImportForm(forms.Form):
     def clean_database(self):
         uploaded = self.cleaned_data["database"]
         if getattr(uploaded, "size", 0) > 200 * 1024 * 1024:
-            raise forms.ValidationError("Use a SQLite backup no larger than 200 MB in the Founder Console importer.")
+            raise forms.ValidationError("Use a legacy backup no larger than 200 MB in the Founder Console importer.")
         return uploaded

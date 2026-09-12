@@ -113,24 +113,24 @@ class CommercePaymentConfigurationForm(forms.ModelForm):
         fields = [
             "currency",
             "paystack_enabled", "paystack_secret_key", "paystack_account",
+            "bank_transfer_enabled", "bank_transfer_provider", "monnify_transfer_bank_code", "bank_cash_account",
+            "paystack_terminal_enabled", "paystack_terminal_id",
+            "paystack_terminal_customer_email", "paystack_terminal_account",
             "monnify_enabled", "monnify_api_key", "monnify_secret_key",
             "monnify_contract_code", "monnify_base_url", "monnify_account",
-            "bank_transfer_enabled", "bank_name", "bank_account_name",
-            "bank_account_number", "bank_instructions", "bank_cash_account",
             "cash_enabled", "cash_instructions", "cash_account",
         ]
         widgets = {
             "paystack_secret_key": forms.PasswordInput(render_value=False),
             "monnify_api_key": forms.PasswordInput(render_value=False),
             "monnify_secret_key": forms.PasswordInput(render_value=False),
-            "bank_instructions": forms.Textarea(attrs={"rows": 2}),
             "cash_instructions": forms.Textarea(attrs={"rows": 2}),
         }
 
     def __init__(self, *args, business, **kwargs):
         super().__init__(*args, **kwargs)
         accounts = CashAccount.raw_objects.filter(business=business, active=True).order_by("name")
-        for name in ("paystack_account", "monnify_account", "bank_cash_account", "cash_account"):
+        for name in ("paystack_account", "monnify_account", "bank_cash_account", "paystack_terminal_account", "cash_account"):
             self.fields[name].queryset = accounts
             self.fields[name].required = False
         for name, field in self.fields.items():
@@ -168,11 +168,37 @@ class CommercePaymentConfigurationForm(forms.ModelForm):
             if not cleaned.get("monnify_account"):
                 self.add_error("monnify_account", "Choose the INPROFIC settlement account before enabling Monnify.")
         if cleaned.get("bank_transfer_enabled"):
-            for name in ("bank_name", "bank_account_name", "bank_account_number"):
-                if not cleaned.get(name):
-                    self.add_error(name, "This bank detail is required when bank transfer is enabled.")
+            provider = cleaned.get("bank_transfer_provider")
+            if provider == CommercePaymentConfiguration.BANK_TRANSFER_PROVIDER_PAYSTACK:
+                if not cleaned.get("paystack_enabled") or not cleaned.get("paystack_secret_key"):
+                    self.add_error(
+                        "bank_transfer_provider",
+                        "Paystack transfer requires Paystack to be enabled with a saved secret key.",
+                    )
+            elif provider == CommercePaymentConfiguration.BANK_TRANSFER_PROVIDER_MONNIFY:
+                if not cleaned.get("monnify_enabled") or any(not cleaned.get(name) for name in monnify_required):
+                    self.add_error(
+                        "bank_transfer_provider",
+                        "Monnify transfer requires Monnify to be enabled with its API key, secret key and contract code.",
+                    )
+                if not (cleaned.get("monnify_transfer_bank_code") or "").strip():
+                    self.add_error(
+                        "monnify_transfer_bank_code",
+                        "Enter the Monnify bank code used to issue the temporary transfer account.",
+                    )
+            else:
+                self.add_error("bank_transfer_provider", "Choose the gateway that will verify bank transfers.")
             if not cleaned.get("bank_cash_account"):
-                self.add_error("bank_cash_account", "Choose the INPROFIC bank account before enabling bank transfer.")
+                self.add_error("bank_cash_account", "Choose the INPROFIC bank account that receives verified transfers.")
+        if cleaned.get("paystack_terminal_enabled"):
+            if not cleaned.get("paystack_enabled") or not cleaned.get("paystack_secret_key"):
+                self.add_error("paystack_terminal_enabled", "Paystack Terminal requires Paystack to be enabled with a saved secret key.")
+            if not cleaned.get("paystack_terminal_id"):
+                self.add_error("paystack_terminal_id", "Enter the Paystack Terminal ID.")
+            if not cleaned.get("paystack_terminal_customer_email"):
+                self.add_error("paystack_terminal_customer_email", "Add a fallback email for walk-in Terminal payment requests.")
+            if not cleaned.get("paystack_terminal_account"):
+                self.add_error("paystack_terminal_account", "Choose the Finance account that receives Terminal card payments.")
         if cleaned.get("cash_enabled") and not cleaned.get("cash_account"):
             self.add_error("cash_account", "Choose the INPROFIC cash account before enabling cash.")
         return cleaned

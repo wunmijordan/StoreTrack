@@ -207,7 +207,13 @@ class CommerceIntake(BusinessOwnedModel):
     SOURCE_STOREFRONT = "storefront"
     SOURCE_API = "api"
     SOURCE_CONNECTOR = "connector"
-    SOURCE_CHOICES = [(SOURCE_STOREFRONT, "Hosted storefront"), (SOURCE_API, "API"), (SOURCE_CONNECTOR, "External connector")]
+    SOURCE_STAFF_POS = "staff_pos"
+    SOURCE_CHOICES = [
+        (SOURCE_STOREFRONT, "Hosted storefront"),
+        (SOURCE_API, "API"),
+        (SOURCE_CONNECTOR, "External connector"),
+        (SOURCE_STAFF_POS, "In-premise storefront"),
+    ]
     MODE_STOCK = "stock"
     MODE_PREORDER = "preorder"
     MODE_CHOICES = [(MODE_STOCK, "Order"), (MODE_PREORDER, "Pre-order")]
@@ -345,6 +351,7 @@ class CommerceCheckoutSession(BusinessOwnedModel):
     SOURCE_API = CommerceIntake.SOURCE_API
     SOURCE_STOREFRONT = CommerceIntake.SOURCE_STOREFRONT
     SOURCE_CONNECTOR = CommerceIntake.SOURCE_CONNECTOR
+    SOURCE_STAFF_POS = CommerceIntake.SOURCE_STAFF_POS
     SOURCE_CHOICES = CommerceIntake.SOURCE_CHOICES
 
     STATUS_AWAITING_PAYMENT = "awaiting_payment"
@@ -445,6 +452,13 @@ class CommercePaymentConfiguration(BusinessOwnedModel):
         "core.CashAccount", null=True, blank=True, on_delete=models.PROTECT,
         related_name="commerce_paystack_configurations",
     )
+    paystack_terminal_enabled = models.BooleanField(default=False)
+    paystack_terminal_id = models.CharField(max_length=80, blank=True, default="")
+    paystack_terminal_customer_email = models.EmailField(blank=True, default="")
+    paystack_terminal_account = models.ForeignKey(
+        "core.CashAccount", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="commerce_paystack_terminal_configurations",
+    )
     monnify_enabled = models.BooleanField(default=False)
     monnify_api_key = models.CharField(max_length=255, blank=True, default="")
     monnify_secret_key = models.CharField(max_length=255, blank=True, default="")
@@ -454,7 +468,25 @@ class CommercePaymentConfiguration(BusinessOwnedModel):
         "core.CashAccount", null=True, blank=True, on_delete=models.PROTECT,
         related_name="commerce_monnify_configurations",
     )
+    BANK_TRANSFER_PROVIDER_PAYSTACK = "paystack"
+    BANK_TRANSFER_PROVIDER_MONNIFY = "monnify"
+    BANK_TRANSFER_PROVIDER_CHOICES = [
+        (BANK_TRANSFER_PROVIDER_PAYSTACK, "Paystack"),
+        (BANK_TRANSFER_PROVIDER_MONNIFY, "Monnify"),
+    ]
     bank_transfer_enabled = models.BooleanField(default=False)
+    bank_transfer_provider = models.CharField(
+        max_length=20,
+        choices=BANK_TRANSFER_PROVIDER_CHOICES,
+        default=BANK_TRANSFER_PROVIDER_PAYSTACK,
+        help_text="Gateway that issues the temporary transfer account and confirms payment automatically.",
+    )
+    monnify_transfer_bank_code = models.CharField(
+        max_length=12,
+        blank=True,
+        default="",
+        help_text="Monnify bank code used to issue the temporary transfer account. Configure the bank your merchant account supports.",
+    )
     bank_name = models.CharField(max_length=120, blank=True, default="")
     bank_account_name = models.CharField(max_length=160, blank=True, default="")
     bank_account_number = models.CharField(max_length=40, blank=True, default="")
@@ -482,11 +514,21 @@ class CommercePayment(BusinessOwnedModel):
     METHOD_MONNIFY = "monnify"
     METHOD_BANK_TRANSFER = "bank_transfer"
     METHOD_CASH = "cash"
+    METHOD_POS_CARD = "pos_card"
     METHOD_CHOICES = [
-        (METHOD_PAYSTACK, "Paystack"),
-        (METHOD_MONNIFY, "Monnify"),
-        (METHOD_BANK_TRANSFER, "Bank transfer"),
+        (METHOD_PAYSTACK, "Paystack secure checkout"),
+        (METHOD_MONNIFY, "Monnify secure checkout"),
+        (METHOD_BANK_TRANSFER, "Instant bank transfer"),
         (METHOD_CASH, "Cash"),
+        (METHOD_POS_CARD, "Card on POS terminal"),
+    ]
+    GATEWAY_NONE = ""
+    GATEWAY_PAYSTACK = "paystack"
+    GATEWAY_MONNIFY = "monnify"
+    GATEWAY_CHOICES = [
+        (GATEWAY_NONE, "No gateway"),
+        (GATEWAY_PAYSTACK, "Paystack"),
+        (GATEWAY_MONNIFY, "Monnify"),
     ]
 
     STATUS_PENDING = "pending"
@@ -518,6 +560,7 @@ class CommercePayment(BusinessOwnedModel):
         CommerceCheckoutSession, null=True, blank=True, on_delete=models.PROTECT, related_name="payments"
     )
     method = models.CharField(max_length=20, choices=METHOD_CHOICES)
+    gateway_provider = models.CharField(max_length=20, choices=GATEWAY_CHOICES, blank=True, default="")
     status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_PENDING)
     amount = models.DecimalField(max_digits=16, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))])
     amount_paid = models.DecimalField(max_digits=16, decimal_places=2, default=0)
@@ -599,6 +642,7 @@ class CommercePaymentClaim(BusinessOwnedModel):
 
 
 class CommercePaymentReceipt(BusinessOwnedModel):
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     payment = models.ForeignKey(CommercePayment, on_delete=models.PROTECT, related_name="receipts")
     amount = models.DecimalField(max_digits=16, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))])
     external_reference = models.CharField(max_length=160, blank=True, default="")

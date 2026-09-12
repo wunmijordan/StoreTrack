@@ -1,4 +1,4 @@
-> **Current website integration contract:** New headless website integrations must use the pre-intake checkout/payment boundary documented in [`WEBSITE_COMMERCE_CHECKOUT_INTEGRATION.md`](WEBSITE_COMMERCE_CHECKOUT_INTEGRATION.md). The legacy `/orders` endpoint remains intentionally compatible during migration, but creates intake before payment.
+> **Current website integration contract:** New and migrated headless integrations must use the pre-intake checkout/payment boundary documented in [`WEBSITE_COMMERCE_CHECKOUT_INTEGRATION.md`](WEBSITE_COMMERCE_CHECKOUT_INTEGRATION.md). `POST /orders` is retired and returns HTTP 410; no new public or connector write may create an operational intake before verified payment.
 
 # Customer Ordering and External Commerce Integration
 
@@ -60,8 +60,10 @@ Custom websites and mobile applications can consume a versioned contract:
 
 ```text
 GET  /api/v1/storefronts/{business_slug}/products
-POST /api/v1/storefronts/{business_slug}/orders
-GET  /api/v1/storefronts/{business_slug}/orders/{public_id}
+POST /api/v1/storefronts/{business_slug}/checkouts
+POST /api/v1/storefronts/{business_slug}/checkouts/{checkout_id}/payments
+GET  /api/v1/storefronts/{business_slug}/checkouts/{checkout_id}/payments/current
+GET  /api/v1/storefronts/{business_slug}/orders/{public_id}   # only after materialization
 ```
 
 Order submission should require an idempotency key. Product and order
@@ -291,16 +293,18 @@ Stock is rechecked under transaction lock when an intake is accepted. Pending in
 
 ### API contract
 
-The initial versioned endpoints are:
+The current versioned write boundary is:
 
 ```text
 GET  /api/v1/storefronts/{business_slug}/products
-POST /api/v1/storefronts/{business_slug}/orders
-GET  /api/v1/storefronts/{business_slug}/orders/{public_uuid}
-POST /api/v1/storefronts/{business_slug}/orders/{public_uuid}/preorder
+POST /api/v1/storefronts/{business_slug}/checkouts
+GET  /api/v1/storefronts/{business_slug}/checkouts/{checkout_uuid}
+POST /api/v1/storefronts/{business_slug}/checkouts/{checkout_uuid}/payments
+GET  /api/v1/storefronts/{business_slug}/checkouts/{checkout_uuid}/payments/current
+GET  /api/v1/storefronts/{business_slug}/orders/{public_uuid}   # after verified payment materializes it
 ```
 
-Product GET is public when Commerce/API are enabled. Order create/status mutation uses a tenant-bound `CommerceIntegration` API key supplied as `X-INPROFIC-Key`. Order creation also requires an `Idempotency-Key`; duplicate retries return the existing intake instead of creating another operational order.
+Product GET is public when Commerce/API are enabled. Checkout/payment calls use a tenant-bound `CommerceIntegration` API key supplied as `X-INPROFIC-Key` and idempotency keys. Duplicate retries return the same checkout/payment. `POST /orders` no longer creates an intake and returns HTTP 410 so a new integration cannot bypass payment-first materialization.
 
 Clients should move to the INPROFIC header names shown here. The server still
 accepts the former branded key/signature headers so existing integrations do not
@@ -320,7 +324,7 @@ A business with a simple existing site can use the same URL as its **Order Now**
 
 ### Payment state
 
-Commerce payment state is separate from order and fulfilment state. Paystack and Monnify initialize and verify server-side. Bank-transfer claims remain awaiting verification, and cash remains pending, until an authorized Finance user confirms actual receipt. Verification posts one cash-ledger entry; existing or later-created Sales receive matching customer-payment allocations without a second cash entry. Reversal retains the original receipt and posts compensating records.
+Commerce payment state is separate from order and fulfilment state. Public/headless checkout exposes only gateway-confirmed Paystack, Monnify and instant bank transfer. Instant transfer is issued and verified automatically by the tenant-selected Paystack/Monnify provider; manual transfer claims are historical-only. Cash and card-on-terminal are confined to authenticated in-premise staff with supplemental Storefront POS access; cash requires an explicit physical-receipt guard, while Paystack Terminal card settlement still requires provider verification. A verified payment posts one cash-ledger entry and generates an immutable customer receipt; reversals retain the original receipt and use compensating finance records.
 
 ## Headless API versus platform webhook / connector
 
@@ -329,7 +333,7 @@ These are different integration directions that converge on the same Commerce In
 - **Headless API**: a website/app controlled by the tenant actively calls INPROFIC. It fetches the INPROFIC catalogue, creates a pre-intake checkout with the generated API key, completes payment, and then tracks the resulting order. This is the preferred route for a custom business website.
 - **Platform webhook / connector**: an external commerce platform or adapter pushes events into INPROFIC after an order occurs there. The connector sends INPROFIC's normalized order payload to `/api/v1/connectors/{business_slug}/{integration_id}/orders` and signs the raw request body with HMAC-SHA256 using the generated webhook secret in `X-INPROFIC-Signature`.
 
-The connector boundary is intentionally normalized rather than embedding Shopify/WooCommerce-specific payloads into INPROFIC's core service. Provider-specific adapters can translate their payload into this contract. The new headless route uses the payment-first checkout boundary; the compatibility connector still creates `CommerceIntake` directly. Both retain server-side pricing, tenant policy, stock/pre-order routing, idempotency and customer-attributed audit behavior.
+The connector boundary is intentionally normalized rather than embedding Shopify/WooCommerce-specific payloads into INPROFIC's core service. Provider-specific adapters translate their payload into this contract. Connectors now create the same payment-first `CommerceCheckoutSession` and return its payment endpoint; they no longer create `CommerceIntake` directly. Server-side pricing, tenant policy, reservations, idempotency and customer-attributed audit behavior remain authoritative.
 
 ## Independent commerce switches
 
@@ -379,103 +383,43 @@ Use the supplied vertical-specific `label`. Display the supplied `price`,
 minimum, maximum, availability and lead time. Do not infer whether Production
 is used; the returned `fulfilment_mode` is authoritative.
 
-### 2. Create an order from the website server
+### 2. Create a pre-intake checkout from the website server
 
 ```http
-POST /api/v1/storefronts/{business_slug}/orders
+POST /api/v1/storefronts/{business_slug}/checkouts
 X-INPROFIC-Key: <server-side credential>
-Idempotency-Key: <one stable UUID per checkout submission>
+Idempotency-Key: <one stable UUID per basket submission>
 Content-Type: application/json
 ```
 
-```json
-{
-  "order_mode": "distribution",
-  "external_order_id": "website-order-uuid",
-  "customer": {
-    "name": "Customer name",
-    "email": "customer@example.com",
-    "phone": "+234...",
-    "address": "Delivery address"
-  },
-  "service_mode": "delivery",
-  "table_reference": "",
-  "items": [
-    {"product_id": "product-uuid", "quantity": "20"}
-  ]
-}
-```
+Submit `order_mode`, customer details and product UUID/quantity rows only. Do not send price, amount, fulfilment mode or Production identifiers. INPROFIC snapshots authoritative pricing and, where appropriate, reserves stock. No `CommerceIntake`, Sale, Production Order or finance entry exists yet.
 
-Do not send `total`, `unit_price`, `amount`, `fulfilment_mode`, or a Production
-identifier. INPROFIC returns `id`, `number`, `order_mode`, its derived
-`fulfilment_mode`, and the authoritative `total`.
+`POST /api/v1/storefronts/{business_slug}/orders` is retired and returns HTTP 410 with `checkout_first_required`.
 
-Persist `business_slug` and the returned UUID `id` as the integration identity.
-Treat `number` as a tenant-local display/reference value only.
-
-If Distribution/bulk quantity is too low, INPROFIC returns HTTP 400:
-
-```json
-{
-  "code": "minimum_not_met",
-  "detail": "...",
-  "suggested_order_modes": [
-    {"code": "physical_store", "label": "Physical Store / Pickup"},
-    {"code": "online", "label": "Online Order"}
-  ]
-}
-```
-
-Show those alternatives and submit a new checkout with a new idempotency key
-after the customer chooses one. Never silently change their channel.
-
-### 3. Initialize payment from the website server
+### 3. Discover and initialize a public payment
 
 ```http
-POST /api/v1/storefronts/{business_slug}/orders/{order_id}/payments/initiate
+GET  /api/v1/storefronts/{business_slug}/payment-methods
+POST /api/v1/storefronts/{business_slug}/checkouts/{checkout_id}/payments
 X-INPROFIC-Key: <server-side credential>
-Idempotency-Key: <one stable UUID per payment selection>
-Content-Type: application/json
+Idempotency-Key: <one stable UUID per payment attempt>
 ```
 
-```json
-{
-  "method": "paystack",
-  "return_url": "https://your-website.example/orders/{order_id}/payment/return/"
-}
-```
+Public/headless methods are only `paystack`, `monnify`, and `bank_transfer`, and only when fully configured. Never send an amount. Cash and `pos_card` are authenticated in-premise staff methods and are never exposed here.
 
-Allowed methods are `paystack`, `monnify`, `bank_transfer`, and `cash`. Never
-send an amount. For a gateway, redirect only to the returned
-`authorization_url`. For bank transfer, show `bank_account`, `instructions`,
-and the INPROFIC `reference`. For cash, show the instructions and keep the UI
-pending.
+For hosted Paystack/Monnify checkout, supply an absolute HTTPS `return_url` and customer email when required, then redirect only to the provider URL returned by INPROFIC. A browser return never marks payment paid.
 
-### 4. Submit bank evidence without self-confirming it
+For `bank_transfer`, INPROFIC asks the tenant-selected provider (Paystack or Monnify) for a temporary account for the exact checkout. Display the returned account/expiry and poll. Do not collect a manual transfer reference; signed provider events plus an independent provider verification settle the payment.
+
+### 4. Poll until verified payment materializes the order
 
 ```http
-POST /api/v1/storefronts/{business_slug}/orders/{order_id}/payments/current/claim
-X-INPROFIC-Key: <server-side credential>
-Content-Type: application/json
-
-{"payer_name": "Customer name", "transfer_reference": "bank/session/reference"}
-```
-
-Treat `awaiting_verification` as pending. Only an authorized INPROFIC user can
-confirm it after checking actual credit.
-
-### 5. Poll INPROFIC after a browser return
-
-The website return page never marks payment paid. It polls:
-
-```http
-GET /api/v1/storefronts/{business_slug}/orders/{order_id}/payments/current
-GET /api/v1/storefronts/{business_slug}/orders/{order_id}
+GET /api/v1/storefronts/{business_slug}/checkouts/{checkout_id}/payments/current
+GET /api/v1/storefronts/{business_slug}/checkouts/{checkout_id}
 X-INPROFIC-Key: <server-side credential>
 ```
 
-Use `payment.status`, `amount_paid`, and `balance`. Show order `status`, payment
-status, and `fulfilment_state` separately.
+Only after full verified settlement does the checkout return an `order_id`. From that point, track the materialized order with `/orders/{order_id}`. A verified payment also exposes an unguessable customer `receipt_path`.
 
 Gateway webhook URLs point directly to INPROFIC, not the website:
 

@@ -1,10 +1,10 @@
-"""Founder-only, tenant-scoped legacy SQLite -> current Django database import.
+"""Founder-only, tenant-scoped legacy backup -> current Django import.
 
-The importer never replaces the destination database. It reads an uploaded
-SQLite file in query-only mode, scopes rows to one legacy Business, maps old
-primary keys to newly created PostgreSQL rows, and writes inside one atomic
-transaction. Global subscription/entitlement state and ephemeral notification
-records are intentionally excluded.
+Supports both raw SQLite databases and INPROFIC/Django JSON fixtures. The
+importer never replaces the destination database: it proves ownership of one
+legacy Business, remaps old primary keys to new PostgreSQL rows, and writes
+inside one atomic transaction. Global subscription/entitlement state and
+ephemeral notification records are intentionally excluded.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from .services import seed_business_roles
 
 
 MAX_SQLITE_BYTES = 200 * 1024 * 1024
+MAX_JSON_BYTES = 25 * 1024 * 1024
 TENANT_APPS = {"core", "accounts", "inventory", "procurement", "production", "sales", "expenses", "commerce"}
 EXCLUDED_LABELS = {
     # The destination tenant's SaaS/commercial boundary remains authoritative.
@@ -839,3 +840,687 @@ def import_legacy_sqlite(uploaded_file, target_business, source_business_id, *, 
             "models": imported_counts,
             "total_rows": total_rows,
         }
+
+# ---------------------------------------------------------------------------
+# Django JSON tenant-backup support
+# ---------------------------------------------------------------------------
+
+class LegacyJSONFixture:
+    """Read the JSON produced by INPROFIC's Reports -> Backup action.
+
+    Older versions accidentally serialized several tenants into one fixture.
+    The importer therefore never trusts the file boundary: it re-establishes
+    ownership from Business FKs and owning parent relations before analysis or
+    import.
+    """
+
+    def __init__(self, uploaded_file):
+        self.uploaded_file = uploaded_file
+        self.records = []
+        self.by_label = defaultdict(dict)
+
+    def __enter__(self):
+        if getattr(self.uploaded_file, "size", 0) > MAX_JSON_BYTES:
+            raise LegacyImportError("JSON backup is larger than the 25 MB Founder Console safety limit. Use the raw SQLite import path for unusually large legacy datasets.")
+        try:
+            self.uploaded_file.seek(0)
+            raw = b"".join(self.uploaded_file.chunks())
+            payload = json.loads(raw.decode("utf-8-sig"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise LegacyImportError("The uploaded JSON backup is not a valid Django fixture.") from exc
+        finally:
+            try:
+                self.uploaded_file.seek(0)
+            except Exception:
+                pass
+        if not isinstance(payload, list):
+            raise LegacyImportError("The uploaded JSON backup must contain a Django fixture list.")
+        for index, record in enumerate(payload, start=1):
+            if not isinstance(record, dict) or not isinstance(record.get("fields"), dict):
+                raise LegacyImportError(f"JSON fixture entry #{index} is malformed.")
+            label = str(record.get("model") or "").strip().lower()
+            pk = record.get("pk")
+            if not label or pk is None:
+                raise LegacyImportError(f"JSON fixture entry #{index} has no model label or primary key.")
+            if pk in self.by_label[label]:
+                raise LegacyImportError(f"JSON fixture contains duplicate {label} primary key {pk}.")
+            normalized = {"model": label, "pk": pk, "fields": record["fields"]}
+            self.records.append(normalized)
+            self.by_label[label][pk] = normalized
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            self.uploaded_file.seek(0)
+        except Exception:
+            pass
+
+    def businesses(self):
+        rows = []
+        for record in self.by_label.get("core.business", {}).values():
+            fields = record["fields"]
+            rows.append({
+                "id": record["pk"],
+                "name": fields.get("name", ""),
+                "slug": fields.get("slug", ""),
+                "vertical": fields.get("vertical", ""),
+            })
+        return sorted(rows, key=lambda row: int(row["id"]))
+
+
+def _fixture_model(label):
+    try:
+        app_label, model_name = label.split(".", 1)
+    except ValueError:
+        return None
+    if app_label not in TENANT_APPS:
+        return None
+    try:
+        return apps.get_model(app_label, model_name)
+    except LookupError:
+        return None
+
+
+def _fixture_scope(fixture: LegacyJSONFixture, source_business_id):
+    """Return records proven to belong to exactly one source tenant."""
+    business_records = fixture.by_label.get("core.business", {})
+    source_record = business_records.get(source_business_id)
+    if source_record is None:
+        # JSON integer keys stay integers, but accept a numeric string from the form.
+        source_record = next(
+            (record for key, record in business_records.items() if str(key) == str(source_business_id)),
+            None,
+        )
+    if source_record is None:
+        raise LegacyImportError("The selected source tenant ID does not exist in this JSON backup.")
+    source_business_id = source_record["pk"]
+
+    scoped = defaultdict(dict)
+    scoped["core.business"][source_business_id] = source_record
+
+    recognized = {}
+    for label in fixture.by_label:
+        model = _fixture_model(label)
+        if model is not None:
+            recognized[label] = model
+
+    # First select every model that carries its own Business FK.
+    for label, model in recognized.items():
+        if model is Business:
+            continue
+        business_field = _field_to_business(model)
+        if not business_field:
+            continue
+        for pk, record in fixture.by_label[label].items():
+            if str(record["fields"].get(business_field.name)) == str(source_business_id):
+                scoped[label][pk] = record
+
+    # Then close over child tables such as RecipeItem, OrderItem and SaleItem.
+    # A child is admitted only when at least one owning tenant parent is already
+    # selected and no referenced tenant parent present in the file belongs to a
+    # different tenant.
+    changed = True
+    while changed:
+        changed = False
+        for label, model in recognized.items():
+            if model is Business or _field_to_business(model):
+                continue
+            for pk, record in fixture.by_label[label].items():
+                if pk in scoped[label]:
+                    continue
+                anchored = False
+                foreign_parent = False
+                for field in model._meta.concrete_fields:
+                    if not field.is_relation or field.related_model is get_user_model():
+                        continue
+                    related_label = field.related_model._meta.label_lower
+                    if related_label not in recognized and related_label != "core.business":
+                        continue
+                    old_fk = record["fields"].get(field.name)
+                    if old_fk is None:
+                        continue
+                    all_related = fixture.by_label.get(related_label, {})
+                    if old_fk not in all_related:
+                        # The old exporter omitted some parent model families;
+                        # a different relation can still prove tenant ownership.
+                        continue
+                    if old_fk in scoped.get(related_label, {}):
+                        anchored = True
+                    else:
+                        foreign_parent = True
+                if anchored and not foreign_parent:
+                    scoped[label][pk] = record
+                    changed = True
+
+    return source_record, scoped
+
+
+def _fixture_required_missing_fields(model, records):
+    if not records:
+        return []
+    available = set().union(*(set(record["fields"]) for record in records))
+    missing = []
+    for field in model._meta.concrete_fields:
+        if field.primary_key or field.auto_created or field.auto_now or field.auto_now_add:
+            continue
+        if isinstance(field, (models.FileField, models.ImageField)):
+            continue
+        if field.is_relation and field.related_model is Business:
+            continue
+        if field.name in available:
+            continue
+        if field.null or field.has_default():
+            continue
+        # Old tenant JSON backups intentionally did not include user identity.
+        if field.is_relation and field.related_model is get_user_model() and field.null:
+            continue
+        missing.append(field.name)
+    return missing
+
+
+def _fixture_customer_specs(scoped):
+    """Reconstruct customer masters omitted by the historical JSON exporter."""
+    included = set(scoped.get("sales.customer", {}))
+    specs = defaultdict(lambda: {"names": set(), "regions": set(), "groups": set()})
+    for record in scoped.get("production.order", {}).values():
+        fields = record["fields"]
+        customer_id = fields.get("customer")
+        if customer_id is None or customer_id in included:
+            continue
+        if fields.get("customer_name"):
+            specs[customer_id]["names"].add(str(fields["customer_name"]).strip())
+        if fields.get("customer_region"):
+            specs[customer_id]["regions"].add(str(fields["customer_region"]).strip())
+        if fields.get("customer_group"):
+            specs[customer_id]["groups"].add(str(fields["customer_group"]).strip())
+    for record in scoped.get("sales.sale", {}).values():
+        fields = record["fields"]
+        customer_id = fields.get("customer_master")
+        if customer_id is None or customer_id in included:
+            continue
+        if fields.get("customer"):
+            specs[customer_id]["names"].add(str(fields["customer"]).strip())
+    return specs
+
+
+def _fixture_global_unique_conflicts(scoped, ordered):
+    conflicts = []
+    for model in ordered:
+        label = _model_label(model)
+        records = list(scoped.get(label, {}).values())
+        if not records:
+            continue
+        manager = getattr(model, "raw_objects", model._base_manager)
+        for field in model._meta.concrete_fields:
+            if not field.unique or field.primary_key or field.is_relation or isinstance(field, (models.FileField, models.ImageField)):
+                continue
+            values = []
+            seen = set()
+            for record in records:
+                raw = record["fields"].get(field.name)
+                if raw in (None, ""):
+                    continue
+                try:
+                    value = field.to_python(raw)
+                    hash(value)
+                except Exception:
+                    continue
+                if value not in seen:
+                    seen.add(value)
+                    values.append(value)
+            count = 0
+            for start in range(0, len(values), 500):
+                count += manager.filter(**{f"{field.name}__in": values[start:start + 500]}).count()
+            if count:
+                conflicts.append({
+                    "model": model._meta.verbose_name_plural.title(),
+                    "label": label,
+                    "field": field.name,
+                    "count": count,
+                })
+    return conflicts
+
+
+def analyze_legacy_fixture(uploaded_file, target_business, source_business_id=None):
+    with LegacyJSONFixture(uploaded_file) as fixture:
+        businesses = fixture.businesses()
+        selected = None
+        if source_business_id is not None:
+            selected = next((row for row in businesses if str(row["id"]) == str(source_business_id)), None)
+            if selected is None:
+                raise LegacyImportError("The selected source tenant ID does not exist in this JSON backup.")
+        elif len(businesses) == 1:
+            selected = businesses[0]
+            source_business_id = selected["id"]
+
+        report = {
+            "backup_format": "Django JSON tenant backup",
+            "source_businesses": businesses,
+            "source_business": selected,
+            "source_business_id": source_business_id,
+            "target_business": target_business,
+            "models": [], "blockers": [], "warnings": [], "ready": False,
+            "unique_conflicts": [], "target_conflicts": [],
+        }
+        if selected is None:
+            report["blockers"].append(
+                "This legacy backup contains multiple tenants. Select the source tenant ID shown below; all other tenant rows will be ignored."
+            )
+            return report
+
+        source_record, scoped = _fixture_scope(fixture, selected["id"])
+        selected["id"] = source_record["pk"]
+        source_business_id = source_record["pk"]
+        report["source_business_id"] = source_business_id
+
+        ignored_rows = sum(
+            len(records) - len(scoped.get(label, {}))
+            for label, records in fixture.by_label.items()
+            if label != "core.business"
+        )
+        other_businesses = max(0, len(businesses) - 1)
+        if other_businesses or ignored_rows:
+            report["warnings"].append(
+                f"This was produced by the older unscoped backup exporter. {other_businesses} other tenant record(s) and {ignored_rows} non-selected operational row(s) are excluded from this import."
+            )
+
+        present_models = []
+        for label, records in scoped.items():
+            if label in {"core.business", "core.auditlog"} or label in EXCLUDED_LABELS or not records:
+                continue
+            model = _fixture_model(label)
+            if model is not None:
+                present_models.append(model)
+        ordered = _dependency_order(set(present_models)) if present_models else []
+
+        for model in ordered:
+            label = _model_label(model)
+            records = list(scoped[label].values())
+            missing = _fixture_required_missing_fields(model, records)
+            validation_errors = []
+            for record in records:
+                for field in model._meta.concrete_fields:
+                    if (
+                        field.primary_key or field.auto_created or field.auto_now or field.auto_now_add
+                        or field.is_relation or isinstance(field, (models.FileField, models.ImageField))
+                        or field.name not in record["fields"]
+                    ):
+                        continue
+                    try:
+                        field.clean(record["fields"].get(field.name), None)
+                    except Exception as exc:
+                        validation_errors.append(f"row {record['pk']} · {field.name}: {exc}")
+                        if len(validation_errors) >= 8:
+                            break
+                if len(validation_errors) >= 8:
+                    break
+            if missing:
+                report["blockers"].append(
+                    f"{model._meta.verbose_name_plural.title()}: backup is missing required current field(s): {', '.join(missing)}."
+                )
+            if validation_errors:
+                report["blockers"].append(
+                    f"{model._meta.verbose_name_plural.title()}: backup values do not satisfy the current schema: "
+                    + " | ".join(validation_errors)
+                )
+            report["models"].append({
+                "label": label, "name": model._meta.verbose_name_plural.title(),
+                "rows": len(records), "table_present": True,
+                "missing_required": missing, "ignored_source_columns": [],
+                "skipped_file_fields": [], "validation_errors": validation_errors,
+            })
+
+        audit_count = len(scoped.get("core.auditlog", {}))
+        if audit_count:
+            report["warnings"].append(
+                f"{audit_count} legacy audit-log row(s) will not be copied because their object IDs refer to old database primary keys; a new Founder import audit record will be created instead."
+            )
+
+        User = get_user_model()
+        user_refs = set()
+        for label, records in scoped.items():
+            model = _fixture_model(label)
+            if model is None:
+                continue
+            for field in model._meta.concrete_fields:
+                if field.is_relation and field.related_model is User:
+                    user_refs.update(
+                        record["fields"].get(field.name)
+                        for record in records.values()
+                        if record["fields"].get(field.name) is not None
+                    )
+        if user_refs:
+            report["warnings"].append(
+                f"The historical JSON exporter did not include user identity rows. Creator/reversal attribution referencing {len(user_refs)} legacy user ID(s) will be cleared rather than guessed."
+            )
+
+        customer_specs = _fixture_customer_specs(scoped)
+        if customer_specs:
+            report["warnings"].append(
+                f"The historical exporter omitted {len(customer_specs)} referenced customer master record(s). They will be reconstructed from the order/sale customer-name snapshots before dependent rows are imported."
+            )
+            reconstructed_names = {}
+            for old_id, info in customer_specs.items():
+                names = sorted(name for name in info["names"] if name)
+                chosen = names[0] if names else f"Legacy customer #{old_id}"
+                key = chosen.casefold()
+                if key in reconstructed_names and reconstructed_names[key] != old_id:
+                    report["blockers"].append(
+                        "Two omitted legacy customer IDs resolve to the same customer name. Resolve that ambiguity before importing."
+                    )
+                    break
+                reconstructed_names[key] = old_id
+
+        location_refs = {
+            record["fields"].get("location")
+            for label in ("inventory.stockmovement", "inventory.stockadjustment", "inventory.operationalsupplydispense")
+            for record in scoped.get(label, {}).values()
+            if record["fields"].get("location") is not None
+        }
+        included_locations = set(scoped.get("inventory.inventorylocation", {}))
+        missing_locations = {pk for pk in location_refs if pk not in included_locations}
+        if missing_locations:
+            report["warnings"].append(
+                f"The historical exporter omitted InventoryLocation row(s) referenced by {len(missing_locations)} legacy location ID(s). Those references will map to the destination tenant's Main Store."
+            )
+
+        batch_refs = {
+            record["fields"].get("production_batch")
+            for record in scoped.get("sales.saleitem", {}).values()
+            if record["fields"].get("production_batch") is not None
+        }
+        included_batches = set(scoped.get("production.productionbatch", {}))
+        missing_batches = {pk for pk in batch_refs if pk not in included_batches}
+        if missing_batches:
+            report["warnings"].append(
+                f"The old export omitted {len(missing_batches)} referenced ProductionBatch ID(s). Historical sales and unit-cost snapshots will be preserved, but those nullable traceability links will remain empty rather than being fabricated."
+            )
+
+        conflicts = _target_conflicts(target_business, ordered)
+        # A bootstrapped Main Store is expected and can be reused safely.
+        conflicts = [row for row in conflicts if row["label"] != "inventory.inventorylocation"]
+        from sales.models import Customer
+        if customer_specs:
+            existing_customers = Customer.raw_objects.filter(business=target_business).count()
+            if existing_customers:
+                conflicts.append({"model": "Customers", "label": "sales.customer", "count": existing_customers})
+        if conflicts:
+            report["blockers"].append(
+                "Destination tenant already contains operational data. Import into a fresh/empty tenant to prevent duplicate or ambiguous merges."
+            )
+            report["target_conflicts"] = conflicts
+
+        unique_conflicts = _fixture_global_unique_conflicts(scoped, ordered)
+        if unique_conflicts:
+            report["blockers"].append(
+                "The legacy tenant contains globally unique value(s) that already exist elsewhere in the live database. Resolve these collisions before importing."
+            )
+            report["unique_conflicts"] = unique_conflicts
+
+        report["ready"] = not report["blockers"]
+        return report
+
+
+def _fixture_scalar(field, value):
+    if value is None:
+        return None
+    try:
+        return field.to_python(value)
+    except Exception:
+        return value
+
+
+def _copy_fixture_business_profile(source_record, target_business):
+    updated = []
+    fields = source_record["fields"]
+    for field_name in BUSINESS_PROFILE_FIELDS:
+        if field_name in fields and fields[field_name] is not None:
+            setattr(target_business, field_name, fields[field_name])
+            updated.append(field_name)
+    if updated:
+        target_business.save(update_fields=updated)
+    return updated
+
+
+def _reconstruct_fixture_customers(scoped, target_business):
+    from sales.models import Customer
+    specs = _fixture_customer_specs(scoped)
+    mapping = {}
+    to_create = []
+    source_ids = []
+    for old_id, info in sorted(specs.items(), key=lambda item: str(item[0])):
+        names = sorted(name for name in info["names"] if name)
+        regions = sorted(region for region in info["regions"] if region)
+        groups = sorted(group for group in info["groups"] if group)
+        name = names[0] if names else f"Legacy customer #{old_id}"
+        to_create.append(Customer(
+            business=target_business,
+            created_by=None,
+            name=name[:160],
+            region=(regions[0] if regions else "")[:100],
+            customer_group=(groups[0] if groups else "")[:100],
+        ))
+        source_ids.append(old_id)
+    if to_create:
+        Customer.raw_objects.bulk_create(to_create, batch_size=100)
+        for old_id, obj in zip(source_ids, to_create):
+            mapping[old_id] = obj.pk
+    return mapping
+
+
+def _transform_fixture_record(model, record, *, target_business, mappings, customer_map, main_location_id):
+    kwargs = {}
+    deferred = []
+    User = get_user_model()
+    fields = record["fields"]
+    from sales.models import Customer
+    from inventory.models import InventoryLocation
+    for field in model._meta.concrete_fields:
+        if field.primary_key or field.auto_created or field.auto_now or field.auto_now_add:
+            continue
+        if isinstance(field, (models.FileField, models.ImageField)):
+            continue
+        if field.is_relation:
+            old_fk = fields.get(field.name)
+            if field.related_model is Business:
+                kwargs[field.attname] = target_business.pk
+            elif field.related_model is User:
+                if old_fk is not None and not field.null:
+                    raise LegacyImportError(f"{model._meta.label}: required legacy user reference {old_fk} cannot be restored from this JSON backup.")
+                kwargs[field.attname] = None
+            elif field.related_model is Customer and old_fk in customer_map:
+                kwargs[field.attname] = customer_map[old_fk]
+            elif field.related_model is InventoryLocation and old_fk is not None and field.related_model not in mappings:
+                kwargs[field.attname] = main_location_id
+            elif field.related_model in mappings:
+                mapped = mappings[field.related_model].get(old_fk)
+                if mapped is None and old_fk is not None:
+                    if field.null:
+                        kwargs[field.attname] = None
+                        deferred.append((field.name, field.related_model, old_fk))
+                    else:
+                        raise LegacyImportError(
+                            f"{model._meta.label}: required {field.name} reference {old_fk} is absent from the selected tenant backup."
+                        )
+                else:
+                    kwargs[field.attname] = mapped
+            elif old_fk is None or field.null:
+                kwargs[field.attname] = None
+            else:
+                raise LegacyImportError(
+                    f"{model._meta.label}: required relation {field.name} ({old_fk}) is not present in the selected tenant backup."
+                )
+            continue
+        if field.name in fields:
+            kwargs[field.name] = _fixture_scalar(field, fields.get(field.name))
+    return kwargs, deferred
+
+
+def import_legacy_fixture(uploaded_file, target_business, source_business_id, *, actor=None):
+    uploaded_file.seek(0)
+    report = analyze_legacy_fixture(uploaded_file, target_business, source_business_id)
+    if not report["ready"]:
+        raise LegacyImportError("Import blocked: " + " ".join(report["blockers"]))
+    uploaded_file.seek(0)
+
+    with LegacyJSONFixture(uploaded_file) as fixture, transaction.atomic():
+        source_record, scoped = _fixture_scope(fixture, source_business_id)
+        present_models = []
+        for label, records in scoped.items():
+            if label in {"core.business", "core.auditlog"} or label in EXCLUDED_LABELS or not records:
+                continue
+            model = _fixture_model(label)
+            if model is not None:
+                present_models.append(model)
+        ordered = _dependency_order(set(present_models)) if present_models else []
+        profile_fields = _copy_fixture_business_profile(source_record, target_business)
+
+        from inventory.models import InventoryLocation
+        main_location, _ = InventoryLocation.raw_objects.get_or_create(
+            business=target_business,
+            name="Main Store",
+            defaults={"location_type": "store", "active": True, "created_by": None},
+        )
+        customer_map = _reconstruct_fixture_customers(scoped, target_business)
+
+        mappings = {model: {} for model in ordered}
+        imported_counts = {}
+        deferred_updates = []
+        from inventory.models import InventoryLocation
+
+        for model in ordered:
+            label = _model_label(model)
+            records = sorted(scoped.get(label, {}).values(), key=lambda record: str(record["pk"]))
+            manager = getattr(model, "raw_objects", model._base_manager)
+            imported_counts[label] = len(records)
+            if not records:
+                continue
+
+            # Reuse bootstrapped Main Store and other same-name locations.
+            if model is InventoryLocation:
+                existing_by_name = {
+                    obj.name: obj for obj in InventoryLocation.raw_objects.filter(business=target_business)
+                }
+                pending = []
+                pending_ids = []
+                for record in records:
+                    name = str(record["fields"].get("name") or "Main Store")[:80]
+                    existing = existing_by_name.get(name)
+                    if existing:
+                        mappings[model][record["pk"]] = existing.pk
+                        continue
+                    kwargs, _ = _transform_fixture_record(
+                        model, record, target_business=target_business, mappings=mappings,
+                        customer_map=customer_map, main_location_id=main_location.pk,
+                    )
+                    pending.append(model(**kwargs)); pending_ids.append(record["pk"])
+                if pending:
+                    manager.bulk_create(pending, batch_size=100)
+                    for old_pk, obj in zip(pending_ids, pending):
+                        mappings[model][old_pk] = obj.pk
+                continue
+
+            existing_singleton = None
+            if label in SINGLETON_LABELS:
+                business_field = _field_to_business(model)
+                existing_singleton = manager.filter(**{business_field.name: target_business}).first()
+
+            created = []
+            source_ids = []
+            local_deferred = []
+            for index, record in enumerate(records):
+                kwargs, deferred = _transform_fixture_record(
+                    model, record, target_business=target_business, mappings=mappings,
+                    customer_map=customer_map, main_location_id=main_location.pk,
+                )
+                old_pk = record["pk"]
+                if existing_singleton is not None and index == 0:
+                    writable = []
+                    for key, value in kwargs.items():
+                        if key in {"business", "business_id"}:
+                            continue
+                        setattr(existing_singleton, key, value)
+                        writable.append(key[:-3] if key.endswith("_id") else key)
+                    if writable:
+                        existing_singleton.save(update_fields=sorted(set(writable)))
+                    mappings[model][old_pk] = existing_singleton.pk
+                    for field_name, related_model, old_fk in deferred:
+                        deferred_updates.append((model, existing_singleton.pk, field_name, related_model, old_fk))
+                    continue
+                obj = model(**kwargs)
+                created.append(obj); source_ids.append(old_pk); local_deferred.append((obj, deferred))
+            if created:
+                manager.bulk_create(created, batch_size=250)
+                for old_pk, obj, (_, deferred) in zip(source_ids, created, local_deferred):
+                    mappings[model][old_pk] = obj.pk
+                    for field_name, related_model, old_fk in deferred:
+                        deferred_updates.append((model, obj.pk, field_name, related_model, old_fk))
+
+        grouped = defaultdict(list)
+        for model, obj_pk, field_name, related_model, old_fk in deferred_updates:
+            mapped_fk = mappings.get(related_model, {}).get(old_fk)
+            if mapped_fk is not None:
+                grouped[(model, field_name)].append((obj_pk, mapped_fk))
+        for (model, field_name), pairs in grouped.items():
+            field = model._meta.get_field(field_name)
+            manager = getattr(model, "raw_objects", model._base_manager)
+            objects = list(manager.filter(pk__in=[pk for pk, _ in pairs]))
+            values = dict(pairs)
+            for obj in objects:
+                setattr(obj, field.attname, values[obj.pk])
+            manager.bulk_update(objects, [field_name], batch_size=250)
+
+        total_rows = sum(imported_counts.values())
+        identity_stats = {"users_created": 0, "users_matched": 0, "memberships": 0}
+        AuditLog.raw_objects.create(
+            business=target_business,
+            created_by=actor if getattr(actor, "pk", None) else None,
+            action="legacy_import",
+            model_name="Business",
+            object_id=str(target_business.pk),
+            description=f"Founder imported legacy JSON tenant backup into {target_business.name}.",
+            metadata={
+                "source_business_id": int(source_business_id),
+                "backup_format": "django_json",
+                "operational_rows": total_rows,
+                "reconstructed_customers": len(customer_map),
+            },
+        )
+        return {
+            "source_business": report["source_business"], "target_business": target_business,
+            "profile_fields": profile_fields, "identity": identity_stats,
+            "models": imported_counts, "total_rows": total_rows,
+            "reconstructed_customers": len(customer_map),
+        }
+
+
+def detect_legacy_backup_format(uploaded_file):
+    try:
+        uploaded_file.seek(0)
+        head = uploaded_file.read(64)
+    finally:
+        try:
+            uploaded_file.seek(0)
+        except Exception:
+            pass
+    if head.startswith(b"SQLite format 3\x00"):
+        return "sqlite"
+    if head.lstrip().startswith((b"[", b"{")):
+        return "json"
+    raise LegacyImportError("Unsupported backup format. Upload an INPROFIC JSON backup or a SQLite .db/.sqlite3 backup.")
+
+
+def analyze_legacy_backup(uploaded_file, target_business, source_business_id=None):
+    backup_format = detect_legacy_backup_format(uploaded_file)
+    if backup_format == "json":
+        return analyze_legacy_fixture(uploaded_file, target_business, source_business_id)
+    report = analyze_legacy_sqlite(uploaded_file, target_business, source_business_id)
+    report["backup_format"] = "SQLite database"
+    return report
+
+
+def import_legacy_backup(uploaded_file, target_business, source_business_id, *, actor=None):
+    backup_format = detect_legacy_backup_format(uploaded_file)
+    if backup_format == "json":
+        return import_legacy_fixture(uploaded_file, target_business, source_business_id, actor=actor)
+    return import_legacy_sqlite(uploaded_file, target_business, source_business_id, actor=actor)

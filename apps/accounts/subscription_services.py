@@ -14,6 +14,7 @@ from .models import (
     SubscriptionPayment,
     SubscriptionPlan,
     SubscriptionPlanModule,
+    SubscriptionPromotion,
     SubscriptionService,
     UserBusiness,
 )
@@ -247,9 +248,62 @@ def add_service_business(subscription, *, name, service_type, actor):
     return business
 
 
-def payment_amount(plan, service_count, months=1, billing_cycle="monthly"):
+def active_promotion_for_plan(plan, *, moment=None):
+    """Resolve at most one effective promotion for a plan without changing its base price."""
+    moment = moment or timezone.now()
+    prefetched = getattr(plan, "_active_promotions", None)
+    if prefetched is not None:
+        candidates = [promo for promo in prefetched if promo.active and promo.starts_at <= moment < promo.ends_at]
+        return sorted(candidates, key=lambda promo: (promo.starts_at, promo.pk or 0), reverse=True)[0] if candidates else None
+    return (
+        SubscriptionPromotion.objects.filter(
+            plan=plan, active=True, starts_at__lte=moment, ends_at__gt=moment
+        )
+        .order_by("-starts_at", "-id")
+        .first()
+    )
+
+
+def attach_active_promotions(plans, *, moment=None):
+    """Attach active promotions to an already-loaded plan collection in one query."""
+    moment = moment or timezone.now()
+    plans = list(plans)
+    plan_ids = [plan.pk for plan in plans]
+    rows = SubscriptionPromotion.objects.filter(
+        plan_id__in=plan_ids, active=True, starts_at__lte=moment, ends_at__gt=moment
+    ).order_by("plan_id", "-starts_at", "-id")
+    by_plan = {}
+    for promo in rows:
+        by_plan.setdefault(promo.plan_id, []).append(promo)
+    for plan in plans:
+        plan._active_promotions = by_plan.get(plan.pk, [])
+        plan.current_promotion = plan._active_promotions[0] if plan._active_promotions else None
+    return plans
+
+
+def effective_monthly_price(plan, promotion=None):
+    if promotion is False:
+        return Decimal(plan.monthly_price or 0).quantize(Decimal("0.01"))
+    promotion = promotion if promotion is not None else active_promotion_for_plan(plan)
+    return promotion.discounted_monthly_price if promotion else Decimal(plan.monthly_price or 0).quantize(Decimal("0.01"))
+
+
+def effective_additional_service_monthly_price(plan, promotion=None):
+    if promotion is False:
+        return plan.additional_service_monthly_price
+    promotion = promotion if promotion is not None else active_promotion_for_plan(plan)
+    if promotion:
+        return promotion.discounted_additional_service_monthly_price
+    return plan.additional_service_monthly_price
+
+
+def payment_amount(plan, service_count, months=1, billing_cycle="monthly", promotion=None):
     service_count = max(1, int(service_count or 1))
-    monthly_total = plan.monthly_price + Decimal(service_count - 1) * plan.additional_service_monthly_price
+    if promotion is None:
+        promotion = active_promotion_for_plan(plan)
+    base_monthly = effective_monthly_price(plan, promotion)
+    addon_monthly = effective_additional_service_monthly_price(plan, promotion)
+    monthly_total = base_monthly + Decimal(service_count - 1) * addon_monthly
     if billing_cycle == SubscriptionPayment.CYCLE_YEARLY:
         discount = min(max(plan.yearly_discount_percent, Decimal("0")), Decimal("100"))
         return (monthly_total * Decimal("12") * (Decimal("1") - discount / Decimal("100"))).quantize(Decimal("0.01"))
@@ -272,14 +326,21 @@ def create_payment_request(subscription, plan, *, months=1, billing_cycle="month
         raise ValidationError("Renewal for your current plan opens within 7 days of its expiry date.")
     if billing_cycle == SubscriptionPayment.CYCLE_YEARLY:
         months = 12
-    amount = payment_amount(plan, subscription.services.count(), months, billing_cycle=billing_cycle)
+    service_count = max(1, subscription.services.count())
+    promotion = active_promotion_for_plan(plan)
+    base_amount = payment_amount(plan, service_count, months, billing_cycle=billing_cycle, promotion=False)
+    amount = payment_amount(plan, service_count, months, billing_cycle=billing_cycle, promotion=promotion)
     if amount <= 0:
         raise ValidationError("This plan does not yet have a payable price configured. Contact the INPROFIC founder/superuser.")
     return SubscriptionPayment.objects.create(
         subscription=subscription,
         plan=plan,
         amount=amount,
-        service_count=max(1, subscription.services.count()),
+        base_amount=base_amount,
+        promotion=promotion,
+        promotion_reason=(promotion.reason if promotion else ""),
+        promotion_discount_amount=max(Decimal("0"), base_amount - amount),
+        service_count=service_count,
         months=months,
         billing_cycle=billing_cycle,
         provider=provider,

@@ -155,6 +155,10 @@ class UserBusiness(models.Model):
     business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="user_memberships")
     role = models.ForeignKey(Role, on_delete=models.PROTECT, related_name="memberships")
     active = models.BooleanField(default=True)
+    commerce_storefront_access = models.BooleanField(
+        default=False,
+        help_text="Allow this staff member to use the in-premise Commerce Storefront / POS without granting general Commerce administration access.",
+    )
 
     class Meta:
         constraints = [
@@ -224,6 +228,64 @@ class SubscriptionPlan(models.Model):
         from decimal import Decimal
         discount = min(max(self.additional_service_discount_percent, Decimal("0")), Decimal("100"))
         return (self.monthly_price * (Decimal("1") - discount / Decimal("100"))).quantize(Decimal("0.01"))
+
+
+class SubscriptionPromotion(models.Model):
+    DISCOUNT_PERCENT = "percent"
+    DISCOUNT_AMOUNT = "amount"
+    DISCOUNT_CHOICES = [
+        (DISCOUNT_PERCENT, "Percentage off"),
+        (DISCOUNT_AMOUNT, "Fixed amount off"),
+    ]
+
+    plan = models.ForeignKey(SubscriptionPlan, on_delete=models.CASCADE, related_name="promotions")
+    reason = models.CharField(max_length=140)
+    discount_type = models.CharField(max_length=12, choices=DISCOUNT_CHOICES)
+    discount_value = models.DecimalField(max_digits=14, decimal_places=2)
+    starts_at = models.DateTimeField()
+    ends_at = models.DateTimeField()
+    active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="subscription_promotions_created"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-starts_at", "-id"]
+        indexes = [models.Index(fields=["plan", "active", "starts_at", "ends_at"], name="plan_promo_active_idx")]
+
+    def __str__(self):
+        return f"{self.plan.name} — {self.reason}"
+
+    def is_active_at(self, moment=None):
+        from django.utils import timezone
+        moment = moment or timezone.now()
+        return bool(self.active and self.starts_at <= moment < self.ends_at)
+
+    @property
+    def discounted_monthly_price(self):
+        from decimal import Decimal
+        base = Decimal(self.plan.monthly_price or 0)
+        value = max(Decimal("0"), Decimal(self.discount_value or 0))
+        if self.discount_type == self.DISCOUNT_PERCENT:
+            value = min(value, Decimal("100"))
+            result = base * (Decimal("1") - value / Decimal("100"))
+        else:
+            result = base - value
+        return max(Decimal("0"), result).quantize(Decimal("0.01"))
+
+    @property
+    def discounted_additional_service_monthly_price(self):
+        from decimal import Decimal
+        discount = min(max(self.plan.additional_service_discount_percent, Decimal("0")), Decimal("100"))
+        return (self.discounted_monthly_price * (Decimal("1") - discount / Decimal("100"))).quantize(Decimal("0.01"))
+
+    @property
+    def discounted_yearly_price(self):
+        from decimal import Decimal
+        discount = min(max(self.plan.yearly_discount_percent, Decimal("0")), Decimal("100"))
+        return (self.discounted_monthly_price * Decimal("12") * (Decimal("1") - discount / Decimal("100"))).quantize(Decimal("0.01"))
 
 
 class SubscriptionPlanModule(models.Model):
@@ -379,6 +441,12 @@ class SubscriptionPayment(models.Model):
     subscription = models.ForeignKey(BusinessSubscription, on_delete=models.CASCADE, related_name="subscription_payments")
     plan = models.ForeignKey(SubscriptionPlan, on_delete=models.PROTECT)
     amount = models.DecimalField(max_digits=14, decimal_places=2)
+    base_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    promotion = models.ForeignKey(
+        SubscriptionPromotion, null=True, blank=True, on_delete=models.SET_NULL, related_name="payments"
+    )
+    promotion_reason = models.CharField(max_length=140, blank=True, default="")
+    promotion_discount_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     service_count = models.PositiveSmallIntegerField(default=1)
     months = models.PositiveSmallIntegerField(default=1)
     billing_cycle = models.CharField(max_length=12, choices=CYCLE_CHOICES, default=CYCLE_MONTHLY)

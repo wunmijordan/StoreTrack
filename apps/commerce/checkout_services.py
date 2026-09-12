@@ -123,6 +123,37 @@ def expire_checkout_if_needed(checkout, *, now=None):
 
 
 @transaction.atomic
+def cancel_unpaid_checkout(checkout, *, reason=""):
+    """Release an unpaid reservation after a staff-side initiation failure.
+
+    Never cancels a checkout that has a verified receipt. This is intentionally
+    narrow so a transient POS/gateway failure cannot strand stock while still
+    preserving any payment that actually reached the ledger.
+    """
+    checkout = CommerceCheckoutSession.raw_objects.select_for_update().get(
+        pk=checkout.pk, business=checkout.business
+    )
+    if checkout.status != CommerceCheckoutSession.STATUS_AWAITING_PAYMENT:
+        return checkout, False
+    has_receipt = CommercePaymentReceipt.raw_objects.filter(
+        business=checkout.business, payment__checkout=checkout, reversed_at__isnull=True
+    ).exists()
+    if has_receipt:
+        return checkout, False
+    now = timezone.now()
+    checkout.status = CommerceCheckoutSession.STATUS_CANCELLED
+    checkout.reservation_released_at = checkout.reservation_released_at or now
+    checkout.materialization_error = (reason or "").strip()[:500]
+    checkout.save(update_fields=[
+        "status", "reservation_released_at", "materialization_error", "updated_at"
+    ])
+    CommercePayment.raw_objects.filter(
+        business=checkout.business, checkout=checkout, status__in=CommercePayment.ACTIVE_STATUSES
+    ).update(status=CommercePayment.STATUS_CANCELLED)
+    return checkout, True
+
+
+@transaction.atomic
 def create_checkout(
     *, business, source, customer, items, idempotency_key, external_order_id="",
     order_mode=None, ordering_mode=None, service_mode="", table_reference="",

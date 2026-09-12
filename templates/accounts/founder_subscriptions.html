@@ -55,8 +55,33 @@
   <section class="mb-7 rounded-xl border border-[#E7DFCC] bg-[#FFFDF8] p-5">
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h2 class="font-semibold">Legacy tenant SQLite import</h2>
-        <p class="mt-1 max-w-3xl text-xs leading-5 text-stone-500">Founder-only recovery path for a PythonAnywhere tenant. Dry run reads the upload without writing, compares the legacy SQLite schema with the current application schema, verifies the destination tenant is operationally empty, and reports media/file fields that need separate handling. The final import re-runs those checks and writes inside one transaction.</p>
+        <h2 class="font-semibold">Plan promotions</h2>
+        <p class="mt-1 text-xs leading-5 text-stone-500">Run time-bound launch, seasonal or lifecycle promotions without changing the founder-set base price. The public marketing page and business plan screens show the base price struck through while a promotion is active, and each payment snapshots the promotion actually used.</p>
+      </div>
+      <span class="rounded-full bg-orange-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#b94300]">Base price preserved</span>
+    </div>
+    <form method="post" class="mt-4 grid gap-3 md:grid-cols-2">{% csrf_token %}
+      {% for error in promotion_form.non_field_errors %}<div class="md:col-span-2 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{{ error }}</div>{% endfor %}
+      {% include '_field.html' with field=promotion_form.plan %}
+      {% include '_field.html' with field=promotion_form.reason %}
+      {% include '_field.html' with field=promotion_form.discount_type %}
+      {% include '_field.html' with field=promotion_form.discount_value %}
+      {% include '_field.html' with field=promotion_form.starts_at %}
+      {% include '_field.html' with field=promotion_form.ends_at %}
+      <div class="md:col-span-2"><button name="action" value="create_promotion" class="rounded-md bg-[#8f172d] px-4 py-2 text-sm font-semibold text-white">Schedule promotion</button></div>
+    </form>
+    <div class="mt-5 overflow-x-auto rounded-lg border border-[#E7DFCC] bg-white">
+      <table class="w-full text-xs"><thead class="bg-[#F5EFE0]"><tr><th class="p-2 text-left">Plan / reason</th><th>Discount</th><th>Window</th><th>Status</th><th></th></tr></thead><tbody>
+      {% for promo in promotions %}<tr class="border-t"><td class="p-2"><div class="font-semibold">{{ promo.plan.name }}</div><div class="text-stone-500">{{ promo.reason }}</div></td><td class="p-2 text-center font-mono">{% if promo.discount_type == 'percent' %}{{ promo.discount_value|floatformat:-2 }}%{% else %}{{ promo.discount_value|money:"₦" }}{% endif %}</td><td class="p-2 text-center text-stone-500">{{ promo.starts_at|date:"j M Y H:i" }}<br>→ {{ promo.ends_at|date:"j M Y H:i" }}</td><td class="p-2 text-center">{% if promo.active and promo.starts_at <= now and promo.ends_at > now %}<span class="text-emerald-700">Active</span>{% elif promo.active and promo.starts_at > now %}<span class="text-amber-700">Scheduled</span>{% elif promo.active %}<span class="text-stone-500">Expired</span>{% else %}<span class="text-stone-400">Ended</span>{% endif %}</td><td class="p-2 text-right">{% if promo.active and promo.ends_at > now %}<form method="post">{% csrf_token %}<input type="hidden" name="promotion_id" value="{{ promo.pk }}"><button name="action" value="deactivate_promotion" class="text-rose-700 underline">End now</button></form>{% endif %}</td></tr>{% empty %}<tr><td colspan="5" class="p-4 text-center text-stone-500">No promotions configured yet.</td></tr>{% endfor %}
+      </tbody></table>
+    </div>
+  </section>
+
+  <section class="mb-7 rounded-xl border border-[#E7DFCC] bg-[#FFFDF8] p-5">
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h2 class="font-semibold">Legacy tenant data import</h2>
+        <p class="mt-1 max-w-3xl text-xs leading-5 text-stone-500">Founder-only recovery path for a legacy tenant. Accepts INPROFIC JSON backups and raw PythonAnywhere SQLite backups. Dry run reads the upload without writing, re-establishes the selected tenant boundary, compares it with the current application schema, and verifies the destination tenant is operationally empty. The final import repeats those checks and writes inside one transaction.</p>
       </div>
       <span class="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-900">Tenant scoped</span>
     </div>
@@ -71,7 +96,7 @@
         <button name="action" value="legacy_dry_run" class="rounded-md border border-[#8f172d] bg-white px-4 py-2 text-sm font-semibold text-[#8f172d]">Dry run / compare only</button>
         <button name="action" value="legacy_import" class="rounded-md bg-[#8f172d] px-4 py-2 text-sm font-semibold text-white">Import selected tenant</button>
       </div>
-      <p class="md:col-span-2 text-[11px] leading-5 text-stone-500">For the real import, re-upload the same backup, enter the source tenant ID shown by Dry run, and type <span class="font-mono">IMPORT &lt;destination-slug&gt;</span>. Subscription plans, founder grants, module entitlements, notification read state, push subscriptions, and SQLite media file paths are not imported.</p>
+      <p class="md:col-span-2 text-[11px] leading-5 text-stone-500">For the real import, re-upload the same backup and type <span class="font-mono">IMPORT &lt;destination-slug&gt;</span>. Subscription plans, founder grants, module entitlements, notification read state, push subscriptions, and media file contents are not imported. A tenant-scoped backup with one business is auto-detected; the legacy tenant ID is needed only for older backups that contain several tenants, and all non-selected tenant rows are excluded.</p>
     </form>
 
     {% if legacy_import_report %}
@@ -79,7 +104,7 @@
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div>
             <div class="text-sm font-semibold {% if legacy_import_report.ready %}text-emerald-900{% else %}text-amber-900{% endif %}">Dry-run result: {% if legacy_import_report.ready %}ready to import{% else %}action required{% endif %}</div>
-            {% if legacy_import_report.source_business %}<div class="mt-1 text-xs text-stone-600">Legacy source: <strong>{{ legacy_import_report.source_business.name }}</strong> · ID <span class="font-mono">{{ legacy_import_report.source_business.id }}</span> → destination <strong>{{ legacy_import_report.target_business.name }}</strong></div>{% endif %}
+            {% if legacy_import_report.source_business %}<div class="mt-1 text-xs text-stone-600">{% if legacy_import_report.backup_format %}<span class="font-medium">{{ legacy_import_report.backup_format }}</span> · {% endif %}Legacy source: <strong>{{ legacy_import_report.source_business.name }}</strong> · ID <span class="font-mono">{{ legacy_import_report.source_business.id }}</span> → destination <strong>{{ legacy_import_report.target_business.name }}</strong></div>{% endif %}
           </div>
         </div>
 

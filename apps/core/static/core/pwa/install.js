@@ -10,6 +10,7 @@
   const installModal = document.getElementById('pwa-install-modal');
   const iosModal = document.getElementById('pwa-ios-install-modal');
   const installButton = document.getElementById('pwa-install-button');
+  const updateLaterKey = 'inprofic:pwa-update:later-this-session';
   let deferredPrompt = null;
 
   const storage = {
@@ -61,9 +62,52 @@
     modal.addEventListener('click', (event) => { if (event.target === modal) closeModal(modal); });
   });
 
+  const updateModal = document.getElementById('pwa-update-modal');
+  const updateButton = document.getElementById('pwa-update-button');
+  const updateLater = document.getElementById('pwa-update-later');
+  let waitingWorker = null;
+  let updateReloadArmed = false;
+
+  function showUpdate(worker) {
+    if (!worker || !navigator.serviceWorker.controller || !updateModal) return;
+    if (storage.get(sessionStorage, updateLaterKey) === 'true') return;
+    waitingWorker = worker;
+    updateModal.hidden = false;
+    requestAnimationFrame(() => updateModal.classList.add('show'));
+  }
+  function hideUpdate() { hide(updateModal); }
+  function deferUpdate() { storage.set(sessionStorage, updateLaterKey, 'true'); hideUpdate(); }
+  updateLater?.addEventListener('click', deferUpdate);
+  root.querySelectorAll('[data-pwa-update-later]').forEach(button => button.addEventListener('click', deferUpdate));
+  updateButton?.addEventListener('click', () => {
+    if (!waitingWorker) return;
+    updateReloadArmed = true;
+    updateButton.disabled = true;
+    updateButton.textContent = 'Updating…';
+    waitingWorker.postMessage({ type: 'SKIP_WAITING' });
+  });
+
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/service-worker.js', { scope: '/' }).catch(() => {});
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!updateReloadArmed) return;
+      updateReloadArmed = false;
+      window.location.reload();
+    });
+    window.addEventListener('load', async () => {
+      try {
+        const registration = await navigator.serviceWorker.register('/service-worker.js', { scope: '/', updateViaCache: 'none' });
+        if (registration.waiting && navigator.serviceWorker.controller) showUpdate(registration.waiting);
+        registration.addEventListener('updatefound', () => {
+          const worker = registration.installing;
+          if (!worker) return;
+          worker.addEventListener('statechange', () => {
+            if (worker.state === 'installed' && navigator.serviceWorker.controller) showUpdate(worker);
+          });
+        });
+        // Render deployments embed their git commit into the service-worker body.
+        // Ask the browser to compare now rather than waiting for its periodic check.
+        window.setTimeout(() => registration.update().catch(() => {}), 2500);
+      } catch (_) {}
     }, { once: true });
   }
 

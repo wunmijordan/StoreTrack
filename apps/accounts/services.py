@@ -259,6 +259,21 @@ def user_has_permission(user, business, module, action="view"):
     return perm.can_view if perm.can_view is not None else bool(role_perm and role_perm.can_view)
 
 
+
+
+def can_use_commerce_storefront(user, business):
+    """Supplemental in-premise storefront/POS capability with the tenant commerce entitlement as a hard ceiling."""
+    if not getattr(user, "is_authenticated", False) or not business:
+        return False
+    if not business_has_module(business, "commerce"):
+        return False
+    if getattr(user, "is_superuser", False):
+        return True
+    membership, _user_permissions, _role_permissions = _permission_snapshot(user, business)
+    if not membership:
+        return False
+    return bool(membership.commerce_storefront_access or membership.role.key == CustomUser.ROLE_BUSINESS_ADMIN)
+
 def is_business_admin(user, business):
     if getattr(user, "is_superuser", False):
         return True

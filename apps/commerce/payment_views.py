@@ -230,12 +230,53 @@ def _safe_gateway_payload(value):
     return str(value)
 
 
-def _gateway_reference(provider, payload):
-    if provider == CommercePayment.METHOD_PAYSTACK:
+def _payload_metadata(value):
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def _gateway_event_identity(provider, payload):
+    """Return provider references, our public payment id, and event type.
+
+    Terminal and transfer events don't always use the same field as hosted
+    checkout webhooks, so matching is deliberately provider-aware and remains
+    tenant constrained in ``gateway_webhook``.
+    """
+    references = set()
+    payment_public_id = ""
+    if provider == CommercePayment.GATEWAY_PAYSTACK:
         data = payload.get("data") or {}
-        return str(data.get("reference") or ""), str(payload.get("event") or "")
-    data = payload.get("eventData") or payload.get("event_data") or {}
-    return str(data.get("paymentReference") or data.get("payment_reference") or ""), str(payload.get("eventType") or payload.get("event_type") or "")
+        for key in ("reference", "request_code", "offline_reference"):
+            value = data.get(key)
+            if value not in (None, ""):
+                references.add(str(value))
+        metadata = _payload_metadata(data.get("metadata"))
+        payment_public_id = str(metadata.get("storetrack_payment_id") or "")
+        event_type = str(payload.get("event") or "")
+    else:
+        data = payload.get("eventData") or payload.get("event_data") or {}
+        for key in ("paymentReference", "payment_reference", "transactionReference", "transaction_reference"):
+            value = data.get(key)
+            if value not in (None, ""):
+                references.add(str(value))
+        metadata = _payload_metadata(data.get("metaData") or data.get("metadata"))
+        payment_public_id = str(metadata.get("storetrackPaymentId") or metadata.get("storetrack_payment_id") or "")
+        event_type = str(payload.get("eventType") or payload.get("event_type") or "")
+    return references, payment_public_id, event_type
+
+
+def _gateway_event_can_settle(provider, event_type):
+    normalized = (event_type or "").strip()
+    if provider == CommercePayment.GATEWAY_PAYSTACK:
+        return normalized in {"charge.success", "paymentrequest.success"}
+    return normalized.upper() == "SUCCESSFUL_TRANSACTION"
 
 
 @csrf_exempt
@@ -251,12 +292,21 @@ def gateway_webhook(request, business_slug, provider):
         payload = json.loads(request.body or b"{}")
     except json.JSONDecodeError:
         return JsonResponse({"detail": "Invalid JSON payload."}, status=400)
-    reference, event_type = _gateway_reference(provider, payload)
-    payment = CommercePayment.raw_objects.filter(
-        Q(reference=reference) | Q(gateway_reference=reference),
+    references, payment_public_id, event_type = _gateway_event_identity(provider, payload)
+    payment_qs = CommercePayment.raw_objects.filter(
         business=business,
-        method=provider,
-    ).select_related("intake", "checkout").first()
+    ).filter(
+        Q(gateway_provider=provider) | Q(gateway_provider="", method=provider)
+    ).select_related("intake", "checkout")
+    payment = None
+    if payment_public_id:
+        payment = payment_qs.filter(public_id=payment_public_id).first()
+    if payment is None and references:
+        payment = payment_qs.filter(
+            Q(reference__in=references)
+            | Q(gateway_reference__in=references)
+            | Q(gateway_metadata__offline_reference__in=list(references))
+        ).first()
     signature = (
         request.headers.get("x-paystack-signature", "")
         if provider == CommercePayment.METHOD_PAYSTACK
@@ -294,10 +344,24 @@ def gateway_webhook(request, business_slug, provider):
     if not created and event.processed_at:
         return JsonResponse({"received": True, "duplicate": True})
     if payment is None:
+        # A tenant-owned gateway account may emit signed events for payments
+        # outside this Commerce flow (for example a Paystack Terminal
+        # charge.success whose transaction reference differs from the invoice
+        # offline_reference). Record/acknowledge it, but never settle without a
+        # tenant-owned CommercePayment match and authoritative verification.
         if created:
             event.processed_at = timezone.now()
-            event.save(update_fields=["processed_at", "updated_at"])
-        return JsonResponse({"detail": "Unknown payment reference."}, status=400)
+            event.error = "No tenant-owned Commerce payment matched this signed event; ignored."
+            event.save(update_fields=["processed_at", "error", "updated_at"])
+        return JsonResponse({"received": True, "ignored": True})
+    if not _gateway_event_can_settle(provider, event_type):
+        # Signed non-success notifications (pending/failed/etc.) are useful audit
+        # evidence but must not trigger settlement or webhook retry storms.
+        event.payment = payment
+        event.processed_at = timezone.now()
+        event.error = ""
+        event.save(update_fields=["payment", "processed_at", "error", "updated_at"])
+        return JsonResponse({"received": True, "settlement_attempted": False})
     try:
         event = process_gateway_event(event=event)
     except (ValidationError, GatewayError, TypeError, ValueError) as exc:
@@ -343,6 +407,13 @@ def payment_queue(request):
     )[:100])
     for payment in payments:
         payment.confirmation_token = f"{payment.public_id}:{payment.updated_at.isoformat()}"
+        payment.manual_transfer_claim_allowed = bool(
+            payment.method == CommercePayment.METHOD_BANK_TRANSFER and not payment.gateway_provider
+        )
+        payment.provider_reconcile_allowed = bool(
+            payment.gateway_provider in {CommercePayment.GATEWAY_PAYSTACK, CommercePayment.GATEWAY_MONNIFY}
+            or (not payment.gateway_provider and payment.method in {CommercePayment.METHOD_PAYSTACK, CommercePayment.METHOD_MONNIFY})
+        )
     return render(request, "commerce/payments.html", {
         "payments": payments,
         "can_verify": _can_verify(request.user, request.business),
@@ -357,6 +428,8 @@ def payment_confirm(request, public_id):
         return render(request, "403.html", status=403)
     payment = get_object_or_404(CommercePayment, business=request.business, public_id=public_id)
     try:
+        if payment.gateway_provider or payment.method in {CommercePayment.METHOD_PAYSTACK, CommercePayment.METHOD_MONNIFY, CommercePayment.METHOD_POS_CARD}:
+            raise ValidationError("Gateway-backed payments cannot be manually approved. Use provider reconciliation; settlement occurs only after provider verification.")
         claim = None
         claim_id = request.POST.get("claim_id")
         if claim_id:
@@ -402,14 +475,17 @@ def payment_reconcile(request, public_id):
     if not _can_verify(request.user, request.business):
         return render(request, "403.html", status=403)
     payment = get_object_or_404(
-        CommercePayment, business=request.business, public_id=public_id,
-        method__in=[CommercePayment.METHOD_PAYSTACK, CommercePayment.METHOD_MONNIFY],
+        CommercePayment.raw_objects.filter(business=request.business, public_id=public_id).filter(
+            Q(gateway_provider__in=[CommercePayment.GATEWAY_PAYSTACK, CommercePayment.GATEWAY_MONNIFY])
+            | Q(gateway_provider="", method__in=[CommercePayment.METHOD_PAYSTACK, CommercePayment.METHOD_MONNIFY])
+        )
     )
+    provider = payment.gateway_provider or payment.method
     event = CommerceGatewayEvent.raw_objects.create(
         business=request.business,
         created_by=request.user,
         payment=payment,
-        provider=payment.method,
+        provider=provider,
         event_key=f"manual-reconcile:{payment.public_id}:{timezone.now().timestamp()}",
         event_type="manual_reconcile",
         signature_valid=True,
