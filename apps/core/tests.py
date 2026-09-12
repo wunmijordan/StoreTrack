@@ -187,3 +187,31 @@ class PwaEndpointTests(TestCase):
         response = self.client.get(reverse("pwa_launch", kwargs={"business_slug": business.slug}))
         self.assertRedirects(response, reverse("dashboard"), fetch_redirect_response=False)
         self.assertEqual(self.client.session["active_business_id"], business.pk)
+
+class TenantBackupIsolationTests(TestCase):
+    def test_backup_is_explicitly_scoped_including_child_models_without_business_fk(self):
+        import json
+        from django.core import serializers
+        from inventory.models import RawMaterial, FinishedGood, RecipeItem
+        from .models import CashAccount
+        from .services import tenant_backup_objects
+
+        first = Business.objects.create(name="First Tenant", slug="first-tenant")
+        second = Business.objects.create(name="Second Tenant", slug="second-tenant")
+        CashAccount.raw_objects.create(business=first, name="First Cash", account_type="cash")
+        CashAccount.raw_objects.create(business=second, name="Second Cash", account_type="cash")
+        raw_first = RawMaterial.raw_objects.create(business=first, name="Flour A")
+        raw_second = RawMaterial.raw_objects.create(business=second, name="Flour B")
+        good_first = FinishedGood.raw_objects.create(business=first, name="Bread A", unit="loaf")
+        good_second = FinishedGood.raw_objects.create(business=second, name="Bread B", unit="loaf")
+        recipe_first = RecipeItem.objects.create(finished_good=good_first, raw_material=raw_first, qty_per_batch=1)
+        RecipeItem.objects.create(finished_good=good_second, raw_material=raw_second, qty_per_batch=2)
+
+        payload = json.loads(serializers.serialize("json", tenant_backup_objects(first)))
+        business_pks = {row["pk"] for row in payload if row["model"] == "core.business"}
+        account_names = {row["fields"]["name"] for row in payload if row["model"] == "core.cashaccount"}
+        recipe_pks = {row["pk"] for row in payload if row["model"] == "inventory.recipeitem"}
+
+        self.assertEqual(business_pks, {first.pk})
+        self.assertEqual(account_names, {"First Cash"})
+        self.assertEqual(recipe_pks, {recipe_first.pk})

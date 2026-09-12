@@ -1876,7 +1876,7 @@ def backup_json(request):
     # Backups are an explicit tenant boundary. Never rely on the ambient scoped
     # manager here: Business itself is unscoped and several child tables (recipe
     # items, order items, sale items, etc.) do not carry a business_id column.
-    from .tenant_backup import tenant_backup_objects
+    from .services import tenant_backup_objects
 
     business = getattr(request, "business", None)
     if business is None:
